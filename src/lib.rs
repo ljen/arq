@@ -73,6 +73,7 @@ pub mod object_encryption;
 pub mod packset;
 pub mod tree;
 pub mod type_utils;
+pub mod arq7_format;
 
 mod blob;
 mod date;
