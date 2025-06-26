@@ -576,6 +576,210 @@ mod pack_object_tests {
 }
 
 
+// --- Binary Parsing Tests ---
+#[cfg(test)]
+mod binary_parsing_tests {
+    use super::*; // For Result
+    use arq::arq7_format::{BlobLoc, NodeBin, TreeBin};
+    use arq::type_utils::ArqRead;
+    use byteorder::{WriteBytesExt, BigEndian};
+    use std::io::Cursor; // For creating a reader from Vec<u8>
+
+    // Helper to create Arq-formatted string bytes: 0x01 (present) + len (u64 BE) + string_bytes
+    fn arq_string_bytes(s: &str) -> Vec<u8> {
+        let mut bytes = vec![0x01]; // Present
+        bytes.write_u64::<BigEndian>(s.len() as u64).unwrap();
+        bytes.extend_from_slice(s.as_bytes());
+        bytes
+    }
+
+    fn arq_string_empty_bytes() -> Vec<u8> {
+        vec![0x00] // Not present
+    }
+
+    fn arq_bool_bytes(b: bool) -> Vec<u8> {
+        vec![if b { 0x01 } else { 0x00 }]
+    }
+
+    fn arq_u32_bytes(val: u32) -> Vec<u8> {
+        let mut bytes = Vec::new();
+        bytes.write_u32::<BigEndian>(val).unwrap();
+        bytes
+    }
+
+    fn arq_u64_bytes(val: u64) -> Vec<u8> {
+        let mut bytes = Vec::new();
+        bytes.write_u64::<BigEndian>(val).unwrap();
+        bytes
+    }
+
+    fn arq_i32_bytes(val: i32) -> Vec<u8> {
+        let mut bytes = Vec::new();
+        bytes.write_i32::<BigEndian>(val).unwrap();
+        bytes
+    }
+
+    fn arq_i64_bytes(val: i64) -> Vec<u8> {
+        let mut bytes = Vec::new();
+        bytes.write_i64::<BigEndian>(val).unwrap();
+        bytes
+    }
+
+    #[test]
+    fn test_blob_loc_from_reader_full() -> Result<()> {
+        let mut data = Vec::new();
+        data.extend(arq_string_bytes("blob_id_123"));
+        data.extend(arq_bool_bytes(true)); // is_packed
+        data.extend(arq_string_bytes("/path/to/pack.pack"));
+        data.extend(arq_u64_bytes(1024)); // offset
+        data.extend(arq_u64_bytes(2048)); // length
+        data.extend(arq_bool_bytes(true)); // stretch_encryption_key
+        data.extend(arq_u32_bytes(2));    // compression_type (LZ4)
+
+        let mut cursor = Cursor::new(data);
+        let blob_loc = BlobLoc::from_reader(&mut cursor)?;
+
+        assert_eq!(blob_loc.blob_identifier, "blob_id_123");
+        assert!(blob_loc.is_packed);
+        assert_eq!(blob_loc.relative_path, "/path/to/pack.pack");
+        assert_eq!(blob_loc.offset, 1024);
+        assert_eq!(blob_loc.length, 2048);
+        assert!(blob_loc.stretch_encryption_key);
+        assert_eq!(blob_loc.compression_type, 2);
+        Ok(())
+    }
+
+    #[test]
+    fn test_blob_loc_from_reader_empty_relative_path() -> Result<()> {
+        let mut data = Vec::new();
+        data.extend(arq_string_bytes("blob_id_456"));
+        data.extend(arq_bool_bytes(false));
+        data.extend(arq_string_empty_bytes());
+        data.extend(arq_u64_bytes(0));
+        data.extend(arq_u64_bytes(512));
+        data.extend(arq_bool_bytes(false));
+        data.extend(arq_u32_bytes(0));
+
+        let mut cursor = Cursor::new(data);
+        let blob_loc = BlobLoc::from_reader(&mut cursor)?;
+
+        assert_eq!(blob_loc.blob_identifier, "blob_id_456");
+        assert!(!blob_loc.is_packed);
+        assert_eq!(blob_loc.relative_path, "");
+        assert_eq!(blob_loc.length, 512);
+        assert!(!blob_loc.stretch_encryption_key);
+        assert_eq!(blob_loc.compression_type, 0);
+        Ok(())
+    }
+
+    #[test]
+    fn test_node_bin_from_reader_file() -> Result<()> {
+        let mut data = Vec::new();
+        data.extend(arq_bool_bytes(false)); // is_tree = false
+        data.extend(arq_u32_bytes(1));      // computer_os_type (macOS)
+
+        data.extend(arq_u64_bytes(1));      // data_blob_locs_count = 1
+            data.extend(arq_string_bytes("data_blob_1"));
+            data.extend(arq_bool_bytes(true)); data.extend(arq_string_bytes("/pack/data.pack"));
+            data.extend(arq_u64_bytes(4096)); data.extend(arq_u64_bytes(100));
+            data.extend(arq_bool_bytes(true)); data.extend(arq_u32_bytes(2));
+
+        data.extend(arq_bool_bytes(false)); // acl_blob_loc_is_not_nil = false
+        data.extend(arq_u64_bytes(0));      // xattrs_blob_loc_count = 0
+
+        data.extend(arq_u64_bytes(100)); // item_size
+        data.extend(arq_u64_bytes(0));   // contained_files_count (0 for file)
+        data.extend(arq_i64_bytes(1600000000)); data.extend(arq_i64_bytes(0)); // mtime
+        data.extend(arq_i64_bytes(1600000001)); data.extend(arq_i64_bytes(0)); // ctime
+        data.extend(arq_i64_bytes(1600000002)); data.extend(arq_i64_bytes(0)); // create_time
+        data.extend(arq_string_bytes("user")); data.extend(arq_string_bytes("group"));
+        data.extend(arq_bool_bytes(false)); // deleted
+        data.extend(arq_i32_bytes(0)); data.extend(arq_u64_bytes(0)); data.extend(arq_u32_bytes(0o100644));
+        data.extend(arq_u32_bytes(1)); data.extend(arq_u32_bytes(501)); data.extend(arq_u32_bytes(20));
+        data.extend(arq_i32_bytes(0)); data.extend(arq_i32_bytes(0));
+        data.extend(arq_u32_bytes(0)); // win_attrs
+        // No win_reparse for tree_version = 1
+
+        let mut cursor = Cursor::new(data);
+        let node_bin = NodeBin::from_reader(&mut cursor, 1)?; // tree_version = 1
+
+        assert!(!node_bin.is_tree);
+        assert!(node_bin.tree_blob_loc.is_none());
+        assert_eq!(node_bin.data_blob_locs.len(), 1);
+        assert_eq!(node_bin.data_blob_locs[0].blob_identifier, "data_blob_1");
+        assert_eq!(node_bin.item_size, 100);
+        assert!(node_bin.win_reparse_tag.is_none());
+        Ok(())
+    }
+
+    #[test]
+    fn test_node_bin_from_reader_tree_v2_reparse() -> Result<()> {
+        let mut data = Vec::new();
+        data.extend(arq_bool_bytes(true)); // is_tree = true
+            data.extend(arq_string_bytes("tree_blob_for_reparse"));
+            data.extend(arq_bool_bytes(false)); data.extend(arq_string_empty_bytes());
+            data.extend(arq_u64_bytes(0)); data.extend(arq_u64_bytes(0));
+            data.extend(arq_bool_bytes(false)); data.extend(arq_u32_bytes(0));
+        data.extend(arq_u32_bytes(2)); // computer_os_type (Windows)
+        data.extend(arq_u64_bytes(0)); data.extend(arq_bool_bytes(false));
+        data.extend(arq_u64_bytes(0));
+        data.extend(arq_u64_bytes(0)); data.extend(arq_u64_bytes(5));
+        data.extend(arq_i64_bytes(0)); data.extend(arq_i64_bytes(0));
+        data.extend(arq_i64_bytes(0)); data.extend(arq_i64_bytes(0));
+        data.extend(arq_i64_bytes(0)); data.extend(arq_i64_bytes(0));
+        data.extend(arq_string_empty_bytes()); data.extend(arq_string_empty_bytes());
+        data.extend(arq_bool_bytes(false));
+        data.extend(arq_i32_bytes(0)); data.extend(arq_u64_bytes(0)); data.extend(arq_u32_bytes(0o040755));
+        data.extend(arq_u32_bytes(1)); data.extend(arq_u32_bytes(0)); data.extend(arq_u32_bytes(0));
+        data.extend(arq_i32_bytes(0)); data.extend(arq_i32_bytes(0));
+        data.extend(arq_u32_bytes(16)); // win_attrs (Directory)
+        data.extend(arq_u32_bytes(0x80000000u32));
+        data.extend(arq_bool_bytes(true));
+
+        let mut cursor = Cursor::new(data);
+        let node_bin = NodeBin::from_reader(&mut cursor, 2)?; // tree_version = 2
+
+        assert!(node_bin.is_tree);
+        assert!(node_bin.tree_blob_loc.is_some());
+        assert_eq!(node_bin.win_reparse_tag.unwrap(), 0x80000000u32);
+        assert!(node_bin.win_reparse_point_is_directory.unwrap());
+        Ok(())
+    }
+
+    #[test]
+    fn test_tree_bin_from_reader() -> Result<()> {
+        let mut data = Vec::new();
+        data.extend(arq_u32_bytes(2)); // version = 2
+        data.extend(arq_u64_bytes(1)); // childNodesByNameCount = 1
+            data.extend(arq_string_bytes("child_file.txt"));
+            // Child 1 NodeBin (file, tree_version=2 from parent)
+            data.extend(arq_bool_bytes(false)); data.extend(arq_u32_bytes(1));
+            data.extend(arq_u64_bytes(0)); data.extend(arq_bool_bytes(false));
+            data.extend(arq_u64_bytes(0)); data.extend(arq_u64_bytes(123));
+            data.extend(arq_u64_bytes(0)); data.extend(arq_i64_bytes(0));
+            data.extend(arq_i64_bytes(0)); data.extend(arq_i64_bytes(0));
+            data.extend(arq_i64_bytes(0)); data.extend(arq_i64_bytes(0));
+            data.extend(arq_i64_bytes(0)); data.extend(arq_string_empty_bytes());
+            data.extend(arq_string_empty_bytes()); data.extend(arq_bool_bytes(false));
+            data.extend(arq_i32_bytes(0)); data.extend(arq_u64_bytes(0)); data.extend(arq_u32_bytes(0));
+            data.extend(arq_u32_bytes(0)); data.extend(arq_u32_bytes(0)); data.extend(arq_u32_bytes(0));
+            data.extend(arq_i32_bytes(0)); data.extend(arq_i32_bytes(0));
+            data.extend(arq_u32_bytes(0)); data.extend(arq_u32_bytes(0));
+            data.extend(arq_bool_bytes(false));
+
+        let mut cursor = Cursor::new(data);
+        let tree_bin = TreeBin::from_reader(&mut cursor)?;
+
+        assert_eq!(tree_bin.version, 2);
+        assert_eq!(tree_bin.child_nodes_by_name.len(), 1);
+        let child_node = tree_bin.child_nodes_by_name.get("child_file.txt").unwrap();
+        assert!(!child_node.is_tree);
+        assert_eq!(child_node.item_size, 123);
+        Ok(())
+    }
+}
+
+
 // --- Arq7BackupSet Tests ---
 mod arq7_backup_set_tests {
     use super::*;
