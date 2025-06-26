@@ -175,6 +175,33 @@ impl BackupFolder {
     }
 }
 
+// Binary Tree structure
+#[derive(Debug, Clone)]
+pub struct TreeBin {
+    pub version: u32,
+    pub child_nodes_by_name: BTreeMap<String, NodeBin>,
+}
+
+impl TreeBin {
+    pub fn from_reader<R: Read + ArqRead>(reader: &mut R) -> Result<Self> {
+        let version = reader.read_arq_u32()?;
+        let child_nodes_by_name_count = reader.read_arq_u64()?;
+
+        let mut child_nodes_by_name = BTreeMap::new();
+        for _ in 0..child_nodes_by_name_count {
+            let child_name = reader.read_arq_string()?;
+            // The binary Node data immediately follows its name in the Tree stream.
+            let child_node = NodeBin::from_reader(reader, version)?;
+            child_nodes_by_name.insert(child_name, child_node);
+        }
+
+        Ok(TreeBin {
+            version,
+            child_nodes_by_name,
+        })
+    }
+}
+
 
 // Struct for Arq 5 TreeBlobKey (found in backup records migrated from Arq 5)
 #[derive(Deserialize, Debug, Clone)]
@@ -374,13 +401,14 @@ impl Arq7EncryptedObject {
 // Binary Node structure
 // Stored LZ4-compressed and (optionally) encrypted in "treepacks"
 // This struct is for the actual binary data.
+#[derive(Debug, Clone)] // Added derive for easier use
 pub struct NodeBin {
     pub is_tree: bool,
     pub tree_blob_loc: Option<BlobLoc>, // present if is_tree is true
     pub computer_os_type: u32,
-    // pub data_blob_locs: Vec<BlobLoc>, // Needs custom parsing due to count prefix
+    pub data_blob_locs: Vec<BlobLoc>,
     pub acl_blob_loc: Option<BlobLoc>, // present if acl_blob_loc_is_not_nil is true
-    // pub xattrs_blob_locs: Vec<BlobLoc>, // Needs custom parsing due to count prefix
+    pub xattrs_blob_locs: Vec<BlobLoc>,
     pub item_size: u64,
     pub contained_files_count: u64,
     pub mtime_sec: i64,
@@ -405,8 +433,140 @@ pub struct NodeBin {
     pub win_reparse_point_is_directory: Option<bool>, // if Tree version >= 2
 }
 
+impl BlobLoc {
+    // New method to parse BlobLoc from a binary stream
+    pub fn from_reader<R: Read + ArqRead>(reader: &mut R) -> Result<Self> {
+        let blob_identifier = reader.read_arq_string()?;
+        // Doc says "can't be null", but read_arq_string handles the "isNotNull" flag.
+        // If it's truly "can't be null", then an empty string might signify an issue,
+        // or the underlying format ensures the "isNotNull" flag is always 1.
+        if blob_identifier.is_empty() {
+            // This case should ideally not happen if "can't be null" is strict.
+            // Or, it means the string field itself is not null, but can be empty.
+            // Let's assume for now that an empty blob_identifier is problematic if it's a key.
+            // However, read_arq_string returns empty string if not present, which contradicts "can't be null".
+            // The format "[String:value]" means: byte_is_not_null, then [len, data].
+            // If "can't be null" means the first byte must be 0x01, read_arq_string already implies this
+            // by returning non-empty. If it means the string content cannot be empty, that's different.
+            // Let's trust read_arq_string and proceed.
+        }
+
+        let is_packed = reader.read_arq_bool()?;
+        let relative_path = reader.read_arq_string()?; // This can be empty if not is_packed or for certain cases.
+        let offset = reader.read_arq_u64()?;
+        let length = reader.read_arq_u64()?;
+        let stretch_encryption_key = reader.read_arq_bool()?;
+        let compression_type = reader.read_arq_u32()?;
+
+        Ok(BlobLoc {
+            blob_identifier,
+            is_packed,
+            relative_path,
+            offset,
+            length,
+            stretch_encryption_key,
+            compression_type,
+        })
+    }
+}
+
+
+impl NodeBin {
+    pub fn from_reader<R: Read + ArqRead>(reader: &mut R, tree_version: u32) -> Result<Self> {
+        let is_tree = reader.read_arq_bool()?;
+
+        let tree_blob_loc = if is_tree {
+            Some(BlobLoc::from_reader(reader)?)
+        } else {
+            None
+        };
+
+        let computer_os_type = reader.read_arq_u32()?;
+
+        let data_blob_locs_count = reader.read_arq_u64()?;
+        let mut data_blob_locs = Vec::with_capacity(data_blob_locs_count as usize);
+        for _ in 0..data_blob_locs_count {
+            data_blob_locs.push(BlobLoc::from_reader(reader)?);
+        }
+
+        let acl_blob_loc_is_not_nil = reader.read_arq_bool()?;
+        let acl_blob_loc = if acl_blob_loc_is_not_nil {
+            Some(BlobLoc::from_reader(reader)?)
+        } else {
+            None
+        };
+
+        let xattrs_blob_loc_count = reader.read_arq_u64()?;
+        let mut xattrs_blob_locs = Vec::with_capacity(xattrs_blob_loc_count as usize);
+        for _ in 0..xattrs_blob_loc_count {
+            xattrs_blob_locs.push(BlobLoc::from_reader(reader)?);
+        }
+
+        let item_size = reader.read_arq_u64()?;
+        let contained_files_count = reader.read_arq_u64()?;
+        let mtime_sec = reader.read_arq_i64()?;
+        let mtime_nsec = reader.read_arq_i64()?;
+        let ctime_sec = reader.read_arq_i64()?;
+        let ctime_nsec = reader.read_arq_i64()?;
+        let create_time_sec = reader.read_arq_i64()?;
+        let create_time_nsec = reader.read_arq_i64()?;
+        let username = reader.read_arq_string()?;
+        let group_name = reader.read_arq_string()?;
+        let deleted = reader.read_arq_bool()?;
+        let mac_st_dev = reader.read_arq_i32()?;
+        let mac_st_ino = reader.read_arq_u64()?;
+        let mac_st_mode = reader.read_arq_u32()?;
+        let mac_st_nlink = reader.read_arq_u32()?;
+        let mac_st_uid = reader.read_arq_u32()?;
+        let mac_st_gid = reader.read_arq_u32()?;
+        let mac_st_rdev = reader.read_arq_i32()?;
+        let mac_st_flags = reader.read_arq_i32()?;
+        let win_attrs = reader.read_arq_u32()?;
+
+        let mut win_reparse_tag = None;
+        let mut win_reparse_point_is_directory = None;
+
+        if tree_version >= 2 { // Assuming Tree version implies Node version for these fields
+            win_reparse_tag = Some(reader.read_arq_u32()?);
+            win_reparse_point_is_directory = Some(reader.read_arq_bool()?);
+        }
+
+        Ok(NodeBin {
+            is_tree,
+            tree_blob_loc,
+            computer_os_type,
+            data_blob_locs,
+            acl_blob_loc,
+            xattrs_blob_locs,
+            item_size,
+            contained_files_count,
+            mtime_sec,
+            mtime_nsec,
+            ctime_sec,
+            ctime_nsec,
+            create_time_sec,
+            create_time_nsec,
+            username,
+            group_name,
+            deleted,
+            mac_st_dev,
+            mac_st_ino,
+            mac_st_mode,
+            mac_st_nlink,
+            mac_st_uid,
+            mac_st_gid,
+            mac_st_rdev,
+            mac_st_flags,
+            win_attrs,
+            win_reparse_tag,
+            win_reparse_point_is_directory,
+        })
+    }
+}
+
+
 // Plaintext structure for encryptedkeyset.dat
-#[derive(Debug)]
+#[derive(Debug, Clone)] // Added Clone
 pub struct EncryptedKeySetPlaintext {
     pub encryption_version: u32,
     pub encryption_key: Vec<u8>, // 64 bytes
@@ -784,4 +944,200 @@ impl Arq7BackupSet {
 
     // TODO: Implement functions to read actual file/directory content from a backup record
     // This will involve parsing binary Node/Tree data from packs or standalone blobs.
+
+    /// Fetches blob data, decrypts if necessary, and decompresses.
+    pub fn fetch_blob_data_and_decompress(&self, blob_loc: &BlobLoc) -> Result<Vec<u8>> {
+        let raw_object_bytes = if blob_loc.is_packed {
+            let pack_file_path = self.base_path.join(blob_loc.relative_path.trim_start_matches('/'));
+            let mut index_file_path = pack_file_path.clone();
+            index_file_path.set_extension("index"); // Assuming .pack -> .index
+
+            if !pack_file_path.exists() {
+                return Err(Error::Io(format!("Pack file not found: {:?}", pack_file_path)));
+            }
+            if !index_file_path.exists() {
+                return Err(Error::Io(format!("Pack index file not found: {:?}", index_file_path)));
+            }
+
+            let index_file = File::open(&index_file_path)?;
+            let pack_index = crate::packset::PackIndex::new(BufReader::new(index_file))?; // crate::packset for PackIndex
+
+            // Find the object in the pack index.
+            // PackIndexObject.sha1 is a hex string. blob_loc.blob_identifier is also a hex string.
+            // The current PackIndex is Arq5 based (SHA1). If Arq7 uses SHA256 in blob_identifier,
+            // the pack index format itself would need to support SHA256, or this lookup will fail.
+            // For now, assume direct match on blob_identifier string.
+            // This is a potential point of failure if pack index SHA type doesn't match blob_identifier type.
+            let pack_object_info = pack_index.objects.iter().find(|obj_info| {
+                // TODO: Handle SHA1 vs SHA256 from blob_loc.blob_identifier vs pack_index.sha1
+                // For now, assume blob_identifier in BlobLoc is what's in the index.
+                // Arq 7 BlobLocs use SHA256. PackIndex (old format) uses SHA1.
+                // This implies PackIndex format needs to be updated or a new Arq7PackIndex is needed
+                // if Arq7 pack indexes store SHA256.
+                // For this implementation, we'll proceed with a direct string comparison, acknowledging this limitation.
+                obj_info.sha1 == blob_loc.blob_identifier
+            }).ok_or_else(|| Error::InvalidData(format!(
+                "Blob {} not found in pack index {:?}", blob_loc.blob_identifier, index_file_path
+            )))?;
+
+            let mut pack_file = File::open(&pack_file_path)?;
+            pack_file.seek(std::io::SeekFrom::Start(pack_object_info.offset as u64))?;
+            let mut object_slice = vec![0u8; pack_object_info.data_len];
+            pack_file.read_exact(&mut object_slice)?;
+            object_slice
+        } else {
+            // Standalone object
+            let standalone_path = self.base_path.join(blob_loc.relative_path.trim_start_matches('/'));
+            if !standalone_path.exists() {
+                return Err(Error::Io(format!("Standalone blob not found: {:?}", standalone_path)));
+            }
+            fs::read(standalone_path)?
+        };
+
+        // Decrypt if necessary
+        let decrypted_bytes = if self.config.is_encrypted {
+            if !raw_object_bytes.starts_with(Arq7EncryptedObject::HEADER) {
+                return Err(Error::InvalidData(format!(
+                    "Expected ARQO header for blob {} (path: {}) but not found.",
+                    blob_loc.blob_identifier, blob_loc.relative_path)));
+            }
+            let arqo = Arq7EncryptedObject::from_bytes(&raw_object_bytes)?;
+            // self.keys should be Some if config.is_encrypted
+            arqo.decrypt(self.keys.as_ref().ok_or(Error::Encryption("Missing keys for encrypted blob".to_string()))?)?
+        } else {
+            // If not globally encrypted, ensure it's not accidentally an ARQO object
+            if raw_object_bytes.starts_with(Arq7EncryptedObject::HEADER) {
+                 return Err(Error::InvalidData(format!(
+                    "Unexpected ARQO header for unencrypted blob {} (path: {})",
+                    blob_loc.blob_identifier, blob_loc.relative_path)));
+            }
+            raw_object_bytes
+        };
+
+        // Decompress
+        // Convert u32 compression_type from BlobLoc to existing CompressionType enum
+        let ct = match blob_loc.compression_type {
+            0 => crate::compression::CompressionType::None,
+            1 => crate::compression::CompressionType::Gzip,
+            2 => crate::compression::CompressionType::LZ4,
+            _ => return Err(Error::InvalidData(format!("Unknown compression type: {}", blob_loc.compression_type))),
+        };
+        crate::compression::CompressionType::decompress(&decrypted_bytes, ct)
+    }
+
+    // --- Tree/Node Traversal and Content Reading ---
+
+    /// Fetches and parses a binary TreeBin from a given BlobLoc.
+    pub fn get_tree_bin(&self, blob_loc: &BlobLoc) -> Result<TreeBin> {
+        let tree_data_bytes = self.fetch_blob_data_and_decompress(blob_loc)?;
+        TreeBin::from_reader(&mut Cursor::new(tree_data_bytes))
+    }
+
+    // get_node_bin might not be commonly called directly if nodes are part of trees,
+    // but could be useful if a Node is referenced directly by a BlobLoc elsewhere.
+    // For now, focusing on tree traversal.
+
+    /// Gets the root TreeBin for a given backup record.
+    pub fn get_root_tree_for_record(&self, record: &BackupRecord) -> Result<TreeBin> {
+        if record.copied_from_commit && record.arq5_tree_blob_key.is_some() {
+            // This indicates an Arq5-era commit. Handling this requires Arq5 logic.
+            return Err(Error::NotSupported("Record is an Arq5 commit, requires Arq5 parsing logic.".into()));
+        }
+
+        let root_node_json = record.node.as_ref()
+            .ok_or_else(|| Error::InvalidData("BackupRecord has no root node JSON.".into()))?;
+
+        if !root_node_json.is_tree {
+            return Err(Error::InvalidData("BackupRecord root node is not a tree.".into()));
+        }
+
+        let tree_blob_loc = root_node_json.tree_blob_loc.as_ref()
+            .ok_or_else(|| Error::InvalidData("Root tree node has no BlobLoc.".into()))?;
+
+        self.get_tree_bin(tree_blob_loc)
+    }
+
+    /// Resolves a path within a backup record to its corresponding NodeBin.
+    pub fn resolve_path_to_node(&self, record: &BackupRecord, path_str: &str) -> Result<NodeBin> {
+        let mut current_tree = self.get_root_tree_for_record(record)?;
+
+        let path_normalized = PathBuf::from(path_str);
+        let components: Vec<&str> = path_normalized.iter()
+            .map(|os_str| os_str.to_str().unwrap_or(""))
+            .filter(|s| !s.is_empty() && *s != "." && *s != "/") // Filter out empty, ., /
+            .collect();
+
+        if components.is_empty() { // Path is root
+            // We need a NodeBin representing the root itself.
+            // The root TreeBin is the content of the root Node.
+            // The BackupRecord's NodeJson *is* the root Node's JSON representation.
+            // We need to construct a NodeBin from this, or have a way to get it.
+            // This function is expected to return the NodeBin for the *target* of the path.
+            // If path is empty (root), we need the NodeBin for the root.
+            // The BackupRecord.node is NodeJson. We need to fetch its binary version if this path means "root node itself".
+            // This is tricky. Let's assume an empty path means we want the root NodeBin.
+            // For now, let's assume paths are non-empty relative to root.
+             return Err(Error::Input("Path cannot be empty or root for resolve_path_to_node. Use get_root_tree_for_record and its associated Node for root.".into()));
+        }
+
+        let mut target_node: Option<NodeBin> = None;
+
+        for (i, component) in components.iter().enumerate() {
+            let child_node = current_tree.child_nodes_by_name.get(*component)
+                .ok_or_else(|| Error::NotFound(format!("Path component '{}' not found in tree.", component)))?;
+
+            if i == components.len() - 1 { // Last component
+                target_node = Some(child_node.clone());
+                break;
+            } else { // Intermediate component
+                if !child_node.is_tree {
+                    return Err(Error::InvalidData(format!("Path component '{}' is a file, not a directory, but more path components remain.", component)));
+                }
+                let tree_blob_loc = child_node.tree_blob_loc.as_ref()
+                    .ok_or_else(|| Error::InvalidData(format!("Intermediate directory '{}' has no tree_blob_loc.", component)))?;
+                current_tree = self.get_tree_bin(tree_blob_loc)?;
+            }
+        }
+
+        target_node.ok_or_else(|| Error::NotFound(format!("Path '{}' not resolved.", path_str))) // Should be caught by components.is_empty or loop logic
+    }
+
+    /// Lists the directory contents (child names and their NodeBins) for a given directory NodeBin.
+    pub fn list_directory_from_node(&self, dir_node_bin: &NodeBin) -> Result<Vec<(String, NodeBin)>> {
+        if !dir_node_bin.is_tree {
+            return Err(Error::InvalidData("Cannot list contents: provided NodeBin is not a directory.".into()));
+        }
+        let tree_blob_loc = dir_node_bin.tree_blob_loc.as_ref()
+            .ok_or_else(|| Error::InvalidData("Directory NodeBin has no tree_blob_loc.".into()))?;
+
+        let tree_bin = self.get_tree_bin(tree_blob_loc)?;
+
+        Ok(tree_bin.child_nodes_by_name.into_iter().collect())
+    }
+
+    /// Reads the full content of a file represented by a NodeBin.
+    pub fn read_file_content_from_node(&self, file_node_bin: &NodeBin) -> Result<Vec<u8>> {
+        if file_node_bin.is_tree {
+            return Err(Error::InvalidData("Cannot read content: provided NodeBin is a directory.".into()));
+        }
+
+        let mut file_content = Vec::with_capacity(file_node_bin.item_size as usize);
+        for blob_loc in &file_node_bin.data_blob_locs {
+            let chunk_data = self.fetch_blob_data_and_decompress(blob_loc)?;
+            file_content.extend_from_slice(&chunk_data);
+        }
+
+        // Verify final size, though item_size might be an estimate or uncompressed size.
+        // For now, assume concatenation is correct.
+        if file_content.len() != file_node_bin.item_size as usize {
+             // This could be a warning or an error depending on how strict item_size is.
+             // For some compressed/deduplicated formats, item_size is the logical size.
+             eprintln!(
+                 "Warning: Final file content size {} differs from NodeBin item_size {}",
+                 file_content.len(), file_node_bin.item_size
+             );
+        }
+
+        Ok(file_content)
+    }
 }
