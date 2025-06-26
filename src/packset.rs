@@ -30,8 +30,9 @@ use std;
 use std::io::{BufRead, Cursor, Seek, SeekFrom};
 
 use crate::compression::CompressionType;
-use crate::error::Result;
-use crate::object_encryption::{calculate_sha1sum, EncryptedObject};
+use crate::error::{Error, Result};
+use crate::object_encryption::{calculate_sha1sum, EncryptedObject as Arq5EncryptedObject}; // Renamed for clarity
+use crate::arq7_format::{Arq7EncryptedObject, EncryptedKeySetPlaintext}; // Import Arq7 types
 use crate::type_utils::ArqRead;
 use crate::utils::convert_to_hex_string;
 
@@ -107,7 +108,127 @@ pub struct Pack {
 pub struct PackObject {
     pub mimetype: String,
     pub name: String,
-    pub data: EncryptedObject,
+    pub object_data_raw: Vec<u8>, // Store raw bytes of the object data
+}
+
+impl PackObject {
+    pub fn new<R: ArqRead + BufRead + Seek>(mut reader: R) -> Result<PackObject> {
+        // If mimetype present
+        let mimetype = if reader.read_arq_bool()? {
+            reader.read_arq_string()?
+        } else {
+            String::new()
+        };
+
+        // If name present
+        let name = if reader.read_arq_bool()? {
+            reader.read_arq_string()?
+        } else {
+            String::new()
+        };
+
+        // Read the raw data for the object. This data is typically an EncryptedObject (ARQO format).
+        let object_data_raw = reader.read_arq_data()?;
+
+        Ok(PackObject {
+            mimetype,
+            name,
+            object_data_raw,
+        })
+    }
+
+    /// Gets the original content for an Arq 5/6 style object.
+    pub fn get_content_arq5(
+        &self,
+        compression_type: CompressionType,
+        master_key: &[u8], // Arq 5/6 uses a single master key from EncryptionDat for AES part
+        // Arq5EncryptedObject also needs the HMAC key, which is usually master_keys[1]
+        // This signature might need adjustment if master_key alone isn't enough for Arq5EncryptedObject.decrypt
+        // Let's assume Arq5EncryptedObject::decrypt takes the specific AES key.
+        // And validation (HMAC check) is done separately or internally if it also gets the HMAC key.
+        // The existing Arq5EncryptedObject::decrypt only takes one master_key (for AES).
+        // Validation is a separate step: `validate(&self, master_key_for_hmac: &[u8])`.
+        // This is a bit awkward. The original `PackObject::original` called `self.data.decrypt(master_key)?`
+        // which implies `master_key` was sufficient for that decryption step.
+        // For safety, `Arq5EncryptedObject` should be validated before decryption.
+        // The caller of `get_content_arq5` would need to provide both keys if so.
+        // For now, let's stick to the existing decrypt signature and assume validation is handled by caller if needed.
+        // Or, more robustly, Arq5EncryptedObject::decrypt should take both and validate.
+        // Revisiting Arq5EncryptedObject:
+        // - `validate` takes the HMAC key.
+        // - `decrypt` takes the AES key.
+        // So, get_content_arq5 will need both.
+        aes_key_arq5: &[u8],
+        hmac_key_arq5: &[u8],
+    ) -> Result<Vec<u8>> {
+        let mut raw_data_cursor = Cursor::new(&self.object_data_raw);
+        let arq5_encrypted_object = Arq5EncryptedObject::new(&mut raw_data_cursor)?;
+
+        // It's crucial to validate HMAC before attempting decryption
+        arq5_encrypted_object.validate(hmac_key_arq5)?;
+
+        let decrypted_data = arq5_encrypted_object.decrypt(aes_key_arq5)?;
+        let content = CompressionType::decompress(&decrypted_data, compression_type)?;
+        Ok(content)
+    }
+
+    /// Gets the original content for an Arq 7 style object.
+    pub fn get_content_arq7(
+        &self,
+        compression_type: CompressionType, // Arq7 BlobLoc.compressionType (0=None, 1=Gzip, 2=LZ4)
+        keys: &EncryptedKeySetPlaintext, // Keys from encryptedkeyset.dat
+        is_globally_encrypted: bool,    // From BackupConfig.isEncrypted
+    ) -> Result<Vec<u8>> {
+        let data_to_decompress = if is_globally_encrypted {
+            // Assume object_data_raw is an ARQO formatted encrypted object
+            if !self.object_data_raw.starts_with(Arq7EncryptedObject::HEADER) {
+                 return Err(Error::InvalidData("Expected ARQO header for encrypted Arq7 object in pack".into()));
+            }
+            let arq7_encrypted_object = Arq7EncryptedObject::from_bytes(&self.object_data_raw)?;
+            arq7_encrypted_object.decrypt(keys)?
+        } else {
+            // Not encrypted, object_data_raw is the direct data (pre-compression)
+             if self.object_data_raw.starts_with(Arq7EncryptedObject::HEADER) {
+                 return Err(Error::InvalidData("Unexpected ARQO header for unencrypted Arq7 object in pack".into()));
+            }
+            self.object_data_raw.clone() // Clone because decompress might need ownership or mutable slice
+        };
+
+        // Adapt u32 compression_type from BlobLoc to existing CompressionType enum
+        let ct = match compression_type {
+            0 => CompressionType::None,
+            1 => CompressionType::Gzip,
+            2 => CompressionType::LZ4,
+            _ => return Err(Error::InvalidData(format!("Unknown compression type: {}", compression_type))),
+        };
+
+        // Decompress based on the compression type read from BlobLoc (or equivalent)
+        // For Arq7, blobs (including Nodes/Trees in packs) are LZ4 compressed with a 4-byte prefix.
+        // The CompressionType::decompress method needs to handle this correctly.
+        // The current `CompressionType::decompress` calls `lz4_decompress` or `gzip_decompress`.
+        // `lz4_decompress` itself doesn't expect a prefix, but `lz4_decompress_with_prefix` does.
+        // This means we might need to adjust how `CompressionType::decompress` is called or structured
+        // if `data_to_decompress` already had its prefix handled (e.g. if it came from a Blob).
+        // However, for pack objects, the raw data is stored. If Arq7 packs store blobs
+        // already prefixed, then `CompressionType::LZ4`'s decompressor needs to be the prefixed one.
+        // The Arq7 doc says "A 'blob' is LZ4-compressed, and optionally encrypted."
+        // "Data described ... as 'LZ4-compressed' is stored as a 4-byte big-endian length followed by the compressed data"
+        // This implies the `data_to_decompress` for an LZ4 blob IS prefixed.
+        // Let's ensure `CompressionType::decompress` for LZ4 uses the prefixed version or that we call it directly.
+        // The current `CompressionType::decompress` calls `compression::lz4_decompress(input_data)` which is non-prefixed.
+        // This is a mismatch.
+        // For now, I will assume `CompressionType::decompress` is made compatible or I call the right one here.
+        // Let's assume `CompressionType::decompress` is the correct high-level function.
+        // This will likely require a change in `compression.rs` for `CompressionType::LZ4`
+        // to use `lz4_decompress_with_prefix`.
+        // For now, let's call `lz4_decompress_with_prefix` directly if LZ4.
+        // UPDATE: After reviewing lz4.rs and type_utils.rs, lz4::decompress() in src/lz4.rs
+        // correctly handles the BigEndian 4-byte prefix via read_arq_i32().
+        // So, CompressionType::decompress(ct, &data_to_decompress) should be used.
+
+        let final_content = CompressionType::decompress(&data_to_decompress, ct)?;
+        Ok(final_content)
+    }
 }
 
 /// Pack Index Format
