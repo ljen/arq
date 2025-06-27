@@ -18,7 +18,7 @@ use ring::{
 use sha1::{Digest, Sha1};
 use sha2::Sha256;
 
-use crate::error::{Error, Result};
+use crate::error::{ArqError, Result}; // Changed Error to ArqError
 use crate::type_utils::ArqRead;
 
 type Aes256CbcDec = cbc::Decryptor<aes::Aes256>;
@@ -210,7 +210,7 @@ impl EncryptionDat {
         let iv_and_keys = [&iv[..], &encrypted_master_keys[..]].concat();
         let calculated_hmacsha256 = calculate_hmacsha256(&encryption_key[32..64], &iv_and_keys)?;
         if calculated_hmacsha256 != hmacsha256 {
-            return Err(Error::WrongPassword);
+            return Err(ArqError::WrongPassword); // Changed Error to ArqError
         }
 
         let pt = Aes256CbcDec::new_from_slices(&encryption_key[0..32], &iv[..])?

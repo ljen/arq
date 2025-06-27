@@ -30,7 +30,7 @@ use std;
 use std::io::{BufRead, Cursor, Seek, SeekFrom};
 
 use crate::compression::CompressionType;
-use crate::error::{Error, Result};
+use crate::error::{ArqError, Result}; // Changed Error to ArqError
 use crate::object_encryption::{calculate_sha1sum, EncryptedObject as Arq5EncryptedObject}; // Renamed for clarity
 use crate::arq7_format::{Arq7EncryptedObject, EncryptedKeySetPlaintext}; // Import Arq7 types
 use crate::type_utils::ArqRead;
@@ -166,14 +166,14 @@ impl PackObject {
         let data_to_decompress = if is_globally_encrypted {
             // Assume object_data_raw is an ARQO formatted encrypted object
             if !self.object_data_raw.starts_with(Arq7EncryptedObject::HEADER) {
-                 return Err(Error::InvalidData("Expected ARQO header for encrypted Arq7 object in pack".into()));
+                 return Err(ArqError::InvalidData("Expected ARQO header for encrypted Arq7 object in pack".into())); // Changed Error to ArqError
             }
             let arq7_encrypted_object = Arq7EncryptedObject::from_bytes(&self.object_data_raw)?;
             arq7_encrypted_object.decrypt(keys)?
         } else {
             // Not encrypted, object_data_raw is the direct data (pre-compression)
              if self.object_data_raw.starts_with(Arq7EncryptedObject::HEADER) {
-                 return Err(Error::InvalidData("Unexpected ARQO header for unencrypted Arq7 object in pack".into()));
+                 return Err(ArqError::InvalidData("Unexpected ARQO header for unencrypted Arq7 object in pack".into())); // Changed Error to ArqError
             }
             self.object_data_raw.clone() // Clone because decompress might need ownership or mutable slice
         };
@@ -184,7 +184,7 @@ impl PackObject {
             1 => CompressionType::Gzip,
             2 => CompressionType::LZ4,
             // Format with {} is fine for u32. No {:?} needed here.
-            _ => return Err(Error::InvalidData(format!("Unknown compression type: {}", compression_type))),
+            _ => return Err(ArqError::InvalidData(format!("Unknown compression type: {}", compression_type))), // Changed Error to ArqError
         };
 
         // Decompress based on the compression type read from BlobLoc (or equivalent)

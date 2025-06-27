@@ -26,7 +26,7 @@ impl CompressionType {
             // Arq 7 BlobLoc.compressionType is u32.
             // The existing CompressionType::new takes ArqRead which reads i32.
             // This might be okay if the values are always positive and small.
-            _ => return Err(crate::error::Error::InvalidData(format!("Compression type '{}' unknown", c))),
+            _ => return Err(crate::error::ArqError::InvalidData(format!("Compression type '{}' unknown", c))), // Changed Error to ArqError
         })
     }
 
