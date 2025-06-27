@@ -4,9 +4,12 @@ use std::io::Cursor;
 use crate::error::Result;
 use crate::type_utils::ArqRead;
 
-#[cfg(test)]
-fn compress(src: &[u8]) -> Result<Vec<u8>> {
+// Made public for testing purposes and integration tests
+pub fn compress(src: &[u8]) -> Result<Vec<u8>> {
     let length: [u8; 4] = (src.len() as i32).to_be_bytes();
+    // The original_len is i32, but lz4_flex::compress doesn't take original_len.
+    // The prefix is added *after* compression.
+    // The length prefix should be the *original (uncompressed)* length.
     let compressed_data = lz4_flex::compress(src);
     let all = [&length[..], &compressed_data].concat();
     Ok(all)

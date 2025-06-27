@@ -197,6 +197,7 @@ mod tests {
 
         let mut reader_with_date = Cursor::new(vec![1, 0, 0, 0, 127, 167, 127, 83, 0]);
         ct = reader_with_date.read_arq_date().unwrap();
-        assert_eq!(format!("{}", ct), "1987-05-17 17:29:45 UTC");
+        // Updated to expect milliseconds as per Display impl change in src/date.rs
+        assert_eq!(format!("{}", ct), "1987-05-17 17:29:45.984 UTC");
     }
 }
