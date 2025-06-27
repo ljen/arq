@@ -1,0 +1,15 @@
+{
+  "blobIdentifierType" : 2,
+  "maxPackedItemLength" : 256000,
+  "backupName" : "Back up to arq_storage_location",
+  "isWORM" : false,
+  "containsGlacierArchives" : false,
+  "additionalUnpackedBlobDirs" : [
+
+  ],
+  "chunkerVersion" : 3,
+  "computerName" : "Lars’s MacBook Pro",
+  "computerSerial" : "unused",
+  "blobStorageClass" : "STANDARD",
+  "isEncrypted" : false
+}
