@@ -74,6 +74,9 @@ pub mod packset;
 pub mod tree;
 pub mod type_utils;
 pub mod arq7_format;
+pub mod arq7_types;
+pub mod arq7_json_parser;
+pub mod arq7_pack_parser;
 
 mod blob;
 mod date;

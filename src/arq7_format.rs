@@ -1,11 +1,10 @@
 // serde::Deserialize is used by derive macros, so it's needed even if not directly referenced.
-use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 use std::io::{Read, BufReader, Cursor, Seek, SeekFrom};
 use std::fs::{File, self as fs_io}; // fs_io alias for std::fs
 use std::path::Path;
 
-use crate::error::{Result, Error};
+use crate::error::{Result, ArqError}; // Changed Error to ArqError
 use crate::type_utils::ArqRead;
 
 // For EncryptedKeySet decryption
@@ -145,7 +144,7 @@ impl BackupConfig {
         let file = File::open(path.as_ref())?; // Use std::fs::File
         let reader = BufReader::new(file);
         serde_json::from_reader(reader)
-            .map_err(|e| Error::JsonDecode(format!("Failed to parse BackupConfig: {}", e)))
+            .map_err(|e| ArqError::Json(e)) // Changed to ArqError::Json
     }
 }
 
@@ -154,7 +153,7 @@ impl BackupFolders {
         let file = File::open(path.as_ref())?; // Use std::fs::File
         let reader = BufReader::new(file);
         serde_json::from_reader(reader)
-            .map_err(|e| Error::JsonDecode(format!("Failed to parse BackupFolders: {}", e)))
+            .map_err(|e| ArqError::Json(e)) // Changed to ArqError::Json
     }
 }
 
@@ -163,7 +162,7 @@ impl BackupFolder {
         let file = File::open(path.as_ref())?; // Use std::fs::File
         let reader = BufReader::new(file);
         serde_json::from_reader(reader)
-            .map_err(|e| Error::JsonDecode(format!("Failed to parse BackupFolder: {}", e)))
+            .map_err(|e| ArqError::Json(e)) // Changed to ArqError::Json
     }
 }
 
@@ -274,21 +273,21 @@ impl Arq7EncryptedObject {
 
     pub fn from_bytes(data: &[u8]) -> Result<Self> {
         if !data.starts_with(Self::HEADER) {
-            return Err(Error::InvalidData("Arq7EncryptedObject missing ARQO header".into()));
+            return Err(ArqError::InvalidData("Arq7EncryptedObject missing ARQO header".into()));
         }
         let mut offset = Self::HEADER.len();
         if data.len() < offset + Self::HMAC_LEN {
-            return Err(Error::InvalidData("Arq7EncryptedObject too short for HMAC".into()));
+            return Err(ArqError::InvalidData("Arq7EncryptedObject too short for HMAC".into()));
         }
         let hmac_sha256 = data[offset..offset + Self::HMAC_LEN].to_vec();
         offset += Self::HMAC_LEN;
         if data.len() < offset + Self::MASTER_IV_LEN {
-            return Err(Error::InvalidData("Arq7EncryptedObject too short for master IV".into()));
+            return Err(ArqError::InvalidData("Arq7EncryptedObject too short for master IV".into()));
         }
         let master_iv = data[offset..offset + Self::MASTER_IV_LEN].to_vec();
         offset += Self::MASTER_IV_LEN;
         if data.len() < offset + Self::ENC_DATA_IV_SESSION_KEY_LEN {
-            return Err(Error::InvalidData("Arq7EncryptedObject too short for encrypted data IV + session key".into()));
+            return Err(ArqError::InvalidData("Arq7EncryptedObject too short for encrypted data IV + session key".into()));
         }
         let encrypted_data_iv_session_key = data[offset..offset + Self::ENC_DATA_IV_SESSION_KEY_LEN].to_vec();
         offset += Self::ENC_DATA_IV_SESSION_KEY_LEN;
@@ -303,31 +302,31 @@ impl Arq7EncryptedObject {
         data_to_hmac.extend_from_slice(&self.ciphertext);
 
         let mut mac = <hmac::Hmac<sha2::Sha256> as KeyInit>::new_from_slice(&keys.hmac_key)
-            .map_err(|_| Error::Encryption("Failed to initialize HMAC for Arq7EncryptedObject".into()))?;
+            .map_err(|_| ArqError::Encryption("Failed to initialize HMAC for Arq7EncryptedObject".into()))?;
         mac.update(&data_to_hmac);
         let calculated_hmac = mac.finalize().into_bytes();
 
         if calculated_hmac[..] != self.hmac_sha256[..] {
-            return Err(Error::Encryption("Arq7EncryptedObject HMAC mismatch".into()));
+            return Err(ArqError::Encryption("Arq7EncryptedObject HMAC mismatch".into()));
         }
 
         let mut enc_data_iv_session_clone = self.encrypted_data_iv_session_key.clone();
         let data_iv_session_key_plaintext = Aes256CbcDec::new_from_slices(&keys.encryption_key, &self.master_iv)
-            .map_err(|e| Error::Encryption(format!("Failed to init AES for session key: {:?}", e)))?
+            .map_err(|e| ArqError::Encryption(format!("Failed to init AES for session key: {:?}", e)))?
             .decrypt_padded_mut::<Pkcs7>(&mut enc_data_iv_session_clone)
-            .map_err(|e| Error::Encryption(format!("Failed to decrypt session key: {:?}", e)))?;
+            .map_err(|e| ArqError::Encryption(format!("Failed to decrypt session key: {:?}", e)))?;
 
         if data_iv_session_key_plaintext.len() < 48 {
-             return Err(Error::Encryption("Decrypted session key data too short".into()));
+             return Err(ArqError::Encryption("Decrypted session key data too short".into()));
         }
         let data_iv = &data_iv_session_key_plaintext[0..16];
         let session_key = &data_iv_session_key_plaintext[16..48];
 
         let mut ciphertext_clone = self.ciphertext.clone();
         Aes256CbcDec::new_from_slices(session_key, data_iv)
-            .map_err(|e| Error::Encryption(format!("Failed to init AES for data: {:?}", e)))?
+            .map_err(|e| ArqError::Encryption(format!("Failed to init AES for data: {:?}", e)))?
             .decrypt_padded_mut::<Pkcs7>(&mut ciphertext_clone)
-            .map_err(|e| Error::Encryption(format!("Failed to decrypt data: {:?}", e)))
+            .map_err(|e| ArqError::Encryption(format!("Failed to decrypt data: {:?}", e)))
             .map(|pt| pt.to_vec())
     }
 }
@@ -448,8 +447,8 @@ impl EncryptedKeySet {
         let mut file = fs_io::File::open(path.as_ref())?; // Use fs_io
         let mut buffer = Vec::new();
         file.read_to_end(&mut buffer)?;
-        if buffer.len() < Self::CIPHERTEXT_OFFSET { return Err(Error::InvalidData("EncryptedKeySet file too short".into())); }
-        if !buffer.starts_with(Self::HEADER_PREFIX) { return Err(Error::InvalidData("Invalid EncryptedKeySet header".into())); }
+        if buffer.len() < Self::CIPHERTEXT_OFFSET { return Err(ArqError::InvalidData("EncryptedKeySet file too short".into())); }
+        if !buffer.starts_with(Self::HEADER_PREFIX) { return Err(ArqError::InvalidData("Invalid EncryptedKeySet header".into())); }
         Ok(EncryptedKeySet { raw_data: buffer })
     }
 
@@ -476,42 +475,42 @@ impl EncryptedKeySet {
         data_to_hmac.extend_from_slice(self.ciphertext());
 
         let mut mac = <hmac::Hmac<sha2::Sha256> as KeyInit>::new_from_slice(hmac_key_for_verification)
-            .map_err(|_| Error::Encryption("Failed to initialize HMAC for verification".into()))?;
+            .map_err(|_| ArqError::Encryption("Failed to initialize HMAC for verification".into()))?;
         mac.update(&data_to_hmac);
         let calculated_hmac = mac.finalize().into_bytes();
 
-        if calculated_hmac[..] != self.hmac_sha256_stored()[..] { return Err(Error::WrongPassword); }
+        if calculated_hmac[..] != self.hmac_sha256_stored()[..] { return Err(ArqError::WrongPassword); }
 
         let mut ciphertext_mut = self.ciphertext().to_vec();
         let plaintext_bytes = Aes256CbcDec::new_from_slices(aes_key, self.iv())
-            .map_err(|e| Error::Encryption(format!("Failed to initialize AES decryptor: {:?}", e)))?
+            .map_err(|e| ArqError::Encryption(format!("Failed to initialize AES decryptor: {:?}", e)))?
             .decrypt_padded_mut::<Pkcs7>(&mut ciphertext_mut)
-            .map_err(|e| Error::Encryption(format!("Failed to decrypt keyset: {:?}", e)))?;
+            .map_err(|e| ArqError::Encryption(format!("Failed to decrypt keyset: {:?}", e)))?;
 
         let mut reader = Cursor::new(plaintext_bytes.as_ref());
 
         let encryption_version = reader.read_arq_u32()?;
         if encryption_version != 3 {
-            return Err(Error::InvalidData(format!("Unexpected encryption keyset plaintext version: {}", encryption_version)));
+            return Err(ArqError::InvalidData(format!("Unexpected encryption keyset plaintext version: {}", encryption_version)));
         }
 
         let enc_key_len = reader.read_arq_u64()?;
         if enc_key_len != 64 {
-            return Err(Error::InvalidData(format!("Unexpected encryption key length: {}", enc_key_len)));
+            return Err(ArqError::InvalidData(format!("Unexpected encryption key length: {}", enc_key_len)));
         }
         let mut encryption_key = vec![0u8; enc_key_len as usize];
         reader.read_exact(&mut encryption_key)?;
 
         let hmac_key_len = reader.read_arq_u64()?;
         if hmac_key_len != 64 {
-            return Err(Error::InvalidData(format!("Unexpected HMAC key length: {}", hmac_key_len)));
+            return Err(ArqError::InvalidData(format!("Unexpected HMAC key length: {}", hmac_key_len)));
         }
         let mut hmac_key = vec![0u8; hmac_key_len as usize];
         reader.read_exact(&mut hmac_key)?;
 
         let blob_id_salt_len = reader.read_arq_u64()?;
         if blob_id_salt_len != 64 {
-             return Err(Error::InvalidData(format!("Unexpected blob identifier salt length: {}", blob_id_salt_len)));
+             return Err(ArqError::InvalidData(format!("Unexpected blob identifier salt length: {}", blob_id_salt_len)));
         }
         let mut blob_identifier_salt = vec![0u8; blob_id_salt_len as usize];
         reader.read_exact(&mut blob_identifier_salt)?;
@@ -542,23 +541,23 @@ impl BackupRecord {
         fs_io::File::open(path.as_ref())?.read_to_end(&mut file_bytes)?;
 
         let processed_bytes = if is_globally_encrypted {
-            if keys.is_none() { return Err(Error::Encryption("Keys required for encrypted backup record".into())); }
+            if keys.is_none() { return Err(ArqError::Encryption("Keys required for encrypted backup record".into())); }
             if file_bytes.starts_with(Arq7EncryptedObject::HEADER) {
                 let encrypted_object = Arq7EncryptedObject::from_bytes(&file_bytes)?;
                 encrypted_object.decrypt(keys.unwrap())?
             } else {
-                return Err(Error::InvalidData("Expected ARQO header for encrypted backup record".into()));
+                return Err(ArqError::InvalidData("Expected ARQO header for encrypted backup record".into()));
             }
         } else {
             if file_bytes.starts_with(Arq7EncryptedObject::HEADER) {
-                 return Err(Error::InvalidData("Unexpected ARQO header for unencrypted backup record".into()));
+                 return Err(ArqError::InvalidData("Unexpected ARQO header for unencrypted backup record".into()));
             }
             file_bytes
         };
 
         let decompressed_bytes = crate::lz4::decompress(&processed_bytes)?;
         let backup_record: BackupRecord = plist::from_bytes(&decompressed_bytes)
-            .map_err(|e| Error::PlistDecode(format!("Failed to parse BackupRecord plist: {}", e)))?;
+            .map_err(|e| ArqError::PlistDecode(format!("Failed to parse BackupRecord plist: {}", e)))?;
         Ok(backup_record)
     }
 }
@@ -582,7 +581,7 @@ impl Arq7BackupSet {
         let config = BackupConfig::from_path(config_path)?;
         let mut keys: Option<EncryptedKeySetPlaintext> = None;
         if config.is_encrypted {
-            let p = password.ok_or_else(|| Error::Input( "Password required for encrypted backup set".to_string() ))?;
+            let p = password.ok_or_else(|| ArqError::Input( "Password required for encrypted backup set".to_string() ))?;
             let keyset_path = base_path_buf.join("encryptedkeyset.dat");
             let encrypted_keyset = EncryptedKeySet::from_path(keyset_path)?;
             keys = Some(encrypted_keyset.decrypt(p)?);
@@ -604,7 +603,7 @@ impl Arq7BackupSet {
                 if config_file_path.exists() {
                     match BackupFolder::from_path(config_file_path) {
                         Ok(bf_config) => configs.push(bf_config),
-                        Err(e) => { return Err(Error::Io(format!("Failed to read backupfolder.json for {:?}: {}", path, e))); }
+                        Err(e) => { return Err(ArqError::Io(std::io::Error::new(std::io::ErrorKind::Other, format!("Failed to read backupfolder.json for {:?}: {}", path, e)))); } // Wrapped error
                     }
                 }
             }
@@ -645,13 +644,13 @@ impl Arq7BackupSet {
             let pack_file_path = self.base_path.join(blob_loc.relative_path.trim_start_matches('/'));
             let mut index_file_path = pack_file_path.clone();
             index_file_path.set_extension("index");
-            if !pack_file_path.exists() { return Err(Error::Io(format!("Pack file not found: {:?}", pack_file_path))); }
-            if !index_file_path.exists() { return Err(Error::Io(format!("Pack index file not found: {:?}", index_file_path))); }
+            if !pack_file_path.exists() { return Err(ArqError::Io(std::io::Error::new(std::io::ErrorKind::NotFound, format!("Pack file not found: {:?}", pack_file_path)))); }
+            if !index_file_path.exists() { return Err(ArqError::Io(std::io::Error::new(std::io::ErrorKind::NotFound, format!("Pack index file not found: {:?}", index_file_path)))); }
             let index_file = fs_io::File::open(&index_file_path)?;
             let pack_index = crate::packset::PackIndex::new(BufReader::new(index_file))?;
             let pack_object_info = pack_index.objects.iter().find(|obj_info| {
                 obj_info.sha1 == blob_loc.blob_identifier
-            }).ok_or_else(|| Error::NotFound(format!( "Blob {} not found in pack index {:?}", blob_loc.blob_identifier, index_file_path )))?;
+            }).ok_or_else(|| ArqError::NotFound(format!( "Blob {} not found in pack index {:?}", blob_loc.blob_identifier, index_file_path )))?;
             let mut pack_file = fs_io::File::open(&pack_file_path)?;
             pack_file.seek(SeekFrom::Start(pack_object_info.offset as u64))?;
             let mut object_slice = vec![0u8; pack_object_info.data_len];
@@ -659,19 +658,19 @@ impl Arq7BackupSet {
             object_slice
         } else {
             let standalone_path = self.base_path.join(blob_loc.relative_path.trim_start_matches('/'));
-            if !standalone_path.exists() { return Err(Error::Io(format!("Standalone blob not found: {:?}", standalone_path))); }
+            if !standalone_path.exists() { return Err(ArqError::Io(std::io::Error::new(std::io::ErrorKind::NotFound, format!("Standalone blob not found: {:?}", standalone_path)))); }
             fs_io::read(standalone_path)?
         };
 
         let decrypted_bytes = if self.config.is_encrypted {
             if !raw_object_bytes.starts_with(Arq7EncryptedObject::HEADER) {
-                return Err(Error::InvalidData(format!( "Expected ARQO header for blob {} (path: {}) but not found.", blob_loc.blob_identifier, blob_loc.relative_path)));
+                return Err(ArqError::InvalidData(format!( "Expected ARQO header for blob {} (path: {}) but not found.", blob_loc.blob_identifier, blob_loc.relative_path)));
             }
             let arqo = Arq7EncryptedObject::from_bytes(&raw_object_bytes)?;
-            arqo.decrypt(self.keys.as_ref().ok_or(Error::Encryption("Missing keys for encrypted blob".to_string()))?)?
+            arqo.decrypt(self.keys.as_ref().ok_or(ArqError::Encryption("Missing keys for encrypted blob".to_string()))?)?
         } else {
             if raw_object_bytes.starts_with(Arq7EncryptedObject::HEADER) {
-                 return Err(Error::InvalidData(format!( "Unexpected ARQO header for unencrypted blob {} (path: {})", blob_loc.blob_identifier, blob_loc.relative_path)));
+                 return Err(ArqError::InvalidData(format!( "Unexpected ARQO header for unencrypted blob {} (path: {})", blob_loc.blob_identifier, blob_loc.relative_path)));
             }
             raw_object_bytes
         };
@@ -680,7 +679,7 @@ impl Arq7BackupSet {
             0 => crate::compression::CompressionType::None,
             1 => crate::compression::CompressionType::Gzip,
             2 => crate::compression::CompressionType::LZ4,
-            _ => return Err(Error::InvalidData(format!("Unknown compression type: {}", blob_loc.compression_type))),
+            _ => return Err(ArqError::InvalidData(format!("Unknown compression type: {}", blob_loc.compression_type))),
         };
         crate::compression::CompressionType::decompress(&decrypted_bytes, ct)
     }
@@ -692,11 +691,11 @@ impl Arq7BackupSet {
 
     pub fn get_root_tree_for_record(&self, record: &BackupRecord) -> Result<TreeBin> {
         if record.copied_from_commit && record.arq5_tree_blob_key.is_some() {
-            return Err(Error::NotSupported("Record is an Arq5 commit, requires Arq5 parsing logic.".into()));
+            return Err(ArqError::NotSupported("Record is an Arq5 commit, requires Arq5 parsing logic.".into()));
         }
-        let root_node_json = record.node.as_ref().ok_or_else(|| Error::InvalidData("BackupRecord has no root node JSON.".into()))?;
-        if !root_node_json.is_tree { return Err(Error::InvalidData("BackupRecord root node is not a tree.".into())); }
-        let tree_blob_loc = root_node_json.tree_blob_loc.as_ref().ok_or_else(|| Error::InvalidData("Root tree node has no BlobLoc.".into()))?;
+        let root_node_json = record.node.as_ref().ok_or_else(|| ArqError::InvalidData("BackupRecord has no root node JSON.".into()))?;
+        if !root_node_json.is_tree { return Err(ArqError::InvalidData("BackupRecord root node is not a tree.".into())); }
+        let tree_blob_loc = root_node_json.tree_blob_loc.as_ref().ok_or_else(|| ArqError::InvalidData("Root tree node has no BlobLoc.".into()))?;
         self.get_tree_bin(tree_blob_loc)
     }
 
@@ -705,30 +704,30 @@ impl Arq7BackupSet {
         let path_normalized = PathBuf::from(path_str);
         let components: Vec<&str> = path_normalized.iter().map(|os_str| os_str.to_str().unwrap_or("")).filter(|s| !s.is_empty() && *s != "." && *s != "/").collect();
         if components.is_empty() {
-             return Err(Error::Input("Path cannot be empty or root for resolve_path_to_node. Use get_root_tree_for_record and its associated Node for root.".into()));
+             return Err(ArqError::Input("Path cannot be empty or root for resolve_path_to_node. Use get_root_tree_for_record and its associated Node for root.".into()));
         }
         let mut target_node: Option<NodeBin> = None;
         for (i, component) in components.iter().enumerate() {
-            let child_node = current_tree.child_nodes_by_name.get(*component).ok_or_else(|| Error::NotFound(format!("Path component '{}' not found in tree.", component)))?;
+            let child_node = current_tree.child_nodes_by_name.get(*component).ok_or_else(|| ArqError::NotFound(format!("Path component '{}' not found in tree.", component)))?;
             if i == components.len() - 1 { target_node = Some(child_node.clone()); break; }
             else {
-                if !child_node.is_tree { return Err(Error::InvalidData(format!("Path component '{}' is a file, not a directory, but more path components remain.", component))); }
-                let tree_blob_loc = child_node.tree_blob_loc.as_ref().ok_or_else(|| Error::InvalidData(format!("Intermediate directory '{}' has no tree_blob_loc.", component)))?;
+                if !child_node.is_tree { return Err(ArqError::InvalidData(format!("Path component '{}' is a file, not a directory, but more path components remain.", component))); }
+                let tree_blob_loc = child_node.tree_blob_loc.as_ref().ok_or_else(|| ArqError::InvalidData(format!("Intermediate directory '{}' has no tree_blob_loc.", component)))?;
                 current_tree = self.get_tree_bin(tree_blob_loc)?;
             }
         }
-        target_node.ok_or_else(|| Error::NotFound(format!("Path '{}' not resolved.", path_str)))
+        target_node.ok_or_else(|| ArqError::NotFound(format!("Path '{}' not resolved.", path_str)))
     }
 
     pub fn list_directory_from_node(&self, dir_node_bin: &NodeBin) -> Result<Vec<(String, NodeBin)>> {
-        if !dir_node_bin.is_tree { return Err(Error::InvalidData("Cannot list contents: provided NodeBin is not a directory.".into())); }
-        let tree_blob_loc = dir_node_bin.tree_blob_loc.as_ref().ok_or_else(|| Error::InvalidData("Directory NodeBin has no tree_blob_loc.".into()))?;
+        if !dir_node_bin.is_tree { return Err(ArqError::InvalidData("Cannot list contents: provided NodeBin is not a directory.".into())); }
+        let tree_blob_loc = dir_node_bin.tree_blob_loc.as_ref().ok_or_else(|| ArqError::InvalidData("Directory NodeBin has no tree_blob_loc.".into()))?;
         let tree_bin = self.get_tree_bin(tree_blob_loc)?;
         Ok(tree_bin.child_nodes_by_name.into_iter().collect())
     }
 
     pub fn read_file_content_from_node(&self, file_node_bin: &NodeBin) -> Result<Vec<u8>> {
-        if file_node_bin.is_tree { return Err(Error::InvalidData("Cannot read content: provided NodeBin is a directory.".into())); }
+        if file_node_bin.is_tree { return Err(ArqError::InvalidData("Cannot read content: provided NodeBin is a directory.".into())); }
         let mut file_content = Vec::with_capacity(file_node_bin.item_size as usize);
         for blob_loc in &file_node_bin.data_blob_locs {
             let chunk_data = self.fetch_blob_data_and_decompress(blob_loc)?;
