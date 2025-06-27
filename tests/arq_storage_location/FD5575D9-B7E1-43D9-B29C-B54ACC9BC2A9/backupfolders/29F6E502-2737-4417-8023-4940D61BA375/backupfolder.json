@@ -1,0 +1,10 @@
+{
+  "localPath" : "\/arq\/arq_backup_source",
+  "migratedFromArq60" : false,
+  "storageClass" : "STANDARD",
+  "diskIdentifier" : "ROOT",
+  "uuid" : "29F6E502-2737-4417-8023-4940D61BA375",
+  "migratedFromArq5" : false,
+  "localMountPoint" : "\/",
+  "name" : "arq_backup_source"
+}
