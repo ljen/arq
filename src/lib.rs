@@ -57,7 +57,7 @@ extern crate chrono;
 #[cfg_attr(test, macro_use)]
 extern crate hex_literal;
 extern crate hmac;
-extern crate plist;
+pub extern crate plist; // Made public
 extern crate ring;
 extern crate serde;
 #[macro_use]
@@ -77,5 +77,5 @@ pub mod arq7_format;
 
 mod blob;
 mod date;
-mod lz4;
+pub mod lz4; // Made public for tests
 mod utils;

@@ -1,33 +1,33 @@
 // serde::Deserialize is used by derive macros, so it's needed even if not directly referenced.
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 use std::io::{Read, BufReader, Cursor, Seek, SeekFrom};
-use std::fs::File;
+use std::fs::{File, self as fs_io}; // fs_io alias for std::fs
 use std::path::Path;
 
 use crate::error::{Result, Error};
 use crate::type_utils::ArqRead;
 
 // For EncryptedKeySet decryption
-use ring::pbkdf2; // No longer aliasing ring::digest
+use ring::pbkdf2;
 use aes::cipher::{BlockDecryptMut, KeyIvInit};
 use aes::cipher::block_padding::Pkcs7;
-use digest::KeyInit; // For Hmac::new_from_slice
-use hmac::Mac; // For mac.update() and mac.finalize()
+use digest::KeyInit;
+use hmac::Mac;
 
 // Define Decryptor for AES-256-CBC
 type Aes256CbcDec = cbc::Decryptor<aes::Aes256>;
 
 
 // Enum for blobIdentifierType in backupconfig.json
-#[derive(Deserialize, Debug, PartialEq, Eq, Clone, Copy)]
+#[derive(Deserialize, Serialize, Debug, PartialEq, Eq, Clone, Copy)]
 pub enum BlobIdentifierType {
     Sha1 = 1,
     Sha256 = 2,
 }
 
 // Struct for backupconfig.json
-#[derive(Deserialize, Debug)]
+#[derive(Deserialize, Debug)] // Removed Serialize for now, as it's not strictly needed for from_path
 #[serde(rename_all = "camelCase")]
 pub struct BackupConfig {
     pub blob_identifier_type: BlobIdentifierType,
@@ -45,7 +45,7 @@ pub struct BackupConfig {
 }
 
 // Struct for backupfolders.json
-#[derive(Deserialize, Debug)]
+#[derive(Deserialize, Debug)] // Removed Serialize
 #[serde(rename_all = "camelCase")]
 pub struct BackupFolders {
     pub standard_object_dirs: Vec<String>,
@@ -62,7 +62,7 @@ pub struct BackupFolders {
 }
 
 // Struct for backupfolders/<UUID>/backupfolder.json
-#[derive(Deserialize, Debug)]
+#[derive(Deserialize, Debug)] // Removed Serialize
 #[serde(rename_all = "camelCase")]
 pub struct BackupFolder {
     pub local_path: String,
@@ -78,7 +78,7 @@ pub struct BackupFolder {
 }
 
 // Struct for BlobLoc
-#[derive(Deserialize, Debug, Clone)]
+#[derive(Deserialize, Serialize, Debug, Clone)]
 #[serde(rename_all = "camelCase")]
 pub struct BlobLoc {
     pub blob_identifier: String,
@@ -91,7 +91,7 @@ pub struct BlobLoc {
 }
 
 // Struct for Node in a backup record or a Tree
-#[derive(Deserialize, Debug, Clone)]
+#[derive(Deserialize, Serialize, Debug, Clone)]
 #[serde(rename_all = "camelCase")]
 pub struct NodeJson {
     #[serde(rename = "changeTime_nsec")]
@@ -142,7 +142,7 @@ pub struct NodeJson {
 
 impl BackupConfig {
     pub fn from_path<P: AsRef<Path>>(path: P) -> Result<Self> {
-        let file = File::open(path)?;
+        let file = File::open(path.as_ref())?; // Use std::fs::File
         let reader = BufReader::new(file);
         serde_json::from_reader(reader)
             .map_err(|e| Error::JsonDecode(format!("Failed to parse BackupConfig: {}", e)))
@@ -151,7 +151,7 @@ impl BackupConfig {
 
 impl BackupFolders {
     pub fn from_path<P: AsRef<Path>>(path: P) -> Result<Self> {
-        let file = File::open(path)?;
+        let file = File::open(path.as_ref())?; // Use std::fs::File
         let reader = BufReader::new(file);
         serde_json::from_reader(reader)
             .map_err(|e| Error::JsonDecode(format!("Failed to parse BackupFolders: {}", e)))
@@ -160,7 +160,7 @@ impl BackupFolders {
 
 impl BackupFolder {
     pub fn from_path<P: AsRef<Path>>(path: P) -> Result<Self> {
-        let file = File::open(path)?;
+        let file = File::open(path.as_ref())?; // Use std::fs::File
         let reader = BufReader::new(file);
         serde_json::from_reader(reader)
             .map_err(|e| Error::JsonDecode(format!("Failed to parse BackupFolder: {}", e)))
@@ -187,7 +187,7 @@ impl TreeBin {
     }
 }
 
-#[derive(Deserialize, Debug, Clone)]
+#[derive(Deserialize, Serialize, Debug, Clone)]
 #[serde(rename_all = "camelCase")]
 pub struct Arq5TreeBlobKey {
     pub archive_size: u64,
@@ -197,7 +197,7 @@ pub struct Arq5TreeBlobKey {
     pub stretch_encryption_key: bool,
 }
 
-#[derive(Deserialize, Debug, Clone)]
+#[derive(Deserialize, Serialize, Debug, Clone)]
 #[serde(rename_all = "camelCase")]
 pub struct BackupPlanJson {
     pub active: u8,
@@ -208,7 +208,7 @@ pub struct BackupPlanJson {
     pub backup_folder_plans_by_uuid: BTreeMap<String, BackupFolderPlanJson>,
 }
 
-#[derive(Deserialize, Debug, Clone)]
+#[derive(Deserialize, Serialize, Debug, Clone)]
 #[serde(rename_all = "camelCase")]
 pub struct BackupFolderPlanJson {
     pub backup_folder_uuid: String,
@@ -216,7 +216,7 @@ pub struct BackupFolderPlanJson {
     pub name: String,
 }
 
-#[derive(Deserialize, Debug, Clone)]
+#[derive(Deserialize, Serialize, Debug, Clone)]
 #[serde(rename_all = "camelCase")]
 pub struct BackupRecord {
     pub archived: u8,
@@ -252,7 +252,7 @@ pub struct BackupRecord {
     pub arq5_tree_blob_key: Option<Arq5TreeBlobKey>,
 }
 
-use crate::plist;
+use crate::plist; // This was previously lower down, moved for consistency (though order doesn't strictly matter for uses below)
 
 pub struct Tree {
     pub version: u32,
@@ -367,7 +367,7 @@ pub struct NodeBin {
 impl BlobLoc {
     pub fn from_reader<R: Read + ArqRead>(reader: &mut R) -> Result<Self> {
         let blob_identifier = reader.read_arq_string()?;
-        if blob_identifier.is_empty() {}
+        if blob_identifier.is_empty() {} // No-op, but fine
         let is_packed = reader.read_arq_bool()?;
         let relative_path = reader.read_arq_string()?;
         let offset = reader.read_arq_u64()?;
@@ -445,7 +445,7 @@ impl EncryptedKeySet {
     const CIPHERTEXT_OFFSET: usize = Self::IV_OFFSET + Self::IV_LEN;
 
     pub fn from_path<P: AsRef<Path>>(path: P) -> Result<Self> {
-        let mut file = File::open(path)?;
+        let mut file = fs_io::File::open(path.as_ref())?; // Use fs_io
         let mut buffer = Vec::new();
         file.read_to_end(&mut buffer)?;
         if buffer.len() < Self::CIPHERTEXT_OFFSET { return Err(Error::InvalidData("EncryptedKeySet file too short".into())); }
@@ -461,7 +461,7 @@ impl EncryptedKeySet {
     pub fn decrypt(&self, password: &str) -> Result<EncryptedKeySetPlaintext> {
         let mut derived_key = [0u8; 64];
         pbkdf2::derive(
-            ring::pbkdf2::PBKDF2_HMAC_SHA256, // Corrected
+            ring::pbkdf2::PBKDF2_HMAC_SHA256,
             std::num::NonZeroU32::new(200_000).unwrap(),
             self.salt(),
             password.as_bytes(),
@@ -475,7 +475,7 @@ impl EncryptedKeySet {
         data_to_hmac.extend_from_slice(self.iv());
         data_to_hmac.extend_from_slice(self.ciphertext());
 
-        let mut mac = <hmac::Hmac<sha2::Sha256> as KeyInit>::new_from_slice(hmac_key_for_verification) // Corrected
+        let mut mac = <hmac::Hmac<sha2::Sha256> as KeyInit>::new_from_slice(hmac_key_for_verification)
             .map_err(|_| Error::Encryption("Failed to initialize HMAC for verification".into()))?;
         mac.update(&data_to_hmac);
         let calculated_hmac = mac.finalize().into_bytes();
@@ -488,7 +488,7 @@ impl EncryptedKeySet {
             .decrypt_padded_mut::<Pkcs7>(&mut ciphertext_mut)
             .map_err(|e| Error::Encryption(format!("Failed to decrypt keyset: {:?}", e)))?;
 
-        let mut reader = Cursor::new(plaintext_bytes.as_ref()); // Corrected: use Cursor with ArqRead
+        let mut reader = Cursor::new(plaintext_bytes.as_ref());
 
         let encryption_version = reader.read_arq_u32()?;
         if encryption_version != 3 {
@@ -539,7 +539,7 @@ impl BackupRecord {
         keys: Option<&EncryptedKeySetPlaintext>,
     ) -> Result<Self> {
         let mut file_bytes = Vec::new();
-        File::open(path)?.read_to_end(&mut file_bytes)?;
+        fs_io::File::open(path.as_ref())?.read_to_end(&mut file_bytes)?;
 
         let processed_bytes = if is_globally_encrypted {
             if keys.is_none() { return Err(Error::Encryption("Keys required for encrypted backup record".into())); }
@@ -556,7 +556,7 @@ impl BackupRecord {
             file_bytes
         };
 
-        let decompressed_bytes = crate::lz4::decompress(&processed_bytes)?; // Corrected
+        let decompressed_bytes = crate::lz4::decompress(&processed_bytes)?;
         let backup_record: BackupRecord = plist::from_bytes(&decompressed_bytes)
             .map_err(|e| Error::PlistDecode(format!("Failed to parse BackupRecord plist: {}", e)))?;
         Ok(backup_record)
@@ -564,7 +564,8 @@ impl BackupRecord {
 }
 
 use std::path::PathBuf;
-use std::fs;
+// fs is already aliased as fs_io
+// use std::fs;
 
 #[derive(Debug)]
 pub struct Arq7BackupSet {
@@ -595,7 +596,7 @@ impl Arq7BackupSet {
         let bf_dir_path = self.base_path.join("backupfolders");
         let mut configs = Vec::new();
         if !bf_dir_path.is_dir() { return Ok(configs); }
-        for entry in fs::read_dir(bf_dir_path)? {
+        for entry in fs_io::read_dir(bf_dir_path)? {
             let entry = entry?;
             let path = entry.path();
             if path.is_dir() {
@@ -629,7 +630,7 @@ impl Arq7BackupSet {
 
     fn find_backup_record_files(&self, dir: &Path, files_list: &mut Vec<PathBuf>) -> Result<()> {
         if dir.is_dir() {
-            for entry in fs::read_dir(dir)? {
+            for entry in fs_io::read_dir(dir)? {
                 let entry = entry?;
                 let path = entry.path();
                 if path.is_dir() { self.find_backup_record_files(&path, files_list)?; }
@@ -646,20 +647,20 @@ impl Arq7BackupSet {
             index_file_path.set_extension("index");
             if !pack_file_path.exists() { return Err(Error::Io(format!("Pack file not found: {:?}", pack_file_path))); }
             if !index_file_path.exists() { return Err(Error::Io(format!("Pack index file not found: {:?}", index_file_path))); }
-            let index_file = File::open(&index_file_path)?;
+            let index_file = fs_io::File::open(&index_file_path)?;
             let pack_index = crate::packset::PackIndex::new(BufReader::new(index_file))?;
             let pack_object_info = pack_index.objects.iter().find(|obj_info| {
                 obj_info.sha1 == blob_loc.blob_identifier
-            }).ok_or_else(|| Error::NotFound(format!( "Blob {} not found in pack index {:?}", blob_loc.blob_identifier, index_file_path )))?; // Corrected to NotFound
-            let mut pack_file = File::open(&pack_file_path)?;
-            pack_file.seek(SeekFrom::Start(pack_object_info.offset as u64))?; // Ensure SeekFrom is used correctly
+            }).ok_or_else(|| Error::NotFound(format!( "Blob {} not found in pack index {:?}", blob_loc.blob_identifier, index_file_path )))?;
+            let mut pack_file = fs_io::File::open(&pack_file_path)?;
+            pack_file.seek(SeekFrom::Start(pack_object_info.offset as u64))?;
             let mut object_slice = vec![0u8; pack_object_info.data_len];
             pack_file.read_exact(&mut object_slice)?;
             object_slice
         } else {
             let standalone_path = self.base_path.join(blob_loc.relative_path.trim_start_matches('/'));
             if !standalone_path.exists() { return Err(Error::Io(format!("Standalone blob not found: {:?}", standalone_path))); }
-            fs::read(standalone_path)?
+            fs_io::read(standalone_path)?
         };
 
         let decrypted_bytes = if self.config.is_encrypted {
