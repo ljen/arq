@@ -13,6 +13,8 @@ pub enum Error {
     IoError(std::io::Error),
     DecompressionError(lz4_flex::block::DecompressError),
     DecompressionDataLengthOutOfBounds,
+    JsonError(serde_json::Error),
+    Lz4Error(lz4_flex::frame::Error),
 }
 
 impl std::fmt::Display for Error {
@@ -20,6 +22,8 @@ impl std::fmt::Display for Error {
         match *self {
             Error::ConversionError(ref err) => write!(f, "{err}"),
             Error::DecompressionError(ref err) => write!(f, "{err}"),
+            Error::JsonError(ref err) => write!(f, "{err}"),
+            Error::Lz4Error(ref err) => write!(f, "{err}"),
             _ => write!(f, "{:#?}", self),
         }
     }
@@ -35,6 +39,8 @@ impl std::error::Error for Error {
     fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
         match *self {
             Error::ConversionError(ref err) => Some(err),
+            Error::JsonError(ref err) => Some(err),
+            Error::Lz4Error(ref err) => Some(err),
             _ => None,
         }
     }
@@ -79,5 +85,23 @@ impl std::convert::From<std::num::ParseIntError> for Error {
 impl std::convert::From<lz4_flex::block::DecompressError> for Error {
     fn from(error: lz4_flex::block::DecompressError) -> Error {
         Error::DecompressionError(error)
+    }
+}
+
+impl std::convert::From<std::string::FromUtf8Error> for Error {
+    fn from(_error: std::string::FromUtf8Error) -> Error {
+        Error::ParseError
+    }
+}
+
+impl std::convert::From<serde_json::Error> for Error {
+    fn from(error: serde_json::Error) -> Error {
+        Error::JsonError(error)
+    }
+}
+
+impl std::convert::From<lz4_flex::frame::Error> for Error {
+    fn from(error: lz4_flex::frame::Error) -> Error {
+        Error::Lz4Error(error)
     }
 }
