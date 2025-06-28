@@ -573,7 +573,7 @@ impl Node {
                 is_large_pack: tree_blob_loc.is_large_pack,
             };
 
-            Ok(Some(binary_blob_loc.load_tree(backup_set_path)?))
+            Ok(Some(tree_blob_loc.load_tree(backup_set_path)?))
         } else {
             Ok(None)
         }
@@ -782,30 +782,35 @@ impl BlobLoc {
 
             // Handle blob pack format based on compression type
             if self.compression_type == 2 {
-                // Format: [4-byte content length][header bytes][actual content]
+                // LZ4 format: [4-byte decompressed length][LZ4 compressed data]
+                if buffer.len() >= 4 {
+                    let decompressed_length =
+                        u32::from_be_bytes([buffer[0], buffer[1], buffer[2], buffer[3]]) as usize;
+
+                    // LZ4 compressed data starts after the 4-byte length header
+                    let compressed_data = &buffer[4..];
+
+                    // Decompress using LZ4
+                    match lz4_flex::decompress(compressed_data, decompressed_length) {
+                        Ok(decompressed) => return Ok(decompressed),
+                        Err(_) => {
+                            // If LZ4 decompression fails, fall back to treating as raw data
+                            // This handles edge cases where data might not be properly compressed
+                            if decompressed_length <= buffer.len() - 4 {
+                                return Ok(buffer[4..4 + decompressed_length].to_vec());
+                            }
+                        }
+                    }
+                }
+            } else if self.compression_type == 0 {
+                // Uncompressed format: [4-byte content length][raw data]
                 if buffer.len() >= 4 {
                     let content_length =
                         u32::from_be_bytes([buffer[0], buffer[1], buffer[2], buffer[3]]) as usize;
 
-                    // The content starts after the 4-byte length and any header bytes
-                    let mut content_start = 4;
-
-                    // Skip header bytes - common patterns are 0xf0 0x00 or just 0xe0
-                    if content_start < buffer.len() {
-                        if buffer[content_start] == 0xf0
-                            && content_start + 1 < buffer.len()
-                            && buffer[content_start + 1] == 0x00
-                        {
-                            content_start += 2; // Skip 2-byte header (f0 00)
-                        } else if buffer[content_start] == 0xe0 {
-                            content_start += 1; // Skip 1-byte header (e0)
-                        }
-                    }
-
-                    // Extract exactly content_length bytes from content_start
-                    let content_end = content_start + content_length;
-                    if content_end <= buffer.len() {
-                        return Ok(buffer[content_start..content_end].to_vec());
+                    // Raw data starts after the 4-byte length header
+                    if content_length <= buffer.len() - 4 {
+                        return Ok(buffer[4..4 + content_length].to_vec());
                     }
                 }
             }
@@ -838,16 +843,9 @@ impl BlobLoc {
     pub fn load_tree(&self, backup_set_path: &std::path::Path) -> Result<binary::BinaryTree> {
         let data = self.load_data(backup_set_path)?;
 
-        // Handle LZ4 decompression for tree pack files
-        if self.is_packed && self.compression_type == 2 {
-            // For packed files with LZ4 compression, load_data returns raw compressed data
-            // We need to decompress it first
-            binary::BinaryTree::from_compressed_data(&data)
-        } else {
-            // For standalone objects, load_data already handles decompression
-            let mut cursor = std::io::Cursor::new(&data);
-            binary::BinaryTree::from_reader(&mut cursor)
-        }
+        // For standalone objects, load_data already handles decompression
+        let mut cursor = std::io::Cursor::new(&data);
+        binary::BinaryTree::from_reader(&mut cursor)
     }
 
     /// Load and parse a node from this blob location
