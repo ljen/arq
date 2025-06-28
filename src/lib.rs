@@ -62,9 +62,11 @@ extern crate ring;
 extern crate serde;
 #[macro_use]
 extern crate serde_derive;
+extern crate serde_json;
 extern crate sha1;
 extern crate sha2;
 
+pub mod arq7;
 pub mod compression;
 pub mod computer;
 pub mod error;

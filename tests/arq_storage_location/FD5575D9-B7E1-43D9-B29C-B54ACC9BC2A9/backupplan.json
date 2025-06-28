@@ -1,0 +1,105 @@
+{
+  "transferRateJSON" : {
+    "enabled" : false,
+    "startTimeOfDay" : "08:00",
+    "daysOfWeek" : [
+      "Mon",
+      "Tue",
+      "Wed",
+      "Thu",
+      "Fri",
+      "Sat",
+      "Sun"
+    ],
+    "scheduleType" : "Always",
+    "endTimeOfDay" : "17:00"
+  },
+  "cpuUsage" : 25,
+  "id" : 6,
+  "storageLocationId" : 5,
+  "excludedNetworkInterfaces" : [
+
+  ],
+  "needsArq5Buckets" : false,
+  "useBuzhash" : false,
+  "arq5UseS3IA" : false,
+  "objectLockUpdateIntervalDays" : 30,
+  "planUUID" : "FD5575D9-B7E1-43D9-B29C-B54ACC9BC2A9",
+  "scheduleJSON" : {
+    "backUpAndValidate" : true,
+    "startWhenVolumeIsConnected" : false,
+    "pauseDuringWindow" : false,
+    "type" : "Manual"
+  },
+  "keepDeletedFiles" : false,
+  "version" : 2,
+  "createdAtProConsole" : false,
+  "backupFolderPlanMountPointsAreInitialized" : true,
+  "includeNewVolumes" : false,
+  "retainMonths" : 60,
+  "useAPFSSnapshots" : true,
+  "backupSetIsInitialized" : true,
+  "backupFolderPlansByUUID" : {
+    "29F6E502-2737-4417-8023-4940D61BA375" : {
+      "backupFolderUUID" : "29F6E502-2737-4417-8023-4940D61BA375",
+      "diskIdentifier" : "ROOT",
+      "blobStorageClass" : "STANDARD",
+      "ignoredRelativePaths" : [
+
+      ],
+      "skipIfNotMounted" : false,
+      "skipDuringBackup" : false,
+      "useDiskIdentifier" : false,
+      "relativePath" : "arq\/arq_backup_source",
+      "wildcardExcludes" : [
+
+      ],
+      "excludedDrives" : [
+
+      ],
+      "localPath" : "\/arq\/arq_backup_source",
+      "allDrives" : false,
+      "skipTMExcludes" : false,
+      "regexExcludes" : [
+
+      ],
+      "name" : "arq_backup_source",
+      "localMountPoint" : "\/"
+    }
+  },
+  "notifyOnError" : true,
+  "retainDays" : 30,
+  "updateTime" : 1736107188,
+  "excludedWiFiNetworkNames" : [
+
+  ],
+  "objectLockAvailable" : false,
+  "managed" : false,
+  "name" : "Back up to arq_storage_location",
+  "wakeForBackup" : false,
+  "includeNetworkInterfaces" : false,
+  "datalessFilesOption" : 0,
+  "retainAll" : true,
+  "isEncrypted" : false,
+  "active" : true,
+  "notifyOnSuccess" : false,
+  "preventSleep" : false,
+  "creationTime" : 1736107142,
+  "pauseOnBattery" : false,
+  "retainWeeks" : 52,
+  "retainHours" : 24,
+  "preventBackupOnConstrainedNetworks" : false,
+  "includeWiFiNetworks" : false,
+  "threadCount" : 2,
+  "preventBackupOnExpensiveNetworks" : false,
+  "emailReportJSON" : {
+    "port" : 587,
+    "startTLS" : false,
+    "authenticationType" : "none",
+    "reportHELOUseIP" : true,
+    "when" : "never",
+    "type" : "custom"
+  },
+  "includeFileListInActivityLog" : false,
+  "noBackupsAlertDays" : 5
+}
