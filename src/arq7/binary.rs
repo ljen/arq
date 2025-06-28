@@ -112,6 +112,7 @@ impl<R: Read> ArqBinaryReader for R {}
 pub struct BinaryBlobLoc {
     pub blob_identifier: String,
     pub is_packed: bool,
+    pub is_large_pack: bool,
     pub relative_path: String,
     pub offset: u64,
     pub length: u64,
@@ -127,6 +128,9 @@ impl BinaryBlobLoc {
 
         // [Bool:isPacked]
         let is_packed = reader.read_arq_bool()?;
+
+        // [Bool:isLargePack]
+        let is_large_pack = reader.read_arq_bool()?;
 
         // [String:relativePath] - handle misaligned data
         let relative_path = Self::read_relative_path_with_recovery(reader)?;
@@ -151,6 +155,7 @@ impl BinaryBlobLoc {
             length,
             stretch_encryption_key,
             compression_type,
+            is_large_pack,
         })
     }
 
@@ -274,6 +279,7 @@ impl BinaryNode {
                         length: if i == 0 { 15 } else { 14 },
                         stretch_encryption_key: false,
                         compression_type: 0,
+                        is_large_pack: false,
                     };
                     data_blob_locs.push(placeholder);
                     break; // Stop parsing more blob locations to avoid further misalignment
@@ -429,6 +435,7 @@ impl BinaryTree {
                             length: 100,
                             stretch_encryption_key: false,
                             compression_type: 2,
+                            is_large_pack: false,
                         }],
                         acl_blob_loc: None,
                         xattrs_blob_locs: Vec::new(),
