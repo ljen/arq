@@ -474,17 +474,10 @@ impl BinaryTree {
     }
 
     /// Parse a Tree from LZ4-compressed binary data
-    pub fn from_compressed_data(data: &[u8]) -> Result<Self> {
+    pub fn from_decompressed_data(data: &[u8]) -> Result<Self> {
         // First 4 bytes are the decompressed length
         let mut cursor = std::io::Cursor::new(data);
-        let decompressed_length = cursor.read_u32::<BigEndian>()?;
-
-        // Remaining data is LZ4 compressed
-        let compressed_data = &data[4..];
-        let decompressed = lz4_flex::decompress(compressed_data, decompressed_length as usize)?;
-
-        let mut decompressed_cursor = std::io::Cursor::new(decompressed);
-        Self::from_reader(&mut decompressed_cursor)
+        Self::from_reader(&mut cursor)
     }
 }
 

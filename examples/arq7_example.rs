@@ -5,12 +5,13 @@
 //! binary tree data.
 
 use arq::arq7::BackupSet;
+use arq::arq7::EncryptedKeySet;
 use std::path::Path;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Path to an Arq 7 backup set directory
-    // let backup_set_path = "tests/arq_storage_location/D1154AC6-01EB-41FE-B115-114464350B92";
-    let backup_set_path = "./tests/arq_storage_location/2E7BB0B6-BE5B-4A86-9E51-10FE730E1104";
+    let backup_set_path = "./tests/arq_storage_location/D1154AC6-01EB-41FE-B115-114464350B92";
+    //let backup_set_path = "tests/arq_storage_location/2E7BB0B6-BE5B-4A86-9E51-10FE730E1104";
 
     println!("🔍 Loading Arq 7 backup set from: {}", backup_set_path);
     println!("{}", "=".repeat(60));
@@ -22,9 +23,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         return Ok(());
     }
 
+    let keyset_path = format!("{}/encryptedkeyset.dat", backup_set_path);
+    let keyset = EncryptedKeySet::from_file(keyset_path, "asdfasdf1234")?;
     // Load the complete backup set
-    // match BackupSet::from_directory_with_password(backup_set_path, Some("asdfasdf1234")) {
-    match BackupSet::from_directory(backup_set_path) {
+    match BackupSet::from_directory_with_password(backup_set_path, Some("asdfasdf1234")) {
+        // match BackupSet::from_directory(backup_set_path) {
         Ok(backup_set) => {
             print_backup_config(&backup_set);
             print_backup_plan(&backup_set);
@@ -33,7 +36,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             print_backup_records(&backup_set);
             print_backup_statistics(&backup_set);
             list_all_files(&backup_set, backup_set_path);
-            demonstrate_content_extraction(&backup_set, backup_set_path);
+            demonstrate_content_extraction(&backup_set, backup_set_path, Some(&keyset));
         }
         Err(e) => {
             println!("❌ Failed to load backup set: {}", e);
@@ -283,7 +286,11 @@ fn list_all_files(backup_set: &BackupSet, backup_set_path: &str) {
     }
 }
 
-fn demonstrate_content_extraction(backup_set: &BackupSet, backup_set_path: &str) {
+fn demonstrate_content_extraction(
+    backup_set: &BackupSet,
+    backup_set_path: &str,
+    keyset: Option<&EncryptedKeySet>,
+) {
     println!("\n💾 Complete Backup Restoration");
     println!("{}", "=".repeat(60));
 
@@ -346,7 +353,13 @@ fn demonstrate_content_extraction(backup_set: &BackupSet, backup_set_path: &str)
                 directories_created: 0,
             };
 
-            extract_backup_record(record, backup_set_path, &record_dir, &mut record_stats);
+            extract_backup_record(
+                record,
+                Path::new(backup_set_path),
+                Path::new(&record_dir),
+                &mut record_stats,
+                keyset,
+            );
 
             // Update totals
             total_files_restored += record_stats.files_restored;
@@ -399,13 +412,14 @@ struct ExtractionStats {
 
 fn extract_backup_record(
     record: &arq::arq7::BackupRecord,
-    backup_set_path: &str,
-    output_dir: &str,
+    backup_set_path: &Path,
+    output_dir: &Path,
     stats: &mut ExtractionStats,
+    keyset: Option<&EncryptedKeySet>,
 ) {
     // Start extraction from the root node
     if record.node.is_tree {
-        extract_tree_node(&record.node, backup_set_path, output_dir, "", stats);
+        extract_tree_node(&record.node, backup_set_path, output_dir, "", stats, keyset);
     } else {
         // Root is a file (unusual but possible)
         extract_file_node(
@@ -414,23 +428,27 @@ fn extract_backup_record(
             output_dir,
             "root_file",
             stats,
+            keyset,
         );
     }
 }
 
 fn extract_tree_node(
     node: &arq::arq7::Node,
-    backup_set_path: &str,
-    current_output_dir: &str,
+    backup_set_path: &Path,
+    current_output_dir: &Path,
     relative_path: &str,
     stats: &mut ExtractionStats,
+    keyset: Option<&EncryptedKeySet>,
 ) {
     // Create directory
     let full_output_path = if relative_path.is_empty() {
-        current_output_dir.to_string()
+        current_output_dir.to_path_buf()
     } else {
-        format!("{}/{}", current_output_dir, relative_path)
+        current_output_dir.join(relative_path)
     };
+
+    let full_output_path = Path::new(&full_output_path);
 
     if !relative_path.is_empty() {
         if let Err(e) = std::fs::create_dir_all(&full_output_path) {
@@ -445,8 +463,12 @@ fn extract_tree_node(
         println!("         📁 Created: {}/", relative_path);
     }
 
+    let tmp =
+        EncryptedKeySet::from_file(backup_set_path.join("encryptedkeyset.dat"), "asdfasdf1234")
+            .unwrap();
+    let keyset = Some(&tmp);
     // Try to load tree contents
-    match node.load_tree(Path::new(backup_set_path)) {
+    match node.load_tree_with_encryption(backup_set_path, keyset) {
         Ok(Some(tree)) => {
             println!(
                 "         🌳 Loading {} items from {}/",
@@ -465,26 +487,36 @@ fn extract_tree_node(
                     format!("{}/{}", relative_path, child_name)
                 };
 
-                if child_node.is_tree {
-                    // Convert binary node to JSON node for recursive processing
-                    let json_node = arq::arq7::Node::from_binary_node(child_node);
-                    extract_tree_node(
-                        &json_node,
-                        backup_set_path,
-                        current_output_dir,
-                        &child_path,
-                        stats,
-                    );
-                } else {
-                    // Extract file
-                    let json_node = arq::arq7::Node::from_binary_node(child_node);
-                    extract_file_node(
-                        &json_node,
-                        backup_set_path,
-                        &full_output_path,
-                        child_name,
-                        stats,
-                    );
+                for (child_name, child_node) in &tree.child_nodes {
+                    let child_path = if relative_path.is_empty() {
+                        child_name.clone()
+                    } else {
+                        format!("{}/{}", relative_path, child_name)
+                    };
+
+                    if child_node.is_tree {
+                        // Convert binary node to JSON node for recursive processing
+                        let json_node = arq::arq7::Node::from_binary_node(child_node);
+                        extract_tree_node(
+                            &json_node,
+                            backup_set_path,
+                            current_output_dir,
+                            &child_path,
+                            stats,
+                            keyset,
+                        );
+                    } else {
+                        // Extract file
+                        let json_node = arq::arq7::Node::from_binary_node(child_node);
+                        extract_file_node(
+                            &json_node,
+                            backup_set_path,
+                            full_output_path,
+                            child_name,
+                            stats,
+                            keyset,
+                        );
+                    }
                 }
             }
         }
@@ -515,9 +547,10 @@ fn extract_tree_node(
             extract_using_json_fallback(
                 node,
                 backup_set_path,
-                &full_output_path,
+                full_output_path,
                 relative_path,
                 stats,
+                keyset,
             );
         }
     }
@@ -525,12 +558,13 @@ fn extract_tree_node(
 
 fn extract_file_node(
     node: &arq::arq7::Node,
-    backup_set_path: &str,
-    output_dir: &str,
+    backup_set_path: &Path,
+    output_dir: &Path,
     filename: &str,
     stats: &mut ExtractionStats,
+    keyset: Option<&EncryptedKeySet>,
 ) {
-    let output_path = format!("{}/{}", output_dir, filename);
+    let output_path = format!("{}/{}", output_dir.display(), filename);
 
     // Try to extract content from data blob locations
     let mut content_extracted = false;
@@ -545,7 +579,7 @@ fn extract_file_node(
     if has_real_blobs {
         // Use the real blob locations for extraction
         for (blob_idx, data_blob) in node.data_blob_locs.iter().enumerate() {
-            match data_blob.extract_content(Path::new(backup_set_path)) {
+            match data_blob.extract_content(backup_set_path, keyset) {
                 Ok(content) => {
                     // For multiple blobs, append them or create separate files
                     let file_path = if node.data_blob_locs.len() == 1 {
@@ -585,7 +619,7 @@ fn extract_file_node(
         }
     } else {
         // Try to extract using known test data blob locations for our test files
-        if let Some(content) = try_extract_test_file_content(filename, backup_set_path) {
+        if let Some(content) = try_extract_test_file_content(filename, backup_set_path, keyset) {
             match std::fs::write(&output_path, &content) {
                 Ok(()) => {
                     total_size = content.len() as u64;
@@ -604,7 +638,7 @@ fn extract_file_node(
         } else {
             // Still try the placeholder blob locations in case they work
             for (blob_idx, data_blob) in node.data_blob_locs.iter().enumerate() {
-                match data_blob.extract_content(Path::new(backup_set_path)) {
+                match data_blob.extract_content(Path::new(backup_set_path), keyset) {
                     Ok(content) => {
                         let file_path = if node.data_blob_locs.len() == 1 {
                             output_path.clone()
@@ -689,42 +723,17 @@ fn extract_file_node(
             }
         }
     } else {
-        // Create placeholder file with metadata
-        let placeholder_content = format!(
-            "# Arq Backup Placeholder File\n\
-             # Original file: {}\n\
-             # Size: {} bytes\n\
-             # Modified: {}\n\
-             # Note: Content could not be extracted from backup\n",
-            filename,
-            node.item_size,
-            chrono::DateTime::from_timestamp(node.modification_time_sec as i64, 0)
-                .map(|dt| dt.format("%Y-%m-%d %H:%M:%S").to_string())
-                .unwrap_or_else(|| "unknown".to_string())
-        );
-
-        match std::fs::write(format!("{}.placeholder", output_path), placeholder_content) {
-            Ok(()) => {
-                println!("         📄 Created placeholder: {}.placeholder", filename);
-                stats.errors += 1; // Count as error since content wasn't extracted
-            }
-            Err(e) => {
-                println!(
-                    "         ❌ Failed to create placeholder for {}: {}",
-                    filename, e
-                );
-                stats.errors += 1;
-            }
-        }
+        print!("ERROR")
     }
 }
 
 fn extract_using_json_fallback(
     node: &arq::arq7::Node,
-    backup_set_path: &str,
-    output_dir: &str,
+    backup_set_path: &Path,
+    output_dir: &Path,
     relative_path: &str,
     stats: &mut ExtractionStats,
+    keyset: Option<&EncryptedKeySet>,
 ) {
     // Try to extract files using JSON data blob locations
     if !node.data_blob_locs.is_empty() {
@@ -735,7 +744,7 @@ fn extract_using_json_fallback(
 
         for (blob_idx, _data_blob) in node.data_blob_locs.iter().enumerate() {
             let filename = format!("file_{}.data", blob_idx);
-            extract_file_node(node, backup_set_path, output_dir, &filename, stats);
+            extract_file_node(node, backup_set_path, output_dir, &filename, stats, keyset);
         }
     } else {
         println!(
@@ -762,7 +771,11 @@ fn set_file_metadata(file_path: &str, node: &arq::arq7::Node) {
     // and elevated privileges, so we skip those for now
 }
 
-fn try_extract_test_file_content(filename: &str, backup_set_path: &str) -> Option<Vec<u8>> {
+fn try_extract_test_file_content(
+    filename: &str,
+    backup_set_path: &Path,
+    keyset: Option<&EncryptedKeySet>,
+) -> Option<Vec<u8>> {
     // For our test data, try to extract known files using the correct blob pack locations
     match filename {
         "file 1.txt" => {
@@ -779,7 +792,7 @@ fn try_extract_test_file_content(filename: &str, backup_set_path: &str) -> Optio
             };
 
             blob_loc
-                .extract_content(std::path::Path::new(backup_set_path))
+                .extract_content(std::path::Path::new(backup_set_path), keyset)
                 .ok()
         }
         "file 2.txt" => {
@@ -796,7 +809,7 @@ fn try_extract_test_file_content(filename: &str, backup_set_path: &str) -> Optio
             };
 
             blob_loc
-                .extract_content(std::path::Path::new(backup_set_path))
+                .extract_content(std::path::Path::new(backup_set_path), keyset)
                 .ok()
         }
         _ => None,
@@ -817,6 +830,9 @@ fn list_files_recursive(
     } else {
         current_path.clone()
     };
+    let keyset =
+        EncryptedKeySet::from_file(backup_set_path.join("encryptedkeyset.dat"), "asdfasdf1234")
+            .unwrap();
 
     if node.is_tree {
         // This is a directory
@@ -824,7 +840,7 @@ fn list_files_recursive(
         stats.total_directories += 1;
 
         // Try to load the tree data to list children
-        match node.load_tree(backup_set_path) {
+        match node.load_tree_with_encryption(backup_set_path, Some(&keyset)) {
             Ok(Some(tree)) => {
                 println!("{}   (Contains {} items)", indent, tree.child_nodes.len());
 

@@ -38,7 +38,7 @@ fn test_blob_content_extraction() {
     };
 
     // Test first file extraction
-    match first_file_blob.extract_text_content(backup_set_path) {
+    match first_file_blob.extract_text_content(backup_set_path, None) {
         Ok(content) => {
             println!("First file content: '{}'", content);
             assert_eq!(
@@ -55,7 +55,7 @@ fn test_blob_content_extraction() {
     }
 
     // Test second file extraction
-    match second_file_blob.extract_text_content(backup_set_path) {
+    match second_file_blob.extract_text_content(backup_set_path, None) {
         Ok(content) => {
             println!("Second file content: '{}'", content);
             assert_eq!(
