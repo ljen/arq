@@ -1704,7 +1704,7 @@ impl BlobLoc {
             return Ok(None);
         }
 
-        let tree = binary::BinaryTree::from_compressed_data(&data)?;
+        let tree = binary::BinaryTree::from_decompressed_data(&data)?;
         Ok(Some(tree))
     }
 
@@ -1734,13 +1734,21 @@ impl BlobLoc {
     }
 
     /// Extract the actual file content from this blob location
-    pub fn extract_content(&self, backup_set_path: &std::path::Path) -> Result<Vec<u8>> {
-        self.load_data(backup_set_path, None)
+    pub fn extract_content(
+        &self,
+        backup_set_path: &std::path::Path,
+        keyset: Option<&EncryptedKeySet>,
+    ) -> Result<Vec<u8>> {
+        self.load_data(backup_set_path, keyset)
     }
 
     /// Extract file content as a UTF-8 string (for text files)
-    pub fn extract_text_content(&self, backup_set_path: &std::path::Path) -> Result<String> {
-        let content = self.extract_content(backup_set_path)?;
+    pub fn extract_text_content(
+        &self,
+        backup_set_path: &std::path::Path,
+        keyset: Option<&EncryptedKeySet>,
+    ) -> Result<String> {
+        let content = self.extract_content(backup_set_path, keyset)?;
         Ok(String::from_utf8_lossy(&content).to_string())
     }
 
@@ -1749,8 +1757,9 @@ impl BlobLoc {
         &self,
         backup_set_path: &std::path::Path,
         output_path: P,
+        keyset: Option<&EncryptedKeySet>,
     ) -> Result<()> {
-        let content = self.extract_content(backup_set_path)?;
+        let content = self.extract_content(backup_set_path, keyset)?;
         std::fs::write(output_path, content)?;
         Ok(())
     }
