@@ -35,7 +35,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
                 // Step 1: Try to load raw data
                 println!("\n🔧 Step 1: Loading raw data...");
-                match tree_blob_loc.load_data(Path::new(backup_set_path)) {
+                match tree_blob_loc.load_data(Path::new(backup_set_path), None) {
                     Ok(raw_data) => {
                         println!("   ✅ Raw data loaded: {} bytes", raw_data.len());
                         print_hex_dump("Raw data", &raw_data, 64);

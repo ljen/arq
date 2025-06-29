@@ -9,6 +9,7 @@ pub enum Error {
     CipherError,
     BlockModeError,
     ParseError,
+    InvalidFormat(String),
     ConversionError(std::str::Utf8Error),
     IoError(std::io::Error),
     DecompressionError(lz4_flex::block::DecompressError),
@@ -24,6 +25,7 @@ impl std::fmt::Display for Error {
             Error::DecompressionError(ref err) => write!(f, "{err}"),
             Error::JsonError(ref err) => write!(f, "{err}"),
             Error::Lz4Error(ref err) => write!(f, "{err}"),
+            Error::InvalidFormat(ref msg) => write!(f, "Invalid format: {msg}"),
             _ => write!(f, "{:#?}", self),
         }
     }

@@ -200,7 +200,7 @@ fn test_remove_hardcoded_paths() {
 
         // The load_data method should handle path parsing without crashing
         // even if the file doesn't exist (it will return an IO error, not a parsing error)
-        match blob_loc.load_data(Path::new("/nonexistent")) {
+        match blob_loc.load_data(Path::new("/nonexistent"), None) {
             Err(arq::error::Error::IoError(_)) => {
                 // This is expected - file doesn't exist
                 println!("Path parsing worked for: {}", test_path);

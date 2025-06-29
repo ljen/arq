@@ -75,10 +75,210 @@
 
 pub mod binary;
 
-use crate::error::Result;
+use crate::error::{Error, Result};
+use crate::object_encryption::{calculate_hmacsha256, EncryptedObject};
+use crate::type_utils::ArqRead;
 use byteorder::{BigEndian, ReadBytesExt};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+use std::fs::File;
+use std::io::{BufRead, BufReader, Read, Seek, SeekFrom};
+use std::path::Path;
+
+/// EncryptedKeySet represents the encryptedkeyset.dat file
+///
+/// This file contains keys for encrypting/decrypting and for creating object identifiers.
+/// It is encrypted with the encryption password you chose when you created the backup plan.
+///
+/// The encrypted format is:
+/// ```
+/// header                          41 52 51 5f 45 4e 43 52   ARQ_ENCR
+///                                 59 50 54 45 44 5f 4d 41   YPTED_MA
+///                                 53 54 45 52 5f 4b 45 59   STER_KEY
+///                                 53                        S
+/// salt                            xx xx xx xx xx xx xx xx (8 bytes)
+/// HMACSHA256                      xx xx xx xx xx xx xx xx
+///                                 xx xx xx xx xx xx xx xx
+///                                 xx xx xx xx xx xx xx xx
+///                                 xx xx xx xx xx xx xx xx (32 bytes)
+/// IV                              xx xx xx xx xx xx xx xx
+///                                 xx xx xx xx xx xx xx xx (16 bytes)
+/// ciphertext                      xx xx xx xx xx xx xx xx
+///                                 ... (variable length)
+/// ```
+///
+/// The plaintext format contains:
+/// - encryption version: 4 bytes (00 00 00 03)
+/// - encryption key length: 8 bytes (00 00 00 00 00 00 00 20)
+/// - encryption key: 32 bytes
+/// - HMAC key length: 8 bytes (00 00 00 00 00 00 00 20)
+/// - HMAC key: 32 bytes
+/// - blob identifier salt length: 8 bytes (00 00 00 00 00 00 00 20)
+/// - blob identifier salt: 32 bytes
+#[derive(Debug, Clone)]
+pub struct EncryptedKeySet {
+    pub encryption_key: Vec<u8>,
+    pub hmac_key: Vec<u8>,
+    pub blob_identifier_salt: Vec<u8>,
+}
+
+const ENCRYPTED_KEYSET_HEADER: [u8; 25] = [
+    65, 82, 81, 95, 69, 78, 67, 82, 89, 80, 84, 69, 68, 95, 77, 65, 83, 84, 69, 82, 95, 75, 69, 89,
+    83,
+]; // ARQ_ENCRYPTED_MASTER_KEYS
+
+impl EncryptedKeySet {
+    pub fn from_file<P: AsRef<Path>>(path: P, password: &str) -> Result<Self> {
+        let file = File::open(path)?;
+        let mut reader = BufReader::new(file);
+        Self::from_reader(&mut reader, password)
+    }
+
+    pub fn from_reader<R: BufRead + Seek>(mut reader: R, password: &str) -> Result<Self> {
+        // Read and verify header
+        let header = reader.read_bytes(25)?;
+        if header != ENCRYPTED_KEYSET_HEADER {
+            return Err(Error::InvalidFormat(
+                "Invalid encryptedkeyset.dat header".to_string(),
+            ));
+        }
+
+        // Read salt (8 bytes)
+        let salt = reader.read_bytes(8)?;
+
+        // Read HMAC-SHA256 (32 bytes)
+        let hmac_sha256 = reader.read_bytes(32)?;
+
+        // Read IV (16 bytes)
+        let iv = reader.read_bytes(16)?;
+
+        // Read ciphertext (rest of file)
+        let mut ciphertext = Vec::new();
+        reader.read_to_end(&mut ciphertext)?;
+
+        // Derive 64-byte key from password using PBKDF2-SHA256
+        let mut derived_key = vec![0u8; 64];
+        ring::pbkdf2::derive(
+            ring::pbkdf2::PBKDF2_HMAC_SHA256,
+            std::num::NonZeroU32::new(200_000).unwrap(),
+            &salt,
+            password.as_bytes(),
+            &mut derived_key,
+        );
+
+        // Verify HMAC-SHA256 of IV + ciphertext
+        let iv_and_ciphertext = [&iv[..], &ciphertext[..]].concat();
+        let calculated_hmac = calculate_hmacsha256(&derived_key[32..], &iv_and_ciphertext)?;
+        if calculated_hmac != hmac_sha256 {
+            return Err(Error::WrongPassword);
+        }
+
+        // Decrypt the ciphertext using AES-256-CBC
+        let mut decrypted_data = ciphertext;
+        use aes::cipher::{block_padding::Pkcs7, BlockDecryptMut, KeyIvInit};
+        type Aes256CbcDec = cbc::Decryptor<aes::Aes256>;
+
+        let plaintext = Aes256CbcDec::new_from_slices(&derived_key[..32], &iv)?
+            .decrypt_padded_mut::<Pkcs7>(&mut decrypted_data)?;
+
+        // Parse the plaintext structure
+        let mut reader = std::io::Cursor::new(plaintext);
+
+        // Read encryption version (4 bytes)
+        let encryption_version = reader.read_u32::<BigEndian>()?;
+        if encryption_version != 3 {
+            return Err(Error::InvalidFormat(format!(
+                "Unsupported encryption version: {}",
+                encryption_version
+            )));
+        }
+
+        // Read encryption key length (8 bytes) and key
+        let encryption_key_length = reader.read_u64::<BigEndian>()?;
+        if encryption_key_length != 32 {
+            return Err(Error::InvalidFormat(format!(
+                "Invalid encryption key length: {}",
+                encryption_key_length
+            )));
+        }
+        let encryption_key = reader.read_bytes(32)?;
+
+        // Read HMAC key length (8 bytes) and key
+        let hmac_key_length = reader.read_u64::<BigEndian>()?;
+        if hmac_key_length != 32 {
+            return Err(Error::InvalidFormat(format!(
+                "Invalid HMAC key length: {}",
+                hmac_key_length
+            )));
+        }
+        let hmac_key = reader.read_bytes(32)?;
+
+        // Read blob identifier salt length (8 bytes) and salt
+        let salt_length = reader.read_u64::<BigEndian>()?;
+        if salt_length != 32 {
+            return Err(Error::InvalidFormat(format!(
+                "Invalid salt length: {}",
+                salt_length
+            )));
+        }
+        let blob_identifier_salt = reader.read_bytes(32)?;
+
+        Ok(EncryptedKeySet {
+            encryption_key,
+            hmac_key,
+            blob_identifier_salt,
+        })
+    }
+}
+
+/// Helper function to detect if a file is encrypted by checking for ARQO header
+fn is_file_encrypted<P: AsRef<Path>>(path: P) -> Result<bool> {
+    let mut file = File::open(path)?;
+    let mut header = [0u8; 4];
+    match file.read_exact(&mut header) {
+        Ok(()) => Ok(header == [65, 82, 81, 79]), // "ARQO"
+        Err(_) => Ok(false), // File too small or other error, assume not encrypted
+    }
+}
+
+/// Helper function to decrypt an encrypted JSON file
+fn decrypt_json_file<P: AsRef<Path>>(path: P, keyset: &EncryptedKeySet) -> Result<String> {
+    let file = File::open(path)?;
+    let mut reader = BufReader::new(file);
+
+    // Load as EncryptedObject
+    let encrypted_obj = EncryptedObject::new(&mut reader)?;
+
+    // Validate and decrypt using the first master key (encryption key)
+    encrypted_obj.validate(&keyset.hmac_key)?;
+    let decrypted_data = encrypted_obj.decrypt(&keyset.encryption_key[..32])?;
+
+    // Convert to string
+    String::from_utf8(decrypted_data).map_err(|_| Error::ParseError)
+}
+
+/// Helper function to load JSON from either encrypted or unencrypted file
+fn load_json_with_encryption<T, P>(path: P, keyset: Option<&EncryptedKeySet>) -> Result<T>
+where
+    T: for<'de> serde::Deserialize<'de>,
+    P: AsRef<Path>,
+{
+    let path_ref = path.as_ref();
+
+    if let Some(keyset) = keyset {
+        // Check if file is encrypted
+        if is_file_encrypted(path_ref)? {
+            // Decrypt and parse
+            let json_content = decrypt_json_file(path_ref, keyset)?;
+            return Ok(serde_json::from_str(&json_content)?);
+        }
+    }
+
+    // Load as regular unencrypted file
+    let file = File::open(path_ref)?;
+    let reader = BufReader::new(file);
+    Ok(serde_json::from_reader(reader)?)
+}
 
 /// BackupConfig represents the backupconfig.json file
 ///
@@ -500,6 +700,26 @@ pub struct BackupSet {
     pub backup_plan: BackupPlan,
     pub backup_folder_configs: HashMap<String, BackupFolder>,
     pub backup_records: HashMap<String, Vec<BackupRecord>>,
+    pub encryption_keyset: Option<EncryptedKeySet>,
+}
+
+#[derive(Debug, Default)]
+pub struct BackupStatistics {
+    pub folder_count: u32,
+    pub record_count: u32,
+    pub total_files: u32,
+    pub total_size: u64,
+    pub complete_backups: u32,
+}
+
+#[derive(Debug, Default)]
+pub struct IntegrityReport {
+    pub total_blobs: u32,
+    pub valid_blobs: u32,
+    pub invalid_blobs: u32,
+    pub total_blob_size: u64,
+    pub treepacks_exist: bool,
+    pub blobpacks_exist: bool,
 }
 
 impl BackupConfig {
@@ -523,8 +743,15 @@ impl BackupFolders {
 
     /// Load BackupFolders from a file path
     pub fn from_file<P: AsRef<std::path::Path>>(path: P) -> Result<Self> {
-        let file = std::fs::File::open(path)?;
-        Self::from_reader(file)
+        Self::from_file_with_encryption(path, None)
+    }
+
+    /// Load BackupFolders from file, optionally decrypting if needed
+    pub fn from_file_with_encryption<P: AsRef<Path>>(
+        path: P,
+        keyset: Option<&EncryptedKeySet>,
+    ) -> Result<BackupFolders> {
+        load_json_with_encryption(path, keyset)
     }
 }
 
@@ -536,8 +763,15 @@ impl BackupPlan {
 
     /// Load a BackupPlan from a file path
     pub fn from_file<P: AsRef<std::path::Path>>(path: P) -> Result<Self> {
-        let file = std::fs::File::open(path)?;
-        Self::from_reader(file)
+        Self::from_file_with_encryption(path, None)
+    }
+
+    /// Load BackupPlan from file, optionally decrypting if needed
+    pub fn from_file_with_encryption<P: AsRef<Path>>(
+        path: P,
+        keyset: Option<&EncryptedKeySet>,
+    ) -> Result<BackupPlan> {
+        load_json_with_encryption(path, keyset)
     }
 }
 
@@ -549,8 +783,15 @@ impl BackupFolder {
 
     /// Load a BackupFolder from a file path
     pub fn from_file<P: AsRef<std::path::Path>>(path: P) -> Result<Self> {
-        let file = std::fs::File::open(path)?;
-        Self::from_reader(file)
+        Self::from_file_with_encryption(path, None)
+    }
+
+    /// Load BackupFolder from file, optionally decrypting if needed
+    pub fn from_file_with_encryption<P: AsRef<Path>>(
+        path: P,
+        keyset: Option<&EncryptedKeySet>,
+    ) -> Result<BackupFolder> {
+        load_json_with_encryption(path, keyset)
     }
 }
 
@@ -560,23 +801,65 @@ impl Node {
         &self,
         backup_set_path: &std::path::Path,
     ) -> Result<Option<binary::BinaryTree>> {
-        if let Some(tree_blob_loc) = &self.tree_blob_loc {
-            // Convert JSON BlobLoc to binary BlobLoc format for loading
-            let binary_blob_loc = BlobLoc {
-                blob_identifier: tree_blob_loc.blob_identifier.clone(),
-                compression_type: tree_blob_loc.compression_type,
-                is_packed: tree_blob_loc.is_packed,
-                length: tree_blob_loc.length,
-                offset: tree_blob_loc.offset,
-                relative_path: tree_blob_loc.relative_path.clone(),
-                stretch_encryption_key: tree_blob_loc.stretch_encryption_key,
-                is_large_pack: tree_blob_loc.is_large_pack,
-            };
+        self.load_tree_with_encryption(backup_set_path, None)
+    }
 
-            Ok(Some(tree_blob_loc.load_tree(backup_set_path)?))
+    /// Load tree data with encryption support
+    pub fn load_tree_with_encryption<P: AsRef<Path>>(
+        &self,
+        backup_set_dir: P,
+        keyset: Option<&EncryptedKeySet>,
+    ) -> Result<Option<binary::BinaryTree>> {
+        if let Some(tree_blob_loc) = &self.tree_blob_loc {
+            tree_blob_loc.load_tree_with_encryption(backup_set_dir.as_ref(), keyset)
         } else {
             Ok(None)
         }
+    }
+
+    /// Load data blob locations with encryption support
+    pub fn load_data_blobs_with_encryption<P: AsRef<Path>>(
+        &self,
+        backup_set_dir: P,
+        keyset: Option<&EncryptedKeySet>,
+    ) -> Result<Vec<Vec<u8>>> {
+        let mut data_chunks = Vec::new();
+        let backup_set_dir = backup_set_dir.as_ref();
+
+        for blob_loc in &self.data_blob_locs {
+            let data = blob_loc.load_data(backup_set_dir, keyset)?;
+            data_chunks.push(data);
+        }
+
+        Ok(data_chunks)
+    }
+
+    /// Reconstruct complete file data with encryption support
+    pub fn reconstruct_file_data_with_encryption<P: AsRef<Path>>(
+        &self,
+        backup_set_dir: P,
+        keyset: Option<&EncryptedKeySet>,
+    ) -> Result<Vec<u8>> {
+        let data_chunks = self.load_data_blobs_with_encryption(backup_set_dir.as_ref(), keyset)?;
+        Ok(data_chunks.into_iter().flatten().collect())
+    }
+
+    /// Extract complete file to path with encryption support
+    pub fn extract_file_with_encryption<P1: AsRef<Path>, P2: AsRef<Path>>(
+        &self,
+        backup_set_dir: P1,
+        output_path: P2,
+        keyset: Option<&EncryptedKeySet>,
+    ) -> Result<()> {
+        if self.is_tree {
+            return Err(Error::InvalidFormat(
+                "Cannot extract directory as file".to_string(),
+            ));
+        }
+
+        let file_data = self.reconstruct_file_data_with_encryption(backup_set_dir, keyset)?;
+        std::fs::write(output_path, file_data)?;
+        Ok(())
     }
 
     /// Convert a binary::BinaryNode to a Node for recursive traversal
@@ -672,7 +955,104 @@ impl BackupSet {
             backup_plan,
             backup_folder_configs,
             backup_records,
+            encryption_keyset: None,
         })
+    }
+
+    /// Add method to load with explicit password
+    pub fn from_directory_with_password<P: AsRef<Path>>(
+        dir_path: P,
+        password: Option<&str>,
+    ) -> Result<BackupSet> {
+        let dir_path = dir_path.as_ref();
+
+        // Load backup config first to check if encrypted
+        let config_path = dir_path.join("backupconfig.json");
+        let backup_config = BackupConfig::from_file(&config_path)?;
+
+        // Load encryption keyset if this is an encrypted backup
+        let encryption_keyset = if backup_config.is_encrypted {
+            let keyset_path = dir_path.join("encryptedkeyset.dat");
+            if keyset_path.exists() {
+                match password {
+                    Some(pwd) => Some(EncryptedKeySet::from_file(&keyset_path, pwd)?),
+                    None => {
+                        return Err(Error::InvalidFormat(
+                            "Encrypted backup requires password".to_string(),
+                        ))
+                    }
+                }
+            } else {
+                return Err(Error::InvalidFormat(
+                    "Encrypted backup missing encryptedkeyset.dat".to_string(),
+                ));
+            }
+        } else {
+            None
+        };
+
+        // Load other components with encryption support
+        let folders_path = dir_path.join("backupfolders.json");
+        let backup_folders =
+            BackupFolders::from_file_with_encryption(&folders_path, encryption_keyset.as_ref())?;
+
+        let plan_path = dir_path.join("backupplan.json");
+        let backup_plan =
+            BackupPlan::from_file_with_encryption(&plan_path, encryption_keyset.as_ref())?;
+
+        // Load backup folder configs
+        let mut backup_folder_configs = HashMap::new();
+        let backupfolders_dir = dir_path.join("backupfolders");
+        if backupfolders_dir.exists() {
+            for entry in std::fs::read_dir(&backupfolders_dir)? {
+                let entry = entry?;
+                if entry.file_type()?.is_dir() {
+                    let folder_uuid = entry.file_name().to_string_lossy().to_string();
+                    let config_path = entry.path().join("backupfolder.json");
+                    if config_path.exists() {
+                        match BackupFolder::from_file_with_encryption(
+                            &config_path,
+                            encryption_keyset.as_ref(),
+                        ) {
+                            Ok(folder_config) => {
+                                backup_folder_configs.insert(folder_uuid.clone(), folder_config);
+                            }
+                            Err(e) => {
+                                eprintln!(
+                                    "Warning: Failed to load folder config for {}: {}",
+                                    folder_uuid, e
+                                );
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // Load backup records
+        let backup_records = Self::load_backup_records_with_encryption(
+            &backupfolders_dir,
+            encryption_keyset.as_ref(),
+        )?;
+
+        Ok(BackupSet {
+            backup_config,
+            backup_folders,
+            backup_plan,
+            backup_folder_configs,
+            backup_records,
+            encryption_keyset,
+        })
+    }
+
+    /// Get a reference to the encryption keyset if available
+    pub fn encryption_keyset(&self) -> Option<&EncryptedKeySet> {
+        self.encryption_keyset.as_ref()
+    }
+
+    /// Check if this backup set is encrypted
+    pub fn is_encrypted(&self) -> bool {
+        self.backup_config.is_encrypted
     }
 
     /// Recursively load backup record files from a directory
@@ -700,34 +1080,358 @@ impl BackupSet {
         }
         Ok(())
     }
+
+    fn load_backup_records_with_encryption(
+        backupfolders_dir: &Path,
+        keyset: Option<&EncryptedKeySet>,
+    ) -> Result<HashMap<String, Vec<BackupRecord>>> {
+        let mut backup_records = HashMap::new();
+
+        if !backupfolders_dir.exists() {
+            return Ok(backup_records);
+        }
+
+        for entry in std::fs::read_dir(backupfolders_dir)? {
+            let entry = entry?;
+            if entry.file_type()?.is_dir() {
+                let folder_uuid = entry.file_name().to_string_lossy().to_string();
+                let records_dir = entry.path().join("backuprecords");
+
+                if records_dir.exists() {
+                    let mut folder_records = Vec::new();
+
+                    // Recursively traverse backup records directories
+                    fn collect_records(
+                        dir: &Path,
+                        records: &mut Vec<BackupRecord>,
+                        keyset: Option<&EncryptedKeySet>,
+                    ) -> Result<()> {
+                        for entry in std::fs::read_dir(dir)? {
+                            let entry = entry?;
+                            let path = entry.path();
+
+                            if path.is_dir() {
+                                collect_records(&path, records, keyset)?;
+                            } else if path.extension().map_or(false, |ext| ext == "backuprecord") {
+                                match BackupRecord::from_file_with_encryption(&path, keyset) {
+                                    Ok(record) => records.push(record),
+                                    Err(e) => {
+                                        eprintln!(
+                                            "Warning: Failed to load backup record {:?}: {}",
+                                            path, e
+                                        );
+                                    }
+                                }
+                            }
+                        }
+                        Ok(())
+                    }
+
+                    if let Err(e) = collect_records(&records_dir, &mut folder_records, keyset) {
+                        eprintln!(
+                            "Warning: Failed to load backup records for folder {}: {}",
+                            folder_uuid, e
+                        );
+                    }
+
+                    if !folder_records.is_empty() {
+                        backup_records.insert(folder_uuid, folder_records);
+                    }
+                }
+            }
+        }
+
+        Ok(backup_records)
+    }
+
+    /// Find and collect all blob locations from the backup set
+    pub fn find_all_blob_locations(&self) -> Vec<&BlobLoc> {
+        let mut blob_locations = Vec::new();
+
+        for (_, records) in &self.backup_records {
+            for record in records {
+                collect_blob_locations_from_node(&record.node, &mut blob_locations);
+            }
+        }
+
+        blob_locations
+    }
+
+    /// Extract a file from the backup set with full encryption support
+    pub fn extract_file_by_path<P1: AsRef<Path>, P2: AsRef<Path>>(
+        &self,
+        backup_set_dir: P1,
+        file_path: &str,
+        output_path: P2,
+    ) -> Result<()> {
+        // Find the file in the backup records
+        for (_, records) in &self.backup_records {
+            for record in records {
+                if let Some(node) =
+                    self.find_node_by_path(&record.node, file_path, backup_set_dir.as_ref())?
+                {
+                    if !node.is_tree {
+                        return node.extract_file_with_encryption(
+                            backup_set_dir,
+                            output_path,
+                            self.encryption_keyset.as_ref(),
+                        );
+                    }
+                }
+            }
+        }
+
+        Err(Error::InvalidFormat(format!(
+            "File not found: {}",
+            file_path
+        )))
+    }
+
+    /// Recursively find a node by path
+    fn find_node_by_path(
+        &self,
+        node: &Node,
+        target_path: &str,
+        backup_set_dir: &Path,
+    ) -> Result<Option<Node>> {
+        let path_parts: Vec<&str> = target_path.trim_start_matches('/').split('/').collect();
+        self.find_node_recursive(node, &path_parts, 0, backup_set_dir)
+    }
+
+    fn find_node_recursive(
+        &self,
+        node: &Node,
+        path_parts: &[&str],
+        depth: usize,
+        backup_set_dir: &Path,
+    ) -> Result<Option<Node>> {
+        if depth >= path_parts.len() {
+            return Ok(Some(node.clone()));
+        }
+
+        if !node.is_tree {
+            return Ok(None);
+        }
+
+        // Load the tree data
+        if let Some(tree) =
+            node.load_tree_with_encryption(backup_set_dir, self.encryption_keyset.as_ref())?
+        {
+            let target_name = path_parts[depth];
+
+            if let Some(child_binary_node) = tree.child_nodes.get(target_name) {
+                let child_node = Node::from_binary_node(child_binary_node);
+                return self.find_node_recursive(
+                    &child_node,
+                    path_parts,
+                    depth + 1,
+                    backup_set_dir,
+                );
+            }
+        }
+
+        Ok(None)
+    }
+
+    /// List all files in the backup set
+    pub fn list_all_files<P: AsRef<Path>>(&self, backup_set_dir: P) -> Result<Vec<String>> {
+        let mut files = Vec::new();
+        let backup_set_dir = backup_set_dir.as_ref();
+
+        for (_, records) in &self.backup_records {
+            for record in records {
+                self.collect_files_recursive(
+                    &record.node,
+                    String::new(),
+                    &mut files,
+                    backup_set_dir,
+                )?;
+            }
+        }
+
+        Ok(files)
+    }
+
+    fn collect_files_recursive(
+        &self,
+        node: &Node,
+        current_path: String,
+        files: &mut Vec<String>,
+        backup_set_dir: &Path,
+    ) -> Result<()> {
+        if !node.is_tree {
+            // This is a file
+            if !current_path.is_empty() {
+                files.push(current_path);
+            }
+            return Ok(());
+        }
+
+        // This is a directory, traverse its children
+        if let Some(tree) =
+            node.load_tree_with_encryption(backup_set_dir, self.encryption_keyset.as_ref())?
+        {
+            for (name, child_binary_node) in &tree.child_nodes {
+                let child_node = Node::from_binary_node(child_binary_node);
+                let child_path = if current_path.is_empty() {
+                    name.clone()
+                } else {
+                    format!("{}/{}", current_path, name)
+                };
+
+                self.collect_files_recursive(&child_node, child_path, files, backup_set_dir)?;
+            }
+        }
+
+        Ok(())
+    }
+
+    /// Get backup statistics
+    pub fn get_statistics<P: AsRef<Path>>(&self, backup_set_dir: P) -> Result<BackupStatistics> {
+        let mut stats = BackupStatistics::default();
+        let backup_set_dir = backup_set_dir.as_ref();
+
+        for (_, records) in &self.backup_records {
+            stats.folder_count += 1;
+            stats.record_count += records.len() as u32;
+
+            for record in records {
+                let (file_count, total_size) = count_files_in_node(
+                    &record.node,
+                    backup_set_dir,
+                    self.encryption_keyset.as_ref(),
+                )?;
+
+                stats.total_files += file_count;
+                stats.total_size += total_size;
+
+                if record.is_complete.unwrap_or(false) {
+                    stats.complete_backups += 1;
+                }
+            }
+        }
+
+        Ok(stats)
+    }
+
+    /// Verify backup integrity by checking all blob locations
+    pub fn verify_integrity<P: AsRef<Path>>(&self, backup_set_dir: P) -> Result<IntegrityReport> {
+        let mut report = IntegrityReport::default();
+        let backup_set_dir = backup_set_dir.as_ref();
+
+        // Check all blob locations
+        let blob_locations = self.find_all_blob_locations();
+        report.total_blobs = blob_locations.len() as u32;
+
+        for blob_loc in blob_locations {
+            match blob_loc.load_data(backup_set_dir, self.encryption_keyset.as_ref()) {
+                Ok(data) => {
+                    report.valid_blobs += 1;
+                    report.total_blob_size += data.len() as u64;
+                }
+                Err(e) => {
+                    report.invalid_blobs += 1;
+                    eprintln!(
+                        "Warning: Failed to load blob {}: {}",
+                        blob_loc.blob_identifier, e
+                    );
+                }
+            }
+        }
+
+        // Check pack files exist
+        let treepacks_dir = backup_set_dir.join("treepacks");
+        let blobpacks_dir = backup_set_dir.join("blobpacks");
+
+        report.treepacks_exist = treepacks_dir.exists();
+        report.blobpacks_exist = blobpacks_dir.exists();
+
+        Ok(report)
+    }
 }
 
 impl BackupRecord {
     /// Load a BackupRecord from a file path
     /// The file format is: 4-byte big-endian length + LZ4-compressed JSON data
-    pub fn from_file<P: AsRef<std::path::Path>>(path: P) -> Result<Self> {
-        let mut file = std::fs::File::open(path)?;
-        Self::from_reader(&mut file)
+    pub fn from_file<P: AsRef<Path>>(path: P) -> Result<Self> {
+        Self::from_file_with_encryption(path, None)
+    }
+
+    /// Load BackupRecord from file, optionally decrypting if needed
+    pub fn from_file_with_encryption<P: AsRef<Path>>(
+        path: P,
+        keyset: Option<&EncryptedKeySet>,
+    ) -> Result<BackupRecord> {
+        let path_ref = path.as_ref();
+        let file = File::open(path_ref)?;
+        let mut reader = BufReader::new(file);
+
+        Self::from_reader_with_encryption(&mut reader, keyset)
     }
 
     /// Load a BackupRecord from a reader
-    pub fn from_reader<R: std::io::Read>(mut reader: R) -> Result<Self> {
-        use byteorder::{BigEndian, ReadBytesExt};
-        use std::io::Read;
+    pub fn from_reader<R: BufRead>(reader: R) -> Result<Self> {
+        Self::from_reader_with_encryption(reader, None)
+    }
 
-        // Read the 4-byte decompressed length header
-        let decompressed_length = reader.read_u32::<BigEndian>()?;
+    /// Load BackupRecord from reader, optionally decrypting if needed
+    pub fn from_reader_with_encryption<R: BufRead>(
+        mut reader: R,
+        keyset: Option<&EncryptedKeySet>,
+    ) -> Result<BackupRecord> {
+        let data = if let Some(keyset) = keyset {
+            // Check if this is an encrypted file by peeking at the header
+            let mut header = [0u8; 4];
+            reader.read_exact(&mut header)?;
 
-        // Read all remaining compressed data
-        let mut compressed_data = Vec::new();
-        reader.read_to_end(&mut compressed_data)?;
+            if header == [65, 82, 81, 79] {
+                // "ARQO" - encrypted
+                // Read the rest of the file as encrypted object
+                let mut encrypted_data = Vec::new();
+                reader.read_to_end(&mut encrypted_data)?;
 
-        // Decompress using LZ4 with known decompressed size
-        let decompressed = lz4_flex::decompress(&compressed_data, decompressed_length as usize)?;
+                // Reconstruct the full encrypted object data with header
+                let mut full_data = header.to_vec();
+                full_data.extend(encrypted_data);
 
-        // Parse JSON
-        let record: BackupRecord = serde_json::from_slice(&decompressed)?;
-        Ok(record)
+                let mut cursor = std::io::Cursor::new(&full_data);
+                let encrypted_obj = EncryptedObject::new(&mut cursor)?;
+                encrypted_obj.validate(&keyset.hmac_key)?;
+                let decrypted_data = encrypted_obj.decrypt(&keyset.encryption_key[..])?;
+
+                // Decrypted data follows the same format as unencrypted records:
+                // 4-byte length + LZ4-compressed JSON
+                if decrypted_data.len() < 4 {
+                    return Err(Error::InvalidFormat("Decrypted data too short".to_string()));
+                }
+                let length = u32::from_be_bytes([
+                    decrypted_data[0],
+                    decrypted_data[1],
+                    decrypted_data[2],
+                    decrypted_data[3],
+                ]) as usize;
+                let compressed_data = &decrypted_data[4..];
+                lz4_flex::block::decompress(compressed_data, length)?
+            } else {
+                // Not encrypted, read the rest normally
+                // The header we read was the length prefix for LZ4
+                let length = u32::from_be_bytes(header) as usize;
+                let mut compressed_data = Vec::new();
+                reader.read_to_end(&mut compressed_data)?;
+
+                lz4_flex::block::decompress(&compressed_data, length)?
+            }
+        } else {
+            // No encryption support, load normally
+            let length = reader.read_u32::<BigEndian>()? as usize;
+            let mut compressed = Vec::new();
+            reader.read_to_end(&mut compressed)?;
+            lz4_flex::block::decompress(&compressed, length)?
+        };
+
+        // Parse the JSON
+        let json_str = String::from_utf8(data)?;
+        Ok(serde_json::from_str(&json_str)?)
     }
 }
 
@@ -746,28 +1450,143 @@ impl BlobLoc {
         }
     }
 
-    /// Load the actual blob data from a pack file or standalone object
-    pub fn load_data(&self, backup_set_path: &std::path::Path) -> Result<Vec<u8>> {
-        // Handle different relative path formats:
-        // 1. JSON format: "/FD5575D9-B7E1-43D9-B29C-B54ACC9BC2A9/treepacks/..."
-        // 2. Binary format paths: "/FD5575D9-B7E1-43D9-B29C-B54ACC9BC2A9/blobpacks/..."
-        let blob_path = {
-            // Handle normal paths with UUID prefix - strip the UUID part
-            let path_parts: Vec<&str> = self.relative_path.split('/').collect();
-            let path_without_uuid = if path_parts.len() > 2 && !path_parts[1].is_empty() {
-                // Skip the UUID part (first non-empty component)
-                path_parts[2..].join("/")
-            } else {
-                // Fallback to removing just the leading slash
-                self.relative_path.trim_start_matches('/').to_string()
-            };
-            backup_set_path.join(&path_without_uuid)
-        };
+    /// Load data from this blob location, with optional encryption support
+    pub fn load_data<P: AsRef<Path>>(
+        &self,
+        backup_set_dir: P,
+        keyset: Option<&EncryptedKeySet>,
+    ) -> Result<Vec<u8>> {
+        let backup_set_dir = backup_set_dir.as_ref();
 
-        self.load_from_pack_file(&blob_path)
+        if self.is_packed {
+            self.load_from_pack_file_with_encryption(backup_set_dir, keyset)
+        } else {
+            // Load from standalone file
+            let file_path = backup_set_dir.join(&self.relative_path);
+            self.load_standalone_file_with_encryption(&file_path, keyset)
+        }
     }
 
-    /// Load data from a specific pack file
+    /// Load the actual blob data from a pack file or standalone object (legacy method)
+    pub fn load_data_legacy(&self, backup_set_path: &std::path::Path) -> Result<Vec<u8>> {
+        self.load_data(backup_set_path, None)
+    }
+
+    /// Load data from standalone file with encryption support
+    fn load_standalone_file_with_encryption(
+        &self,
+        file_path: &Path,
+        keyset: Option<&EncryptedKeySet>,
+    ) -> Result<Vec<u8>> {
+        let file = File::open(file_path)?;
+        let mut reader = BufReader::new(file);
+
+        let data = if let Some(keyset) = keyset {
+            // Check if this is an encrypted file
+            let mut header = [0u8; 4];
+            reader.read_exact(&mut header)?;
+
+            if header == [65, 82, 81, 79] {
+                // "ARQO" - encrypted
+                // Seek back and decrypt
+                reader.seek(SeekFrom::Start(0))?;
+                let encrypted_obj = EncryptedObject::new(&mut reader)?;
+                encrypted_obj.validate(&keyset.hmac_key)?;
+                encrypted_obj.decrypt(&keyset.encryption_key[..32])?
+            } else {
+                // Not encrypted, read normally
+                reader.seek(SeekFrom::Start(0))?;
+                let mut data = Vec::new();
+                reader.read_to_end(&mut data)?;
+                data
+            }
+        } else {
+            // No encryption support
+            let mut data = Vec::new();
+            reader.read_to_end(&mut data)?;
+            data
+        };
+
+        // Decompress if needed
+        match self.compression_type {
+            0 => Ok(data), // No compression
+            1 => {
+                // Gzip compression (legacy)
+                use std::io::Read;
+                let mut decoder = flate2::read::GzDecoder::new(&data[..]);
+                let mut decompressed = Vec::new();
+                decoder.read_to_end(&mut decompressed)?;
+                Ok(decompressed)
+            }
+            2 => {
+                // LZ4 compression
+                Ok(lz4_flex::block::decompress_size_prepended(&data)?)
+            }
+            _ => Err(Error::InvalidFormat(format!(
+                "Unsupported compression type: {}",
+                self.compression_type
+            ))),
+        }
+    }
+
+    /// Load data from pack file with encryption support
+    fn load_from_pack_file_with_encryption(
+        &self,
+        backup_set_dir: &Path,
+        keyset: Option<&EncryptedKeySet>,
+    ) -> Result<Vec<u8>> {
+        let pack_file_path = backup_set_dir.join(&self.relative_path);
+
+        let mut file = File::open(&pack_file_path)?;
+
+        // Seek to the blob's offset
+        file.seek(SeekFrom::Start(self.offset))?;
+
+        // Read the blob data
+        let mut blob_data = vec![0u8; self.length as usize];
+        file.read_exact(&mut blob_data)?;
+
+        // Handle encryption if present
+        let data = if let Some(keyset) = keyset {
+            // Check if this blob is encrypted
+            if blob_data.len() >= 4 && &blob_data[0..4] == [65, 82, 81, 79] {
+                // "ARQO"
+                // This blob is encrypted
+                let mut cursor = std::io::Cursor::new(&blob_data);
+                let encrypted_obj = EncryptedObject::new(&mut cursor)?;
+                encrypted_obj.validate(&keyset.hmac_key)?;
+                encrypted_obj.decrypt(&keyset.encryption_key[..32])?
+            } else {
+                // Not encrypted
+                blob_data
+            }
+        } else {
+            blob_data
+        };
+
+        // Decompress if needed
+        match self.compression_type {
+            0 => Ok(data), // No compression
+            1 => {
+                // Gzip compression (legacy)
+                use std::io::Read;
+                let mut decoder = flate2::read::GzDecoder::new(&data[..]);
+                let mut decompressed = Vec::new();
+                decoder.read_to_end(&mut decompressed)?;
+                Ok(decompressed)
+            }
+            2 => {
+                // LZ4 compression
+                Ok(lz4_flex::block::decompress_size_prepended(&data)?)
+            }
+            _ => Err(Error::InvalidFormat(format!(
+                "Unsupported compression type: {}",
+                self.compression_type
+            ))),
+        }
+    }
+
+    /// Load data from a specific pack file (legacy method)
     fn load_from_pack_file(&self, blob_path: &std::path::Path) -> Result<Vec<u8>> {
         use std::io::{Read, Seek};
 
@@ -841,35 +1660,56 @@ impl BlobLoc {
 
     /// Load and parse a tree from this blob location
     pub fn load_tree(&self, backup_set_path: &std::path::Path) -> Result<binary::BinaryTree> {
-        let data = self.load_data(backup_set_path)?;
+        match self.load_tree_with_encryption(backup_set_path, None)? {
+            Some(tree) => Ok(tree),
+            None => Err(Error::InvalidFormat("No tree data found".to_string())),
+        }
+    }
 
-        // For standalone objects, load_data already handles decompression
-        let mut cursor = std::io::Cursor::new(&data);
-        binary::BinaryTree::from_reader(&mut cursor)
+    /// Load and parse as binary tree with encryption support
+    pub fn load_tree_with_encryption(
+        &self,
+        backup_set_dir: &Path,
+        keyset: Option<&EncryptedKeySet>,
+    ) -> Result<Option<binary::BinaryTree>> {
+        let data = self.load_data(backup_set_dir, keyset)?;
+
+        if data.is_empty() {
+            return Ok(None);
+        }
+
+        let tree = binary::BinaryTree::from_compressed_data(&data)?;
+        Ok(Some(tree))
     }
 
     /// Load and parse a node from this blob location
     pub fn load_node(
         &self,
         backup_set_path: &std::path::Path,
-        tree_version: Option<u32>,
-    ) -> Result<binary::BinaryNode> {
-        let data = self.load_data(backup_set_path)?;
+    ) -> Result<Option<binary::BinaryNode>> {
+        self.load_node_with_encryption(backup_set_path, None)
+    }
 
-        // Parse as LZ4-compressed binary node
+    /// Load and parse as binary node with encryption support
+    pub fn load_node_with_encryption(
+        &self,
+        backup_set_dir: &Path,
+        keyset: Option<&EncryptedKeySet>,
+    ) -> Result<Option<binary::BinaryNode>> {
+        let data = self.load_data(backup_set_dir, keyset)?;
+
+        if data.is_empty() {
+            return Ok(None);
+        }
+
         let mut cursor = std::io::Cursor::new(&data);
-        let decompressed_length = cursor.read_u32::<BigEndian>()?;
-
-        let compressed_data = &data[4..];
-        let decompressed = lz4_flex::decompress(compressed_data, decompressed_length as usize)?;
-
-        let mut decompressed_cursor = std::io::Cursor::new(decompressed);
-        binary::BinaryNode::from_reader(&mut decompressed_cursor, tree_version)
+        let node = binary::BinaryNode::from_reader(&mut cursor, None)?;
+        Ok(Some(node))
     }
 
     /// Extract the actual file content from this blob location
     pub fn extract_content(&self, backup_set_path: &std::path::Path) -> Result<Vec<u8>> {
-        self.load_data(backup_set_path)
+        self.load_data(backup_set_path, None)
     }
 
     /// Extract file content as a UTF-8 string (for text files)
@@ -886,6 +1726,18 @@ impl BlobLoc {
     ) -> Result<()> {
         let content = self.extract_content(backup_set_path)?;
         std::fs::write(output_path, content)?;
+        Ok(())
+    }
+
+    /// Extract content to file with encryption support
+    pub fn extract_to_file_with_encryption<P1: AsRef<Path>, P2: AsRef<Path>>(
+        &self,
+        backup_set_dir: P1,
+        output_path: P2,
+        keyset: Option<&EncryptedKeySet>,
+    ) -> Result<()> {
+        let data = self.load_data(backup_set_dir.as_ref(), keyset)?;
+        std::fs::write(output_path, data)?;
         Ok(())
     }
 }
@@ -910,39 +1762,64 @@ impl BackupSet {
 
         for records in self.backup_records.values() {
             for record in records {
-                self.collect_blob_locations_from_node(
-                    &record.node,
-                    String::new(),
-                    &mut blob_locations,
-                );
+                // Note: This is a placeholder for real blob location collection
+                // The actual implementation would traverse the tree structure
+                if let Some(tree_blob_loc) = &record.node.tree_blob_loc {
+                    blob_locations.push((String::new(), tree_blob_loc.relative_path.clone()));
+                }
             }
         }
 
         blob_locations
     }
+}
 
-    /// Recursively collect blob locations from a node tree
-    fn collect_blob_locations_from_node(
-        &self,
-        node: &Node,
-        path: String,
-        blob_locations: &mut Vec<(String, String)>,
-    ) {
-        // Collect data blob locations (for files)
-        for blob_loc in &node.data_blob_locs {
-            blob_locations.push((path.clone(), blob_loc.relative_path.clone()));
-        }
+/// Recursively collect blob locations from a node tree
+fn collect_blob_locations_from_node<'a>(node: &'a Node, blob_locations: &mut Vec<&'a BlobLoc>) {
+    // Add data blob locations from this node
+    for blob_loc in &node.data_blob_locs {
+        blob_locations.push(blob_loc);
+    }
 
-        // If this is a tree, try to load and traverse children
-        if node.is_tree {
-            if let Some(tree_blob_loc) = &node.tree_blob_loc {
-                blob_locations.push((
-                    format!("{}/tree", path),
-                    tree_blob_loc.relative_path.clone(),
-                ));
-            }
+    // Add tree blob location if present
+    if let Some(tree_blob_loc) = &node.tree_blob_loc {
+        blob_locations.push(tree_blob_loc);
+    }
+
+    // Add xattrs blob locations if present
+    if let Some(xattrs_blob_locs) = &node.xattrs_blob_locs {
+        for blob_loc in xattrs_blob_locs {
+            blob_locations.push(blob_loc);
         }
     }
+}
+
+/// Helper function for metadata extraction
+fn count_files_in_node(
+    node: &Node,
+    backup_set_dir: &Path,
+    keyset: Option<&EncryptedKeySet>,
+) -> Result<(u32, u64)> {
+    if !node.is_tree {
+        // This is a file
+        let size = node.item_size;
+        return Ok((1, size));
+    }
+
+    // This is a directory
+    let mut file_count = 0u32;
+    let mut total_size = 0u64;
+
+    if let Some(tree) = node.load_tree_with_encryption(backup_set_dir, keyset)? {
+        for (_, child_node) in &tree.child_nodes {
+            let child = Node::from_binary_node(child_node);
+            let (child_files, child_size) = count_files_in_node(&child, backup_set_dir, keyset)?;
+            file_count += child_files;
+            total_size += child_size;
+        }
+    }
+
+    Ok((file_count, total_size))
 }
 
 #[cfg(test)]
