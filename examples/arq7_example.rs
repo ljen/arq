@@ -10,7 +10,7 @@ use std::path::Path;
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Path to an Arq 7 backup set directory
     // let backup_set_path = "tests/arq_storage_location/D1154AC6-01EB-41FE-B115-114464350B92";
-    let backup_set_path = "tests/arq_storage_location/2E7BB0B6-BE5B-4A86-9E51-10FE730E1104";
+    let backup_set_path = "./tests/arq_storage_location/2E7BB0B6-BE5B-4A86-9E51-10FE730E1104";
 
     println!("🔍 Loading Arq 7 backup set from: {}", backup_set_path);
     println!("{}", "=".repeat(60));

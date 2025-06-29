@@ -1450,6 +1450,22 @@ impl BlobLoc {
         }
     }
 
+    /// Normalize relative path to handle absolute paths that should be treated as relative
+    fn normalize_relative_path(&self, backup_set_dir: &Path) -> std::path::PathBuf {
+        // Handle different relative path formats:
+        // 1. JSON format: "/FD5575D9-B7E1-43D9-B29C-B54ACC9BC2A9/treepacks/..."
+        // 2. Binary format paths: "/FD5575D9-B7E1-43D9-B29C-B54ACC9BC2A9/blobpacks/..."
+        let path_parts: Vec<&str> = self.relative_path.split('/').collect();
+        let path_without_uuid = if path_parts.len() > 2 && !path_parts[1].is_empty() {
+            // Skip the UUID part (first non-empty component)
+            path_parts[2..].join("/")
+        } else {
+            // Fallback to removing just the leading slash
+            self.relative_path.trim_start_matches('/').to_string()
+        };
+        backup_set_dir.join(&path_without_uuid)
+    }
+
     /// Load data from this blob location, with optional encryption support
     pub fn load_data<P: AsRef<Path>>(
         &self,
@@ -1462,7 +1478,7 @@ impl BlobLoc {
             self.load_from_pack_file_with_encryption(backup_set_dir, keyset)
         } else {
             // Load from standalone file
-            let file_path = backup_set_dir.join(&self.relative_path);
+            let file_path = self.normalize_relative_path(backup_set_dir);
             self.load_standalone_file_with_encryption(&file_path, keyset)
         }
     }
@@ -1520,7 +1536,12 @@ impl BlobLoc {
             }
             2 => {
                 // LZ4 compression
-                Ok(lz4_flex::block::decompress_size_prepended(&data)?)
+                if data.len() < 4 {
+                    return Err(Error::InvalidFormat("LZ4 data too short".to_string()));
+                }
+                let length = u32::from_be_bytes([data[0], data[1], data[2], data[3]]) as usize;
+                let compressed_data = &data[4..];
+                Ok(lz4_flex::block::decompress(compressed_data, length)?)
             }
             _ => Err(Error::InvalidFormat(format!(
                 "Unsupported compression type: {}",
@@ -1535,7 +1556,7 @@ impl BlobLoc {
         backup_set_dir: &Path,
         keyset: Option<&EncryptedKeySet>,
     ) -> Result<Vec<u8>> {
-        let pack_file_path = backup_set_dir.join(&self.relative_path);
+        let pack_file_path = self.normalize_relative_path(backup_set_dir);
 
         let mut file = File::open(&pack_file_path)?;
 
@@ -1577,7 +1598,12 @@ impl BlobLoc {
             }
             2 => {
                 // LZ4 compression
-                Ok(lz4_flex::block::decompress_size_prepended(&data)?)
+                if data.len() < 4 {
+                    return Err(Error::InvalidFormat("LZ4 data too short".to_string()));
+                }
+                let length = u32::from_be_bytes([data[0], data[1], data[2], data[3]]) as usize;
+                let compressed_data = &data[4..];
+                Ok(lz4_flex::block::decompress(compressed_data, length)?)
             }
             _ => Err(Error::InvalidFormat(format!(
                 "Unsupported compression type: {}",
