@@ -1,0 +1,10 @@
+{
+  "localPath" : "\/Users\/ljensen\/Projects\/2024-12-arq-decryption\/arq_backup_source",
+  "migratedFromArq60" : false,
+  "storageClass" : "STANDARD",
+  "diskIdentifier" : "ROOT",
+  "uuid" : "F71BB248-E3A0-45E3-B67C-FEE397C5BD71",
+  "migratedFromArq5" : false,
+  "localMountPoint" : "\/",
+  "name" : "arq_backup_source"
+}
