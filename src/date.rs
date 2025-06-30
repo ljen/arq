@@ -1,4 +1,4 @@
-use chrono::prelude::{DateTime, NaiveDateTime, Utc};
+use chrono::prelude::DateTime;
 
 use crate::error::Result;
 use crate::type_utils::ArqRead;
@@ -24,11 +24,10 @@ impl Date {
 
 impl std::fmt::Display for Date {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-        // Date is in milliseconds elapsed since epoch
-        let naive_datetime =
-            NaiveDateTime::from_timestamp_opt((self.milliseconds_since_epoch / 1000) as i64, 0)
-                .unwrap();
-        let datetime_again: DateTime<Utc> = DateTime::from_utc(naive_datetime, Utc);
-        write!(f, "{}", datetime_again)
+        let datetime = DateTime::from_timestamp_millis(
+            self.milliseconds_since_epoch as i64
+        )
+        .unwrap();
+        write!(f, "{}", datetime)
     }
 }

@@ -192,11 +192,11 @@ mod tests {
     #[test]
     fn test_read_arq_date() {
         let mut reader_without_date = Cursor::new(vec![0]);
-        let mut ct = reader_without_date.read_arq_date().unwrap();
+        let mut ct: Date = reader_without_date.read_arq_date().unwrap();
         assert_eq!(ct.milliseconds_since_epoch, 0);
 
         let mut reader_with_date = Cursor::new(vec![1, 0, 0, 0, 127, 167, 127, 83, 0]);
         ct = reader_with_date.read_arq_date().unwrap();
-        assert_eq!(format!("{}", ct), "1987-05-17 17:29:45 UTC");
+        assert_eq!(format!("{}", ct), "1987-05-17 17:29:45.984 UTC");
     }
 }
