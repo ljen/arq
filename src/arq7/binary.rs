@@ -107,288 +107,18 @@ pub trait ArqBinaryReader: Read {
 // Implement ArqBinaryReader for any type that implements Read
 impl<R: Read> ArqBinaryReader for R {}
 
-/// Binary representation of a BlobLoc
-#[derive(Debug, Clone)]
-pub struct BinaryBlobLoc {
-    pub blob_identifier: String,
-    pub is_packed: bool,
-    pub is_large_pack: bool,
-    pub relative_path: String,
-    pub offset: u64,
-    pub length: u64,
-    pub stretch_encryption_key: bool,
-    pub compression_type: u32,
-}
+// BinaryBlobLoc struct has been removed. Its functionality is merged into arq::arq7::BlobLocation.
+// The arq::arq7::BlobLocation::from_binary_reader method should be used for parsing from binary.
 
-impl BinaryBlobLoc {
-    /// Parse a BlobLoc from binary data according to Arq 7 format
-    pub fn from_reader<R: ArqBinaryReader>(reader: &mut R) -> Result<Self> {
-        // [String:blobIdentifier] /* can't be null */
-        let blob_identifier = reader.read_arq_string_required()?;
-
-        // [Bool:isPacked]
-        let is_packed = reader.read_arq_bool()?;
-
-        // [Bool:isLargePack]
-        let is_large_pack = reader.read_arq_bool()?;
-
-        // [String:relativePath] - handle misaligned data
-        let relative_path = Self::read_relative_path_with_recovery(reader)?;
-
-        // [UInt64:offset]
-        let offset = reader.read_arq_u64()?;
-
-        // [UInt64:length]
-        let length = reader.read_arq_u64()?;
-
-        // [Bool:stretchEncryptionKey]
-        let stretch_encryption_key = reader.read_arq_bool()?;
-
-        // [UInt32:compressionType]
-        let compression_type = reader.read_arq_u32()?;
-
-        Ok(BinaryBlobLoc {
-            blob_identifier,
-            is_packed,
-            relative_path,
-            offset,
-            length,
-            stretch_encryption_key,
-            compression_type,
-            is_large_pack,
-        })
-    }
-
-    /// Read relative path with recovery for misaligned data
-    fn read_relative_path_with_recovery<R: ArqBinaryReader>(reader: &mut R) -> Result<String> {
-        // Try standard string parsing first
-        match reader.read_arq_string() {
-            Ok(Some(path)) => Ok(path),
-            Ok(None) => {
-                // Path is marked as null, but check if the next bytes look like path data
-                // by peeking ahead to see if we can find a valid path structure
-
-                // Read the next byte to check if it looks like a path not-null flag
-                let potential_path_flag = reader.read_u8()?;
-
-                if potential_path_flag == 0x01 {
-                    // This looks like a path not-null flag, try reading path length and data
-                    let path_length = reader.read_arq_u64()?;
-
-                    // Sanity check: path length should be reasonable (< 1000 chars for most paths)
-                    if path_length > 0 && path_length < 1000 {
-                        let mut path_buffer = vec![0u8; path_length as usize];
-                        std::io::Read::read_exact(reader, &mut path_buffer)?;
-
-                        // Check if this looks like a valid path (starts with '/' and contains reasonable chars)
-                        if path_buffer.starts_with(b"/")
-                            && path_buffer
-                                .iter()
-                                .all(|&b| b.is_ascii_graphic() || b == b'/')
-                        {
-                            let path = String::from_utf8(path_buffer)?;
-                            return Ok(path);
-                        }
-                    }
-                }
-
-                // If we reach here, the data doesn't look like a valid path
-                // Return empty string and hope the caller can handle the misalignment
-                Ok(String::new())
-            }
-            Err(_) => {
-                // String parsing failed completely, return empty path
-                Ok(String::new())
-            }
-        }
-    }
-}
-
-/// Binary representation of a Node
-#[derive(Debug, Clone)]
-pub struct BinaryNode {
-    pub is_tree: bool,
-    pub tree_blob_loc: Option<BinaryBlobLoc>,
-    pub computer_os_type: u32,
-    pub data_blob_locs: Vec<BinaryBlobLoc>,
-    pub acl_blob_loc: Option<BinaryBlobLoc>,
-    pub xattrs_blob_locs: Vec<BinaryBlobLoc>,
-    pub item_size: u64,
-    pub contained_files_count: u64,
-    pub mtime_sec: i64,
-    pub mtime_nsec: i64,
-    pub ctime_sec: i64,
-    pub ctime_nsec: i64,
-    pub create_time_sec: i64,
-    pub create_time_nsec: i64,
-    pub username: Option<String>,
-    pub group_name: Option<String>,
-    pub deleted: bool,
-    pub mac_st_dev: i32,
-    pub mac_st_ino: u64,
-    pub mac_st_mode: u32,
-    pub mac_st_nlink: u32,
-    pub mac_st_uid: u32,
-    pub mac_st_gid: u32,
-    pub mac_st_rdev: i32,
-    pub mac_st_flags: i32,
-    pub win_attrs: u32,
-    pub win_reparse_tag: Option<u32>,
-    pub win_reparse_point_is_directory: Option<bool>,
-}
-
-impl BinaryNode {
-    /// Parse a Node from binary data with resilient blob location parsing
-    pub fn from_reader<R: ArqBinaryReader>(
-        reader: &mut R,
-        tree_version: Option<u32>,
-    ) -> Result<Self> {
-        // [Bool:isTree]
-        let is_tree = reader.read_arq_bool()?;
-
-        // [BlobLoc:treeBlobLoc] /* present if isTree is true */
-        let tree_blob_loc = if is_tree {
-            match BinaryBlobLoc::from_reader(reader) {
-                Ok(blob_loc) => Some(blob_loc),
-                Err(_) => None, // Skip tree blob location if parsing fails
-            }
-        } else {
-            None
-        };
-
-        // [UInt32:computerOSType]
-        let computer_os_type = reader.read_arq_u32()?;
-
-        // [UInt64:dataBlobLocsCount]
-        let data_blob_locs_count = reader.read_arq_u64()?;
-
-        // (BlobLoc:dataBlobLoc) /* repeat dataBlobLocsCount times */
-        let mut data_blob_locs = Vec::new();
-        for i in 0..std::cmp::min(data_blob_locs_count, 10) {
-            match BinaryBlobLoc::from_reader(reader) {
-                Ok(blob_loc) => {
-                    data_blob_locs.push(blob_loc);
-                }
-                Err(_) => {
-                    // Create a placeholder blob location if parsing fails
-                    let placeholder = BinaryBlobLoc {
-                        blob_identifier: format!("placeholder_blob_{}", i),
-                        is_packed: true,
-                        relative_path: "/FD5575D9-B7E1-43D9-B29C-B54ACC9BC2A9/blobpacks/EF/2CA969-3A3C-4019-9C13-01AC6B75FC89.pack".to_string(),
-                        offset: if i == 0 { 6 } else { 26 },
-                        length: if i == 0 { 15 } else { 14 },
-                        stretch_encryption_key: false,
-                        compression_type: 0,
-                        is_large_pack: false,
-                    };
-                    data_blob_locs.push(placeholder);
-                    break; // Stop parsing more blob locations to avoid further misalignment
-                }
-            }
-        }
-
-        // For remaining fields, use progressive parsing with fallback values
-        // This approach prioritizes successful tree structure extraction over
-        // perfect field accuracy for problematic data
-
-        // [Bool:aclBlobLocIsNotNil]
-        let acl_blob_loc = match reader.read_arq_bool() {
-            Ok(acl_not_nil) if acl_not_nil => BinaryBlobLoc::from_reader(reader).ok(),
-            _ => None,
-        };
-
-        // [UInt64:xattrsBlobLocCount] - with bounds checking
-        let xattrs_blob_locs = match reader.read_arq_u64() {
-            Ok(count) if count <= 10 => {
-                let mut xattrs = Vec::new();
-                for _ in 0..count {
-                    if let Ok(blob_loc) = BinaryBlobLoc::from_reader(reader) {
-                        xattrs.push(blob_loc);
-                    } else {
-                        break; // Stop on first parsing failure
-                    }
-                }
-                xattrs
-            }
-            _ => Vec::new(),
-        };
-
-        // Remaining fields with fallback values
-        let item_size = reader
-            .read_arq_u64()
-            .unwrap_or(if is_tree { 0 } else { 15 });
-        let contained_files_count = reader.read_arq_u64().unwrap_or(if is_tree { 2 } else { 1 });
-        let mtime_sec = reader.read_arq_i64().unwrap_or(1735296644);
-        let mtime_nsec = reader.read_arq_i64().unwrap_or(0);
-        let ctime_sec = reader.read_arq_i64().unwrap_or(1735296644);
-        let ctime_nsec = reader.read_arq_i64().unwrap_or(0);
-        let create_time_sec = reader.read_arq_i64().unwrap_or(1735296644);
-        let create_time_nsec = reader.read_arq_i64().unwrap_or(0);
-        let username = reader.read_arq_string().ok().flatten();
-        let group_name = reader.read_arq_string().ok().flatten();
-        let deleted = reader.read_arq_bool().unwrap_or(false);
-        let mac_st_dev = reader.read_arq_i32().unwrap_or(0);
-        let mac_st_ino = reader.read_arq_u64().unwrap_or(100000);
-        let mac_st_mode = reader
-            .read_arq_u32()
-            .unwrap_or(if is_tree { 16877 } else { 33188 });
-        let mac_st_nlink = reader.read_arq_u32().unwrap_or(if is_tree { 4 } else { 1 });
-        let mac_st_uid = reader.read_arq_u32().unwrap_or(501);
-        let mac_st_gid = reader.read_arq_u32().unwrap_or(20);
-        let mac_st_rdev = reader.read_arq_i32().unwrap_or(0);
-        let mac_st_flags = reader.read_arq_i32().unwrap_or(0);
-        let win_attrs = reader.read_arq_u32().unwrap_or(0);
-
-        let win_reparse_tag = if tree_version.unwrap_or(1) >= 2 {
-            reader.read_arq_u32().ok()
-        } else {
-            None
-        };
-
-        let win_reparse_point_is_directory = if tree_version.unwrap_or(1) >= 2 {
-            reader.read_arq_bool().ok()
-        } else {
-            None
-        };
-
-        Ok(BinaryNode {
-            is_tree,
-            tree_blob_loc,
-            computer_os_type,
-            data_blob_locs,
-            acl_blob_loc,
-            xattrs_blob_locs,
-            item_size,
-            contained_files_count,
-            mtime_sec,
-            mtime_nsec,
-            ctime_sec,
-            ctime_nsec,
-            create_time_sec,
-            create_time_nsec,
-            username,
-            group_name,
-            deleted,
-            mac_st_dev,
-            mac_st_ino,
-            mac_st_mode,
-            mac_st_nlink,
-            mac_st_uid,
-            mac_st_gid,
-            mac_st_rdev,
-            mac_st_flags,
-            win_attrs,
-            win_reparse_tag,
-            win_reparse_point_is_directory,
-        })
-    }
-}
+// BinaryNode struct and its impl block have been removed.
+// Its parsing logic is now part of arq::arq7::Node::from_binary_reader.
+// BinaryTree now directly uses arq::arq7::Node.
 
 /// Binary representation of a Tree
 #[derive(Debug, Clone)]
 pub struct BinaryTree {
     pub version: u32,
-    pub child_nodes: std::collections::HashMap<String, BinaryNode>,
+    pub child_nodes: std::collections::HashMap<String, crate::arq7::Node>, // Changed to unified Node
 }
 
 impl BinaryTree {
@@ -416,18 +146,19 @@ impl BinaryTree {
                 }
             };
 
-            // [Node:childNode] - use resilient parsing
-            match BinaryNode::from_reader(reader, Some(version)) {
+            // [Node:childNode] - use resilient parsing with the new unified Node's binary parser
+            match crate::arq7::Node::from_binary_reader(reader, Some(version)) {
                 Ok(child_node) => {
                     child_nodes.insert(name, child_node);
                 }
                 Err(_) => {
-                    // If child node parsing fails, create a placeholder to maintain tree structure
-                    let placeholder_node = BinaryNode {
+                    // If child node parsing fails, create a placeholder unified Node
+                    // This placeholder needs to match the fields of the unified `arq::arq7::Node`
+                    let placeholder_node = crate::arq7::Node {
                         is_tree: false,
                         tree_blob_loc: None,
                         computer_os_type: 1,
-                        data_blob_locs: vec![BinaryBlobLoc {
+                        data_blob_locs: vec![crate::arq7::BlobLocation {
                             blob_identifier: format!("placeholder_for_child_{}", i),
                             is_packed: true,
                             relative_path: "/placeholder/path.pack".to_string(),
@@ -435,32 +166,32 @@ impl BinaryTree {
                             length: 100,
                             stretch_encryption_key: false,
                             compression_type: 2,
-                            is_large_pack: false,
+                            is_large_pack: Some(false),
                         }],
                         acl_blob_loc: None,
-                        xattrs_blob_locs: Vec::new(),
+                        xattrs_blob_locs: None, // Unified Node uses Option here
                         item_size: 100,
-                        contained_files_count: 1,
-                        mtime_sec: 1735296644,
-                        mtime_nsec: 0,
-                        ctime_sec: 1735296644,
-                        ctime_nsec: 0,
-                        create_time_sec: 1735296644,
-                        create_time_nsec: 0,
+                        contained_files_count: Some(1), // Unified Node uses Option
+                        modification_time_sec: 1735296644,
+                        modification_time_nsec: 0,
+                        change_time_sec: 1735296644,
+                        change_time_nsec: 0,
+                        creation_time_sec: 1735296644,
+                        creation_time_nsec: 0,
                         username: Some("user".to_string()),
                         group_name: Some("group".to_string()),
                         deleted: false,
-                        mac_st_dev: 0,
-                        mac_st_ino: 100000 + i,
+                        mac_st_dev: 0, // i64 in unified Node
+                        mac_st_ino: 100000 + i as u64, // Ensure `i` is cast if necessary, it's usize from enumerate or range
                         mac_st_mode: 33188,
                         mac_st_nlink: 1,
-                        mac_st_uid: 501,
+                        mac_st_uid: Some(501), // Unified Node uses Option
                         mac_st_gid: 20,
-                        mac_st_rdev: 0,
-                        mac_st_flags: 0,
+                        mac_st_rdev: 0,  // i32 in unified Node
+                        mac_st_flags: 0, // i32 in unified Node
                         win_attrs: 0,
-                        win_reparse_tag: None,
-                        win_reparse_point_is_directory: None,
+                        reparse_tag: None,
+                        reparse_point_is_directory: None,
                     };
                     child_nodes.insert(name, placeholder_node);
                 }

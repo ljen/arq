@@ -495,10 +495,9 @@ fn extract_tree_node(
                     };
 
                     if child_node.is_tree {
-                        // Convert binary node to JSON node for recursive processing
-                        let json_node = arq::arq7::Node::from_binary_node(child_node);
+                        // child_node is already the unified Node type
                         extract_tree_node(
-                            &json_node,
+                            child_node, // Pass child_node directly
                             backup_set_path,
                             current_output_dir,
                             &child_path,
@@ -507,9 +506,9 @@ fn extract_tree_node(
                         );
                     } else {
                         // Extract file
-                        let json_node = arq::arq7::Node::from_binary_node(child_node);
+                        // child_node is already the unified Node type
                         extract_file_node(
-                            &json_node,
+                            child_node, // Pass child_node directly
                             backup_set_path,
                             full_output_path,
                             child_name,
@@ -760,7 +759,7 @@ fn set_file_metadata(file_path: &str, node: &arq::arq7::Node) {
         use std::time::UNIX_EPOCH;
 
         if let Some(mtime) =
-            UNIX_EPOCH.checked_add(std::time::Duration::from_secs(node.modification_time_sec))
+            UNIX_EPOCH.checked_add(std::time::Duration::from_secs(node.modification_time_sec as u64)) // Cast to u64
         {
             let _ =
                 filetime::set_file_mtime(file_path, filetime::FileTime::from_system_time(mtime));
@@ -780,7 +779,7 @@ fn try_extract_test_file_content(
     match filename {
         "file 1.txt" => {
             // Create a blob location pointing to the first file in our test blob pack
-            let blob_loc = arq::arq7::BlobLoc {
+            let blob_loc = arq::arq7::BlobLocation { // Changed to BlobLocation
                 blob_identifier: "test_file_1".to_string(),
                 compression_type: 0, // Raw content
                 is_packed: true,
@@ -797,7 +796,7 @@ fn try_extract_test_file_content(
         }
         "file 2.txt" => {
             // Create a blob location pointing to the second file in our test blob pack
-            let blob_loc = arq::arq7::BlobLoc {
+            let blob_loc = arq::arq7::BlobLocation { // Changed to BlobLocation
                 blob_identifier: "test_file_2".to_string(),
                 compression_type: 0, // Raw content
                 is_packed: true,
@@ -855,10 +854,9 @@ fn list_files_recursive(
                         format!("{}/{}", current_path, child_name)
                     };
 
-                    // Convert binary node to JSON node for recursive traversal
-                    let json_node = arq::arq7::Node::from_binary_node(child_node);
+                    // child_node is already the unified Node type from BinaryTree's child_nodes
                     list_files_recursive(
-                        &json_node,
+                        child_node, // Pass child_node directly
                         backup_set_path,
                         child_path,
                         depth + 1,
