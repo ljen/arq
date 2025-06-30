@@ -703,7 +703,6 @@ fn test_encryption_backward_compatibility() {
 }
 
 use std::fs;
-use std::io::Write; // Required for std::fs::write
 
 // Helper structs and functions from arq7_example.rs, adapted for test environment
 
@@ -950,7 +949,7 @@ fn try_extract_test_file_content(
     // e.g., tests/arq_storage_location/D1154AC6-01EB-41FE-B115-114464350B92
     match filename {
         "file 1.txt" => {
-            let blob_loc = arq::arq7::BlobLocation { // Changed to BlobLocation
+            let blob_loc = arq::arq7::BlobLoc { 
                 // These paths are relative to the *root* of the storage location,
                 // but extract_content expects backup_set_path to be the specific backup set folder.
                 // So, the relative_path here should be relative to that backup_set_path.
@@ -985,7 +984,7 @@ fn try_extract_test_file_content(
             blob_loc.extract_content(backup_set_path, keyset).ok()
         }
         "file 2.txt" => {
-            let blob_loc = arq::arq7::BlobLocation { // Changed to BlobLocation
+            let blob_loc = arq::arq7::BlobLoc { 
                 blob_identifier: "test_file_2_encrypted".to_string(), // Placeholder
                 compression_type: 0,
                 is_packed: true,
