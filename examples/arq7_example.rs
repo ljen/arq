@@ -779,7 +779,7 @@ fn try_extract_test_file_content(
     match filename {
         "file 1.txt" => {
             // Create a blob location pointing to the first file in our test blob pack
-            let blob_loc = arq::arq7::BlobLocation { // Changed to BlobLocation
+            let blob_loc = arq::arq7::BlobLoc { 
                 blob_identifier: "test_file_1".to_string(),
                 compression_type: 0, // Raw content
                 is_packed: true,
@@ -796,7 +796,7 @@ fn try_extract_test_file_content(
         }
         "file 2.txt" => {
             // Create a blob location pointing to the second file in our test blob pack
-            let blob_loc = arq::arq7::BlobLocation { // Changed to BlobLocation
+            let blob_loc = arq::arq7::BlobLoc { 
                 blob_identifier: "test_file_2".to_string(),
                 compression_type: 0, // Raw content
                 is_packed: true,
