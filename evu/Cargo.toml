@@ -1,0 +1,16 @@
+[package]
+name = "evu"
+version = "0.1.0"
+authors = ["Norberto Lopes <nlopes.ml@gmail.com>"]
+edition = "2024"
+
+[[bin]]
+name = "evu"
+doc = false
+
+[dependencies]
+arq = { path = "../arq" }
+clap = "~2.34"
+rpassword = "7.0"
+ring = "0.16.20"
+chrono = "0.4.41"
