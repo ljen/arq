@@ -4,7 +4,8 @@
 //! characteristic encountered in real Arq 7 backup data where dataBlobLocs[0].relativePath.isNotNull
 //! is false (0x00) but the subsequent bytes contain path data instead of offset/length values.
 
-use arq::arq7::binary::{ArqBinaryReader, BinaryBlobLoc, BinaryTree};
+use arq::arq7::binary::{ArqBinaryReader, BinaryTree}; // Removed BinaryBlobLoc
+use arq::arq7::BlobLocation; // Added BlobLocation
 use std::io::Cursor;
 
 #[test]
@@ -18,7 +19,7 @@ fn test_misaligned_relative_path_parsing() {
     let mut cursor = Cursor::new(blob_data);
 
     // This should not panic and should successfully parse the blob location
-    let result = BinaryBlobLoc::from_reader(&mut cursor);
+    let result = BlobLocation::from_binary_reader(&mut cursor); // Changed to BlobLocation::from_binary_reader
 
     assert!(
         result.is_ok(),

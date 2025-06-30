@@ -701,3 +701,541 @@ fn test_encryption_backward_compatibility() {
     println!("  ✓ Old BackupSet::from_directory() still works");
     println!("=== Backward Compatibility Verified ===");
 }
+
+use std::fs;
+use std::io::Write; // Required for std::fs::write
+
+// Helper structs and functions from arq7_example.rs, adapted for test environment
+
+#[derive(Debug, Default, Clone, Copy)]
+struct ExtractionStats {
+    files_restored: usize,
+    bytes_restored: u64,
+    errors: usize,
+    directories_created: usize,
+}
+
+fn extract_backup_record(
+    record: &arq::arq7::BackupRecord,
+    backup_set_path: &Path,
+    output_dir: &Path,
+    stats: &mut ExtractionStats,
+    keyset: Option<&EncryptedKeySet>,
+) {
+    if record.node.is_tree {
+        extract_tree_node(&record.node, backup_set_path, output_dir, "", stats, keyset);
+    } else {
+        extract_file_node(
+            &record.node,
+            backup_set_path,
+            output_dir,
+            "root_file", // Should ideally get a name, but for a single root file, this is okay.
+            stats,
+            keyset,
+        );
+    }
+}
+
+fn extract_tree_node(
+    node: &arq::arq7::Node,
+    backup_set_path: &Path,
+    current_output_dir: &Path,
+    relative_path: &str, // Relative path *within* the current_output_dir for this node
+    stats: &mut ExtractionStats,
+    keyset: Option<&EncryptedKeySet>,
+) {
+    let full_node_output_path = if relative_path.is_empty() {
+        current_output_dir.to_path_buf()
+    } else {
+        current_output_dir.join(relative_path)
+    };
+
+    if !relative_path.is_empty() { // Don't try to create the root output_dir itself here
+        if let Err(e) = fs::create_dir_all(&full_node_output_path) {
+            eprintln!(
+                "         ❌ Failed to create directory {}: {}",
+                full_node_output_path.display(), e
+            );
+            stats.errors += 1;
+            return;
+        }
+        stats.directories_created += 1;
+        // eprintln!("[DEBUG extract_tree_node] Created dir: {:?}, (current_output_dir: {:?}, relative_path: {:?})", full_node_output_path, current_output_dir, relative_path);
+    } else {
+        // eprintln!("[DEBUG extract_tree_node] Using existing root dir: {:?}, (current_output_dir: {:?}, relative_path: {:?})", full_node_output_path, current_output_dir, relative_path);
+    }
+
+    match node.load_tree_with_encryption(backup_set_path, keyset) {
+        Ok(Some(tree)) => {
+            // eprintln!("[DEBUG extract_tree_node] Loaded tree for {:?} with {} children", full_node_output_path, tree.child_nodes.len());
+
+            for (child_name, child_node) in &tree.child_nodes { // child_node is already &arq::arq7::Node
+                // eprintln!("[DEBUG extract_tree_node] Child: {}, in tree {:?}", child_name, full_node_output_path);
+                // let child_json_node = arq::arq7::Node::from_binary_node(child_binary_node); // No longer needed
+                let child_relative_path = if relative_path.is_empty() {
+                    child_name.clone()
+                } else {
+                    Path::new(relative_path).join(child_name).to_string_lossy().into_owned()
+                };
+
+                if child_node.is_tree { // Use child_node directly
+                    extract_tree_node(
+                        child_node, // Pass child_node directly
+                        backup_set_path,
+                        current_output_dir, // Pass the base output directory for the record
+                        &child_relative_path, // Pass the relative path for the child
+                        stats,
+                        keyset,
+                    );
+                } else {
+                    extract_file_node(
+                        child_node, // Pass child_node directly
+                        backup_set_path,
+                        &full_node_output_path, // Files are created *inside* the current node's path
+                        child_name,
+                        stats,
+                        keyset,
+                    );
+                }
+            }
+        }
+        Ok(None) => {
+            eprintln!(
+                "         ⚠️  No tree data available for {}",
+                full_node_output_path.display()
+            );
+            stats.errors += 1;
+        }
+        Err(e) => {
+            eprintln!(
+                "         ❌ Failed to load tree {}: {}",
+                full_node_output_path.display(),
+                e
+            );
+            stats.errors += 1;
+            // Optionally, you could try extract_using_json_fallback here if needed
+        }
+    }
+}
+
+
+fn extract_file_node(
+    node: &arq::arq7::Node,
+    backup_set_path: &Path,
+    output_dir_for_file: &Path, // This is the directory where the file should be created
+    filename: &str,
+    stats: &mut ExtractionStats,
+    keyset: Option<&EncryptedKeySet>,
+) {
+    let output_file_path = output_dir_for_file.join(filename);
+    // eprintln!("[DEBUG extract_file_node] Attempting to extract file to: {:?} (output_dir_for_file: {:?}, filename: {})", output_file_path, output_dir_for_file, filename);
+
+    let mut content_extracted = false;
+    let mut total_size = 0u64;
+
+    let has_real_blobs = node
+        .data_blob_locs
+        .iter()
+        .any(|blob| !blob.relative_path.contains("unknown") && !blob.relative_path.is_empty());
+
+    if has_real_blobs {
+        let mut combined_content = Vec::new();
+        for (_blob_idx, data_blob) in node.data_blob_locs.iter().enumerate() {
+            match data_blob.extract_content(backup_set_path, keyset) {
+                Ok(content) => {
+                    combined_content.extend_from_slice(&content);
+                    // eprintln!(
+                    //     "         📄 Extracted part for {}: {} bytes",
+                    //     filename,
+                    //     content.len()
+                    // );
+                }
+                Err(e) => {
+                    eprintln!(
+                        "         ❌ Failed to extract content for {} (blob at {}): {}",
+                        filename, data_blob.relative_path, e
+                    );
+                    stats.errors += 1;
+                    // If one part fails, we probably can't reconstruct the file.
+                    // Depending on desired strictness, could return or try other blobs.
+                    return;
+                }
+            }
+        }
+        if !combined_content.is_empty() {
+             match fs::write(&output_file_path, &combined_content) {
+                Ok(()) => {
+                    total_size = combined_content.len() as u64;
+                    content_extracted = true;
+                }
+                Err(e) => {
+                    eprintln!("         ❌ Failed to write {}: {}", output_file_path.display(), e);
+                    stats.errors += 1;
+                }
+            }
+        }
+
+    } else if let Some(content) = try_extract_test_file_content(filename, backup_set_path, keyset) {
+        // This fallback is specific to the example's test data.
+        match fs::write(&output_file_path, &content) {
+            Ok(()) => {
+                total_size = content.len() as u64;
+                content_extracted = true;
+                // eprintln!(
+                //     "         📄 Extracted from test data: {} ({} bytes)",
+                //     filename,
+                //     content.len()
+                // );
+            }
+            Err(e) => {
+                eprintln!("         ❌ Failed to write {}: {}", output_file_path.display(), e);
+                stats.errors += 1;
+            }
+        }
+    } else if node.data_blob_locs.is_empty() && node.item_size == 0 {
+        // Create empty file if no blob locations and item_size is 0
+        match fs::write(&output_file_path, b"") {
+            Ok(()) => {
+                stats.files_restored += 1;
+                // eprintln!("         📄 Created empty file: {}", filename);
+                set_file_metadata(&output_file_path.to_string_lossy(), node);
+                content_extracted = true; // Considered extracted
+            }
+            Err(e) => {
+                eprintln!(
+                    "         ❌ Failed to create empty file {}: {}",
+                    output_file_path.display(), e
+                );
+                stats.errors += 1;
+            }
+        }
+    } else {
+         eprintln!(
+            "         ⚠️ No real blob locations and no test fallback for {}, size {}",
+            filename, node.item_size
+        );
+        // This might be an error, or a file type not handled by simple extraction
+        // For the test, if we expect this file, it should be an error.
+        // If it's a complex file we don't verify, this might be acceptable.
+        // For now, let's count it as an error if we couldn't produce a file.
+        stats.errors += 1;
+    }
+
+
+    if content_extracted {
+        stats.files_restored += 1;
+        stats.bytes_restored += total_size;
+        // eprintln!("         📄 Extracted: {} ({} bytes)", output_file_path.display(), total_size);
+        set_file_metadata(&output_file_path.to_string_lossy(), node);
+    }
+}
+
+fn set_file_metadata(file_path: &str, node: &arq::arq7::Node) {
+    if node.modification_time_sec > 0 {
+        use std::time::UNIX_EPOCH;
+        if let Some(mtime) =
+            UNIX_EPOCH.checked_add(std::time::Duration::from_secs(node.modification_time_sec as u64)) // Cast to u64
+        {
+            let _ = filetime::set_file_mtime(file_path, filetime::FileTime::from_system_time(mtime));
+        }
+    }
+}
+
+fn try_extract_test_file_content(
+    filename: &str,
+    backup_set_path: &Path, // This needs to be the root of the backup set.
+    keyset: Option<&EncryptedKeySet>,
+) -> Option<Vec<u8>> {
+    // Ensure backup_set_path is correctly pointing to the specific backup set UUID directory
+    // e.g., tests/arq_storage_location/D1154AC6-01EB-41FE-B115-114464350B92
+    match filename {
+        "file 1.txt" => {
+            let blob_loc = arq::arq7::BlobLocation { // Changed to BlobLocation
+                // These paths are relative to the *root* of the storage location,
+                // but extract_content expects backup_set_path to be the specific backup set folder.
+                // So, the relative_path here should be relative to that backup_set_path.
+                // The example had "/FD55..." which implies it was from a different backup set example.
+                // For ARQ7_TEST_DATA_DIR_ENCRYPTED (D1154AC6...), the paths will be different.
+                // We need to identify the correct blob for "file 1.txt" in the D1154AC6... set.
+                // This requires inspecting the .pack files or having known metadata.
+                // For the purpose of this test, let's assume we know the blob details for the *encrypted* set.
+                // This part is tricky without knowing the exact blob details for the *encrypted* test files.
+                // The example's try_extract_test_file_content was for a *different* test set (FD55...).
+                // We might need to actually find these files in the D1154AC6... set if we want to verify content.
+                // For now, this function might not work as intended for the encrypted set without adjustment.
+                // Let's use the paths from the example, but they will likely fail for the encrypted set.
+                blob_identifier: "test_file_1_encrypted".to_string(), // Placeholder
+                compression_type: 0,
+                is_packed: true,
+                length: 15, // Placeholder
+                offset: 6, // Placeholder
+                // This path needs to be relative to the backup_set_path (e.g., D1154AC6... )
+                // The example uses a path from a *different* backup set.
+                // Correct path for D1154AC6.../blobpacks/EF/2CA969-3A3C-4019-9C13-01AC6B75FC89.pack
+                // This is for the FD55... set. The D115... set has different pack files.
+                // For example, it might be "blobpacks/00/some_pack_file.pack" relative to D1154AC6...
+                // Let's find an actual pack file in the D1154AC6... set.
+                // ls tests/arq_storage_location/D1154AC6-01EB-41FE-B115-114464350B92/blobpacks/
+                // gives e.g. tests/arq_storage_location/D1154AC6-01EB-41FE-B115-114464350B92/blobpacks/00/AE5570-E70A-401C-A8B2-A591C282B86C.pack
+                relative_path: "blobpacks/00/AE5570-E70A-401C-A8B2-A591C282B86C.pack".to_string(), // Adjusted to a real pack file
+                stretch_encryption_key: true, // For encrypted sets
+                is_large_pack: Some(false), // Assuming not large pack
+            };
+            // This will likely fail to get "Hello from file 1" because offset/length are guesses for this pack.
+            blob_loc.extract_content(backup_set_path, keyset).ok()
+        }
+        "file 2.txt" => {
+            let blob_loc = arq::arq7::BlobLocation { // Changed to BlobLocation
+                blob_identifier: "test_file_2_encrypted".to_string(), // Placeholder
+                compression_type: 0,
+                is_packed: true,
+                length: 14, // Placeholder
+                offset: 26, // Placeholder
+                relative_path: "blobpacks/00/AE5570-E70A-401C-A8B2-A591C282B86C.pack".to_string(), // Adjusted
+                stretch_encryption_key: true,
+                is_large_pack: Some(false),
+            };
+            blob_loc.extract_content(backup_set_path, keyset).ok()
+        }
+        _ => None,
+    }
+}
+
+
+#[test]
+fn test_full_backup_restore_encrypted() { // Renamed function
+    let backup_set_dir_str = ARQ7_TEST_DATA_DIR_ENCRYPTED;
+    let password = ARQ7_TEST_ENCRYPTION_PASSWORD;
+    let backup_set_path = Path::new(backup_set_dir_str);
+
+    let extraction_root_str = "./tests/temp_extraction_output";
+    let extraction_root_path = Path::new(extraction_root_str);
+
+    // --- TempDirGuard for cleanup ---
+    struct TempDirGuard<'a> {
+        path: &'a Path,
+    }
+
+    impl<'a> Drop for TempDirGuard<'a> {
+        fn drop(&mut self) {
+            if self.path.exists() {
+                if let Err(e) = fs::remove_dir_all(self.path) {
+                    eprintln!("Error cleaning up temp directory {:?}: {}", self.path, e);
+                }
+            }
+        }
+    }
+    // --- End TempDirGuard ---
+
+    // Cleanup previous run if any (optional, guard will handle it on drop anyway if it was from a failed previous run within the same overall test execution if not cleaned)
+    if extraction_root_path.exists() {
+        let _ = fs::remove_dir_all(extraction_root_path);
+    }
+    fs::create_dir_all(extraction_root_path).expect("Failed to create temp extraction root");
+    let _dir_guard = TempDirGuard { path: extraction_root_path };
+
+
+    let keyset_path = backup_set_path.join("encryptedkeyset.dat");
+    let keyset = EncryptedKeySet::from_file(keyset_path, password)
+        .expect("Failed to load keyset");
+
+    match BackupSet::from_directory_with_password(backup_set_dir_str, Some(password)) {
+        Ok(backup_set) => {
+            let mut total_extraction_stats = ExtractionStats::default();
+
+            for (folder_uuid, records) in &backup_set.backup_records {
+                let folder_name = backup_set
+                    .backup_folder_configs
+                    .get(folder_uuid)
+                    .map(|config| config.name.clone())
+                    .unwrap_or_else(|| folder_uuid.to_string()); // Use UUID if name not found
+
+                // eprintln!("[DEBUG MainLoop] Processing folder_uuid: {}, resolved folder_name: {}", folder_uuid, folder_name);
+
+                for (record_idx, record) in records.iter().enumerate() {
+                    // eprintln!("[DEBUG MainLoop]   Processing record_idx: {}", record_idx);
+                    let record_name_part = format!(
+                        "{}_record_{}",
+                        folder_name.replace("/", "_"), // Sanitize folder name for path
+                        record_idx + 1
+                    );
+                    let record_output_dir = extraction_root_path.join(&record_name_part);
+                    // eprintln!("[DEBUG MainLoop]     Attempting to create record_output_dir: {:?}", record_output_dir);
+
+                    if let Err(_e) = fs::create_dir_all(&record_output_dir) {
+                        // eprintln!("      ❌ Failed to create record directory {}: {}", record_output_dir.display(), _e);
+                        total_extraction_stats.errors += 1;
+                        continue;
+                    }
+
+                    let mut record_stats = ExtractionStats::default();
+                    extract_backup_record(
+                        record,
+                        backup_set_path,
+                        &record_output_dir,
+                        &mut record_stats,
+                        Some(&keyset), // Pass the loaded keyset
+                    );
+
+                    total_extraction_stats.files_restored += record_stats.files_restored;
+                    total_extraction_stats.bytes_restored += record_stats.bytes_restored;
+                    total_extraction_stats.errors += record_stats.errors;
+                    total_extraction_stats.directories_created += record_stats.directories_created;
+                }
+            }
+
+            // Assertions
+            assert_eq!(total_extraction_stats.errors, 0, "Extraction process encountered errors. Check eprintln output.");
+            assert!(total_extraction_stats.files_restored > 0, "No files were restored.");
+            assert!(total_extraction_stats.directories_created > 0, "No directories were created during restoration.");
+
+            // Construct expected path for specific files.
+            // The folder UUID for the encrypted test data is CEAA7545-3174-4E7C-A580-3D10BAED153E.
+            // From debug output, its actual name is "arq_backup_source".
+            let expected_folder_name_sanitized = "arq_backup_source_record_1"; // Assuming one record (idx 0), so "_record_1"
+
+            let expected_file1_path = extraction_root_path
+                .join(expected_folder_name_sanitized)
+                .join("file 1.txt");
+            let expected_file2_path = extraction_root_path
+                .join(expected_folder_name_sanitized)
+                .join("subfolder") // Corrected path
+                .join("file 2.txt");
+
+            assert!(expected_file1_path.exists(), "Restored 'file 1.txt' does not exist at {:?}", expected_file1_path);
+            assert!(expected_file2_path.exists(), "Restored 'file 2.txt' does not exist at {:?}", expected_file2_path);
+
+            // Verify content (basic check for non-empty, as exact content via try_extract_test_file_content is unreliable here)
+            let file1_content = fs::read_to_string(&expected_file1_path).expect("Failed to read restored file 1.txt");
+            let file2_content = fs::read_to_string(&expected_file2_path).expect("Failed to read restored file 2.txt");
+
+            // The actual content of these files in the D1154AC6... (encrypted) set (ARQ7_TEST_DATA_DIR_ENCRYPTED) is:
+            // file 1.txt: "first test file"
+            // subfolder/file 2.txt: "this a file 2\n" (actual content)
+            assert_eq!(file1_content, "first test file", "Content of file 1.txt does not match expected.");
+            assert_eq!(file2_content, "this a file 2\n", "Content of file 2.txt does not match expected.");
+
+            assert!(total_extraction_stats.bytes_restored >= (file1_content.len() + file2_content.len()) as u64, "Total bytes restored seems too low.");
+
+        }
+        Err(e) => {
+            // The _dir_guard will handle cleanup on panic
+            panic!("Failed to load backup set: {}", e);
+        }
+    }
+
+    // _dir_guard will automatically clean up extraction_root_path when it goes out of scope
+}
+
+#[test]
+fn test_full_backup_restore_unencrypted() {
+    let backup_set_dir_str = ARQ7_TEST_DATA_DIR_NOT_ENCRYPTED; // Changed constant
+    let password = None; // No password for unencrypted
+    let backup_set_path = Path::new(backup_set_dir_str);
+
+    let extraction_root_str = "./tests/temp_extraction_output_unencrypted"; // Changed path
+    let extraction_root_path = Path::new(extraction_root_str);
+
+    // --- TempDirGuard for cleanup ---
+    struct TempDirGuard<'a> {
+        path: &'a Path,
+    }
+
+    impl<'a> Drop for TempDirGuard<'a> {
+        fn drop(&mut self) {
+            if self.path.exists() {
+                if let Err(e) = fs::remove_dir_all(self.path) {
+                    eprintln!("Error cleaning up temp directory {:?}: {}", self.path, e);
+                }
+            }
+        }
+    }
+    // --- End TempDirGuard ---
+
+    if extraction_root_path.exists() {
+        let _ = fs::remove_dir_all(extraction_root_path);
+    }
+    fs::create_dir_all(extraction_root_path).expect("Failed to create temp extraction root for unencrypted test");
+    let _dir_guard = TempDirGuard { path: extraction_root_path };
+
+    // No keyset for unencrypted backup
+    // let keyset_path = backup_set_path.join("encryptedkeyset.dat");
+    // let keyset = EncryptedKeySet::from_file(keyset_path, password)
+    //     .expect("Failed to load keyset");
+
+    match BackupSet::from_directory_with_password(backup_set_dir_str, password) { // Password is None
+        Ok(backup_set) => {
+            let mut total_extraction_stats = ExtractionStats::default();
+
+            for (folder_uuid, records) in &backup_set.backup_records {
+                let folder_name = backup_set
+                    .backup_folder_configs
+                    .get(folder_uuid)
+                    .map(|config| config.name.clone())
+                    .unwrap_or_else(|| folder_uuid.to_string());
+
+                for (record_idx, record) in records.iter().enumerate() {
+                    let record_name_part = format!(
+                        "{}_record_{}",
+                        folder_name.replace("/", "_"),
+                        record_idx + 1
+                    );
+                    let record_output_dir = extraction_root_path.join(&record_name_part);
+
+                    if let Err(_e) = fs::create_dir_all(&record_output_dir) {
+                        // eprintln!("      ❌ Failed to create record directory {}: {}", record_output_dir.display(), _e);
+                        total_extraction_stats.errors += 1;
+                        continue;
+                    }
+
+                    let mut record_stats = ExtractionStats::default();
+                    extract_backup_record(
+                        record,
+                        backup_set_path,
+                        &record_output_dir,
+                        &mut record_stats,
+                        None, // No keyset for unencrypted
+                    );
+
+                    total_extraction_stats.files_restored += record_stats.files_restored;
+                    total_extraction_stats.bytes_restored += record_stats.bytes_restored;
+                    total_extraction_stats.errors += record_stats.errors;
+                    total_extraction_stats.directories_created += record_stats.directories_created;
+                }
+            }
+
+            // Assertions will need to be updated for the unencrypted data set
+            assert_eq!(total_extraction_stats.errors, 0, "Extraction process encountered errors for unencrypted set.");
+            assert!(total_extraction_stats.files_restored > 0, "No files were restored for unencrypted set.");
+            assert!(total_extraction_stats.directories_created > 0, "No directories were created during restoration for unencrypted set.");
+
+            // Updated assertions based on inspection of ARQ7_TEST_DATA_DIR_NOT_ENCRYPTED
+            // Folder name is "arq_backup_source", and we are checking the first record (index 0).
+            let expected_folder_name_sanitized = "arq_backup_source_record_1";
+
+            let expected_file1_path = extraction_root_path
+                .join(expected_folder_name_sanitized)
+                .join("file 1.txt");
+            let expected_file2_path = extraction_root_path
+                .join(expected_folder_name_sanitized)
+                .join("subfolder")
+                .join("file 2.txt");
+
+            assert!(expected_file1_path.exists(), "Restored 'file 1.txt' (unencrypted) does not exist at {:?}", expected_file1_path);
+            assert!(expected_file2_path.exists(), "Restored 'subfolder/file 2.txt' (unencrypted) does not exist at {:?}", expected_file2_path);
+
+            let file1_content = fs::read_to_string(&expected_file1_path).expect("Failed to read restored file 1.txt (unencrypted)");
+            let file2_content = fs::read_to_string(&expected_file2_path).expect("Failed to read restored subfolder/file 2.txt (unencrypted)");
+
+            assert_eq!(file1_content, "first test file", "Content of file 1.txt (unencrypted) does not match expected.");
+            assert_eq!(file2_content, "this a file 2\n", "Content of subfolder/file 2.txt (unencrypted) does not match expected.");
+
+            assert!(total_extraction_stats.bytes_restored >= (file1_content.len() + file2_content.len()) as u64, "Total bytes restored (unencrypted) seems too low.");
+
+        }
+        Err(e) => {
+            panic!("Failed to load unencrypted backup set: {}", e);
+        }
+    }
+    // _dir_guard will automatically clean up extraction_root_path when it goes out of scope
+}
