@@ -14,7 +14,7 @@ fn test_blob_content_extraction() {
     let backup_set_path = Path::new(ARQ7_TEST_DATA_DIR);
 
     // Create BlobLoc for first file (content starts at offset 6, length 15)
-    let first_file_blob = BlobLocation { // Changed to BlobLocation
+    let first_file_blob = BlobLoc { 
         blob_identifier: "test_file_1".to_string(),
         compression_type: 0, // Raw content, not blob pack format
         is_packed: true,
@@ -26,7 +26,7 @@ fn test_blob_content_extraction() {
     };
 
     // Create BlobLoc for second file (content starts at offset 26, length 14)
-    let second_file_blob = BlobLocation { // Changed to BlobLocation
+    let second_file_blob = BlobLoc { 
         blob_identifier: "test_file_2".to_string(),
         compression_type: 0, // Raw content, not blob pack format
         is_packed: true,
@@ -187,7 +187,7 @@ fn test_remove_hardcoded_paths() {
     ];
 
     for test_path in test_cases {
-        let blob_loc = BlobLocation { // Changed to BlobLocation
+        let blob_loc = BlobLoc { 
             blob_identifier: "test".to_string(),
             compression_type: 0,
             is_packed: true,

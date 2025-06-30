@@ -79,7 +79,6 @@ use crate::error::{Error, Result};
 use crate::object_encryption::{calculate_hmacsha256, EncryptedObject};
 use crate::type_utils::ArqRead;
 use byteorder::{BigEndian, ReadBytesExt};
-use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::fs::File;
 use std::io::{BufRead, BufReader, Read, Seek, SeekFrom};
@@ -554,9 +553,9 @@ pub struct BackupFolder {
     pub name: String,
 }
 
-/// BlobLocation describes the location of a blob, unifying previous BlobLoc (JSON) and BinaryBlobLoc (binary).
+/// BlobLoc describes the location of a blob
 #[derive(Debug, Clone, Deserialize, Serialize)]
-pub struct BlobLocation {
+pub struct BlobLoc {
     #[serde(rename = "blobIdentifier")]
     pub blob_identifier: String,
     #[serde(rename = "compressionType")]
@@ -569,26 +568,23 @@ pub struct BlobLocation {
     pub relative_path: String,
     #[serde(rename = "stretchEncryptionKey")]
     pub stretch_encryption_key: bool,
-
-    // This field is Option<bool> to align with BlobLoc's JSON representation (optional)
-    // and BinaryBlobLoc's binary representation (always present as bool, will be mapped to Some(value)).
     #[serde(skip_serializing_if = "Option::is_none", default)] // `default` makes it optional for deserialization
     #[serde(rename = "isLargePack")]
     pub is_large_pack: Option<bool>,
 }
 
-impl BlobLocation {
-    /// Parse a BlobLocation from binary data according to Arq 7 format.
-    /// This logic is moved from the old `arq::arq7::binary::BinaryBlobLoc::from_reader`.
+impl BlobLoc {
+    /// Parse a BlobLoc from binary data according to Arq 7 format.
     pub fn from_binary_reader<R: binary::ArqBinaryReader>(reader: &mut R) -> Result<Self> {
         let blob_identifier = reader.read_arq_string_required()?;
         let is_packed = reader.read_arq_bool()?;
         let is_large_pack_binary = reader.read_arq_bool()?; // Read as bool from binary
 
-        // Adapt relative_path reading from BinaryBlobLoc's special handling
+        // Adapt relative_path reading from BlobLoc's special handling
         let relative_path = match reader.read_arq_string() {
             Ok(Some(path)) => path,
             Ok(None) => {
+                // TODO
                 // This part is a bit heuristic, trying to recover if path was marked null
                 // but data looks like a path. For simplicity in unified struct,
                 // we might simplify this or ensure reader is correctly positioned.
@@ -610,7 +606,7 @@ impl BlobLocation {
         let stretch_encryption_key = reader.read_arq_bool()?;
         let compression_type = reader.read_arq_u32()?;
 
-        Ok(BlobLocation {
+        Ok(BlobLoc {
             blob_identifier,
             is_packed,
             is_large_pack: Some(is_large_pack_binary), // Map the binary bool to Some(bool)
@@ -626,30 +622,25 @@ impl BlobLocation {
 /// Unified Node struct representing a file or directory from JSON or binary context.
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct Node {
-    // Common fields (some types adjusted for binary context primarily)
     #[serde(rename = "isTree")]
     pub is_tree: bool,
     #[serde(rename = "itemSize")]
     pub item_size: u64,
     pub deleted: bool,
     #[serde(rename = "computerOSType")]
-    pub computer_os_type: u32, // u32 in both
-
+    pub computer_os_type: u32,
     #[serde(rename = "modificationTime_sec")]
-    pub modification_time_sec: i64, // Changed to i64 (from u64 in JSON Node)
+    pub modification_time_sec: i64,
     #[serde(rename = "modificationTime_nsec")]
-    pub modification_time_nsec: i64, // Changed to i64 (from u64 in JSON Node)
-
+    pub modification_time_nsec: i64,
     #[serde(rename = "changeTime_sec")]
-    pub change_time_sec: i64, // Changed to i64 (from u64 in JSON Node)
+    pub change_time_sec: i64,
     #[serde(rename = "changeTime_nsec")]
-    pub change_time_nsec: i64, // Changed to i64 (from u64 in JSON Node)
-
+    pub change_time_nsec: i64,
     #[serde(rename = "creationTime_sec")]
-    pub creation_time_sec: i64, // Changed to i64 (from u64 in JSON Node)
+    pub creation_time_sec: i64,
     #[serde(rename = "creationTime_nsec")]
-    pub creation_time_nsec: i64, // Changed to i64 (from u64 in JSON Node)
-
+    pub creation_time_nsec: i64,
     #[serde(rename = "mac_st_mode")]
     pub mac_st_mode: u32,
     #[serde(rename = "mac_st_ino")]
@@ -660,115 +651,95 @@ pub struct Node {
     pub mac_st_gid: u32,
     #[serde(rename = "winAttrs")]
     pub win_attrs: u32,
-
-    // Fields that were Option in JSON Node or u32 vs i32
     #[serde(skip_serializing_if = "Option::is_none", default)]
     #[serde(rename = "containedFilesCount")]
-    pub contained_files_count: Option<u64>, // Was u64 in BinaryNode, Option<u64> in JSON Node
-
+    pub contained_files_count: Option<u64>,
     #[serde(skip_serializing_if = "Option::is_none", default)]
     #[serde(rename = "mac_st_uid")]
-    pub mac_st_uid: Option<u32>, // Was u32 in BinaryNode, Option<u32> in JSON Node
-
+    pub mac_st_uid: Option<u32>,
     #[serde(rename = "mac_st_dev")]
-    pub mac_st_dev: i64, // Was u64 in JSON Node, i32 in BinaryNode. Using i64 to hold both. Or consider i32 if always fits.
-                         // Binary reads i32. JSON has u64. Let's use i64 for safety, assuming positive values.
-                         // Revisit if st_dev can be negative and needs i32.
-                         // For now, let's assume JSON values are positive and fit in i64.
-
+    pub mac_st_dev: i32,
     #[serde(rename = "mac_st_rdev")]
-    pub mac_st_rdev: i32, // Was u32 in JSON Node, i32 in BinaryNode
+    pub mac_st_rdev: i32,
     #[serde(rename = "mac_st_flags")]
-    pub mac_st_flags: i32, // Was u32 in JSON Node, i32 in BinaryNode
-
-    // Blob Locations (already using unified BlobLocation)
+    pub mac_st_flags: i32,
     #[serde(rename = "dataBlobLocs")]
-    pub data_blob_locs: Vec<BlobLocation>,
+    pub data_blob_locs: Vec<BlobLoc>,
     #[serde(skip_serializing_if = "Option::is_none", default)]
     #[serde(rename = "treeBlobLoc")]
-    pub tree_blob_loc: Option<BlobLocation>,
+    pub tree_blob_loc: Option<BlobLoc>,
     #[serde(skip_serializing_if = "Option::is_none", default)]
     #[serde(rename = "xattrsBlobLocs")]
-    pub xattrs_blob_locs: Option<Vec<BlobLocation>>, // Was Vec in BinaryNode
-
-    // Optional String fields (common, already Option in JSON Node)
+    pub xattrs_blob_locs: Option<Vec<BlobLoc>>,
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub username: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none", default)]
     #[serde(rename = "groupName")]
     pub group_name: Option<String>,
-
-    // Windows specific reparse fields (Option in JSON Node, Option in BinaryNode)
     #[serde(skip_serializing_if = "Option::is_none", default)]
     #[serde(rename = "reparseTag")]
     pub reparse_tag: Option<u32>,
     #[serde(skip_serializing_if = "Option::is_none", default)]
     #[serde(rename = "reparsePointIsDirectory")]
     pub reparse_point_is_directory: Option<bool>,
-
-    // Field specific to BinaryNode context (will be None/default when deserializing from JSON)
     #[serde(skip_serializing_if = "Option::is_none", default)]
-    pub acl_blob_loc: Option<BlobLocation>,
+    pub acl_blob_loc: Option<BlobLoc>,
 }
 
 impl Node {
     /// Parses a Node from binary data.
-    /// Logic adapted from `arq::arq7::binary::BinaryNode::from_reader`.
     pub fn from_binary_reader<R: binary::ArqBinaryReader>(
         reader: &mut R,
         tree_version: Option<u32>,
     ) -> Result<Self> {
         let is_tree = reader.read_arq_bool()?;
         let tree_blob_loc = if is_tree {
-            BlobLocation::from_binary_reader(reader).ok()
+            BlobLoc::from_binary_reader(reader).ok()
         } else {
             None
         };
         let computer_os_type = reader.read_arq_u32()?;
         let data_blob_locs_count = reader.read_arq_u64()?;
         let mut data_blob_locs = Vec::new();
-        for i in 0..std::cmp::min(data_blob_locs_count, 10) { // Limit to avoid excessive reads on corrupt data
-            match BlobLocation::from_binary_reader(reader) {
+        for _i in 0..data_blob_locs_count {
+            match BlobLoc::from_binary_reader(reader) {
                 Ok(blob_loc) => data_blob_locs.push(blob_loc),
                 Err(_) => {
-                    // Placeholder logic from original BinaryNode parser
-                    data_blob_locs.push(BlobLocation {
-                        blob_identifier: format!("placeholder_blob_{}", i),
-                        is_packed: true,
-                        relative_path: "/placeholder/path.pack".to_string(),
-                        offset: if i == 0 { 6 } else { 26 },
-                        length: if i == 0 { 15 } else { 14 },
-                        stretch_encryption_key: false,
-                        compression_type: 0,
-                        is_large_pack: Some(false),
-                    });
+                    panic!();
                     break;
                 }
             }
         }
 
         let acl_blob_loc = match reader.read_arq_bool() {
-            Ok(acl_not_nil) if acl_not_nil => BlobLocation::from_binary_reader(reader).ok(),
+            Ok(acl_not_nil) if acl_not_nil => BlobLoc::from_binary_reader(reader).ok(),
             _ => None,
         };
 
         let xattrs_blob_locs_count = reader.read_arq_u64().unwrap_or(0);
         let mut parsed_xattrs_blob_locs = Vec::new();
-        if xattrs_blob_locs_count > 0 && xattrs_blob_locs_count <= 10 { // Limit here too
-            for _ in 0..xattrs_blob_locs_count {
-                if let Ok(blob_loc) = BlobLocation::from_binary_reader(reader) {
-                    parsed_xattrs_blob_locs.push(blob_loc);
-                } else {
-                    break;
-                }
+
+        for _ in 0..xattrs_blob_locs_count {
+            if let Ok(blob_loc) = BlobLoc::from_binary_reader(reader) {
+                parsed_xattrs_blob_locs.push(blob_loc);
+            } else {
+                panic!();
+                break;
             }
         }
-        let xattrs_blob_locs = if parsed_xattrs_blob_locs.is_empty() && xattrs_blob_locs_count == 0 { None } else { Some(parsed_xattrs_blob_locs) };
-
+        let xattrs_blob_locs = if parsed_xattrs_blob_locs.is_empty() && xattrs_blob_locs_count == 0
+        {
+            None
+        } else {
+            Some(parsed_xattrs_blob_locs)
+        };
 
         // Fallback values are from original BinaryNode::from_reader
-        let item_size = reader.read_arq_u64().unwrap_or(if is_tree { 0 } else { 15 });
-        let contained_files_count = Some(reader.read_arq_u64().unwrap_or(if is_tree { 0 } else { 1 })); // Wrap in Some()
+        let item_size = reader
+            .read_arq_u64()
+            .unwrap_or(if is_tree { 0 } else { 15 });
+        let contained_files_count =
+            Some(reader.read_arq_u64().unwrap_or(if is_tree { 0 } else { 1 })); // Wrap in Some()
 
         let modification_time_sec = reader.read_arq_i64().unwrap_or(0);
         let modification_time_nsec = reader.read_arq_i64().unwrap_or(0);
@@ -781,9 +752,12 @@ impl Node {
         let group_name = reader.read_arq_string().ok().flatten();
         let deleted = reader.read_arq_bool().unwrap_or(false);
 
-        let mac_st_dev = reader.read_arq_i32().unwrap_or(0) as i64; // Cast to i64
+        let mac_st_dev = reader.read_arq_i32().unwrap_or(0);
         let mac_st_ino = reader.read_arq_u64().unwrap_or(0);
-        let mac_st_mode = reader.read_arq_u32().unwrap_or(if is_tree { 0o040755 } else { 0o100644 }); // Typical modes
+        let mac_st_mode =
+            reader
+                .read_arq_u32()
+                .unwrap_or(if is_tree { 0o040755 } else { 0o100644 }); // Typical modes
         let mac_st_nlink = reader.read_arq_u32().unwrap_or(1);
         let mac_st_uid = Some(reader.read_arq_u32().unwrap_or(0)); // Wrap in Some()
         let mac_st_gid = reader.read_arq_u32().unwrap_or(0);
@@ -792,8 +766,16 @@ impl Node {
 
         let win_attrs = reader.read_arq_u32().unwrap_or(0);
 
-        let reparse_tag = if tree_version.unwrap_or(1) >= 2 { reader.read_arq_u32().ok() } else { None };
-        let reparse_point_is_directory = if tree_version.unwrap_or(1) >= 2 { reader.read_arq_bool().ok() } else { None };
+        let reparse_tag = if tree_version.unwrap_or(1) >= 2 {
+            reader.read_arq_u32().ok()
+        } else {
+            None
+        };
+        let reparse_point_is_directory = if tree_version.unwrap_or(1) >= 2 {
+            reader.read_arq_bool().ok()
+        } else {
+            None
+        };
 
         Ok(Node {
             is_tree,
@@ -1352,7 +1334,8 @@ impl BackupSet {
         {
             let target_name = path_parts[depth];
 
-            if let Some(child_node) = tree.child_nodes.get(target_name) { // child_node is already &Node
+            if let Some(child_node) = tree.child_nodes.get(target_name) {
+                // child_node is already &Node
                 // let child_node = Node::from_binary_node(child_binary_node); // No longer needed
                 return self.find_node_recursive(
                     child_node, // Pass &Node directly
@@ -1404,7 +1387,8 @@ impl BackupSet {
         if let Some(tree) =
             node.load_tree_with_encryption(backup_set_dir, self.encryption_keyset.as_ref())?
         {
-            for (name, child_node) in &tree.child_nodes { // child_node is already &Node
+            for (name, child_node) in &tree.child_nodes {
+                // child_node is already &Node
                 // let child_node = Node::from_binary_node(child_binary_node); // No longer needed
                 let child_path = if current_path.is_empty() {
                     name.clone()
@@ -1568,7 +1552,7 @@ impl BackupRecord {
     }
 }
 
-impl BlobLocation {
+impl BlobLoc {
     // from_binary_reader was already added in the previous step.
     // Methods from the old BlobLoc have been moved here.
     // The `from_binary_blob_loc` method, previously on BlobLoc, is now obsolete
@@ -1833,10 +1817,8 @@ impl BlobLocation {
     }
 
     /// Load and parse a node from this blob location
-    pub fn load_node(
-        &self,
-        backup_set_path: &std::path::Path,
-    ) -> Result<Option<Node>> { // Changed return type to unified Node
+    pub fn load_node(&self, backup_set_path: &std::path::Path) -> Result<Option<Node>> {
+        // Changed return type to unified Node
         self.load_node_with_encryption(backup_set_path, None)
     }
 
@@ -1845,7 +1827,8 @@ impl BlobLocation {
         &self,
         backup_set_dir: &Path,
         keyset: Option<&EncryptedKeySet>,
-    ) -> Result<Option<Node>> { // Changed return type to unified Node
+    ) -> Result<Option<Node>> {
+        // Changed return type to unified Node
         let data = self.load_data(backup_set_dir, keyset)?;
 
         if data.is_empty() {
@@ -1909,12 +1892,12 @@ impl Node {
     // The from_binary_reader method is already defined above within this impl block.
 
     /// Get real blob locations from this node (for files)
-    pub fn get_data_blob_locations(&self) -> &[BlobLocation] { // Changed to BlobLocation
+    pub fn get_data_blob_locations(&self) -> &[BlobLoc] {
         &self.data_blob_locs
     }
 
     /// Get tree blob location (for directories)
-    pub fn get_tree_blob_location(&self) -> Option<&BlobLocation> { // Changed to BlobLocation
+    pub fn get_tree_blob_location(&self) -> Option<&BlobLoc> {
         self.tree_blob_loc.as_ref()
     }
 }
@@ -1922,12 +1905,14 @@ impl Node {
 impl BackupSet {
     /// Find real blob locations for files in the backup records
     /// This can be used when binary parsing produces fake blob paths
-    pub fn find_all_blob_locations(&self) -> Vec<&BlobLocation> { // Changed to BlobLocation
+    pub fn find_all_blob_locations(&self) -> Vec<&BlobLoc> {
         let mut blob_locations = Vec::new();
 
-        for (_, records) in &self.backup_records { // Iterate correctly through the HashMap
+        for (_, records) in &self.backup_records {
+            // Iterate correctly through the HashMap
             for record in records {
-                collect_blob_locations_from_node(&record.node, &mut blob_locations); // Correct logic
+                collect_blob_locations_from_node(&record.node, &mut blob_locations);
+                // Correct logic
             }
         }
 
@@ -1936,7 +1921,7 @@ impl BackupSet {
 }
 
 /// Recursively collect blob locations from a node tree
-fn collect_blob_locations_from_node<'a>(node: &'a Node, blob_locations: &mut Vec<&'a BlobLocation>) { // Changed to BlobLocation
+fn collect_blob_locations_from_node<'a>(node: &'a Node, blob_locations: &mut Vec<&'a BlobLoc>) {
     // Add data blob locations from this node
     for blob_loc in &node.data_blob_locs {
         blob_locations.push(blob_loc);
@@ -1972,9 +1957,11 @@ fn count_files_in_node(
     let mut total_size = 0u64;
 
     if let Some(tree) = node.load_tree_with_encryption(backup_set_dir, keyset)? {
-        for (_, child_node) in &tree.child_nodes { // child_node is already &Node
+        for (_, child_node) in &tree.child_nodes {
+            // child_node is already &Node
             // let child = Node::from_binary_node(child_node); // No longer needed
-            let (child_files, child_size) = count_files_in_node(child_node, backup_set_dir, keyset)?; // Pass child_node directly
+            let (child_files, child_size) =
+                count_files_in_node(child_node, backup_set_dir, keyset)?; // Pass child_node directly
             file_count += child_files;
             total_size += child_size;
         }

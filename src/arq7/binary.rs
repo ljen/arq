@@ -107,13 +107,6 @@ pub trait ArqBinaryReader: Read {
 // Implement ArqBinaryReader for any type that implements Read
 impl<R: Read> ArqBinaryReader for R {}
 
-// BinaryBlobLoc struct has been removed. Its functionality is merged into arq::arq7::BlobLocation.
-// The arq::arq7::BlobLocation::from_binary_reader method should be used for parsing from binary.
-
-// BinaryNode struct and its impl block have been removed.
-// Its parsing logic is now part of arq::arq7::Node::from_binary_reader.
-// BinaryTree now directly uses arq::arq7::Node.
-
 /// Binary representation of a Tree
 #[derive(Debug, Clone)]
 pub struct BinaryTree {
@@ -158,7 +151,7 @@ impl BinaryTree {
                         is_tree: false,
                         tree_blob_loc: None,
                         computer_os_type: 1,
-                        data_blob_locs: vec![crate::arq7::BlobLocation {
+                        data_blob_locs: vec![crate::arq7::BlobLoc {
                             blob_identifier: format!("placeholder_for_child_{}", i),
                             is_packed: true,
                             relative_path: "/placeholder/path.pack".to_string(),
