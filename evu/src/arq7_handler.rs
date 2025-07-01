@@ -1,15 +1,18 @@
+use crate::error::{Error, Result};
+use arq::arq7::{BackupSet, EncryptedKeySet, Node};
+use chrono::DateTime;
 use std::path::Path;
-use arq::arq7::{BackupSet, Node, EncryptedKeySet};
-use crate::error::{Result, Error};
 
 // Helper function to load the backup set
 fn load_backup_set(backup_set_path: &Path, password: Option<&str>) -> Result<BackupSet> {
-    BackupSet::from_directory_with_password(backup_set_path, password)
-        .map_err(Error::ArqError) // Convert arq::Error to local Error type
+    BackupSet::from_directory_with_password(backup_set_path, password).map_err(Error::ArqError) // Convert arq::Error to local Error type
 }
 
 // Helper function to find a record by a unique identifier (e.g., timestamp string)
-fn find_record_by_identifier<'a>(backup_set: &'a BackupSet, identifier: &str) -> Option<&'a arq::arq7::BackupRecord> {
+fn find_record_by_identifier<'a>(
+    backup_set: &'a BackupSet,
+    identifier: &str,
+) -> Option<&'a arq::arq7::BackupRecord> {
     for records in backup_set.backup_records.values() {
         for record in records {
             if let Some(creation_date) = record.creation_date {
@@ -41,7 +44,12 @@ fn find_node_in_record_tree(
     match node.load_tree_with_encryption(backup_set_path, keyset) {
         Ok(Some(tree)) => {
             let target_child_name = path_parts[current_depth];
-            eprintln!("DEBUG: find_node_in_record_tree: Depth: {}, Target: '{}', Children: {:?}", current_depth, target_child_name, tree.child_nodes.keys());
+            eprintln!(
+                "DEBUG: find_node_in_record_tree: Depth: {}, Target: '{}', Children: {:?}",
+                current_depth,
+                target_child_name,
+                tree.child_nodes.keys()
+            );
             if let Some(child_node) = tree.child_nodes.get(target_child_name) {
                 return find_node_in_record_tree(
                     child_node,
@@ -53,7 +61,11 @@ fn find_node_in_record_tree(
             }
         }
         Ok(None) => {
-            let current_path_segment = if current_depth > 0 { path_parts[current_depth-1] } else { "root" };
+            let current_path_segment = if current_depth > 0 {
+                path_parts[current_depth - 1]
+            } else {
+                "root"
+            };
             return Err(Error::Generic(format!(
                 "Node was expected to be a tree with loadable data, but found none for path part: {}",
                 current_path_segment
@@ -66,7 +78,6 @@ fn find_node_in_record_tree(
     Ok(None)
 }
 
-
 pub fn list_backup_records(backup_set_path: &Path, password: Option<&str>) -> Result<()> {
     let backup_set = load_backup_set(backup_set_path, password)?;
     println!("Arq 7 Backup Records:");
@@ -74,7 +85,10 @@ pub fn list_backup_records(backup_set_path: &Path, password: Option<&str>) -> Re
 
     eprintln!("DEBUG: All loaded backup_folder_configs:");
     for (uuid, config) in &backup_set.backup_folder_configs {
-        eprintln!("  UUID: {}, Name: {}, LocalPath: {}", uuid, config.name, config.local_path);
+        eprintln!(
+            "  UUID: {}, Name: {}, LocalPath: {}",
+            uuid, config.name, config.local_path
+        );
     }
 
     if backup_set.backup_records.is_empty() {
@@ -87,7 +101,10 @@ pub fn list_backup_records(backup_set_path: &Path, password: Option<&str>) -> Re
         let folder_name = folder_config.map_or("Unknown Folder", |fc| &fc.name);
         let folder_local_path = folder_config.map_or("N/A", |fc| &fc.local_path);
 
-        eprintln!("DEBUG: list_backup_records: Processing folder_uuid: {}, Retrieved local_path: {}", folder_uuid, folder_local_path);
+        eprintln!(
+            "DEBUG: list_backup_records: Processing folder_uuid: {}, Retrieved local_path: {}",
+            folder_uuid, folder_local_path
+        );
 
         println!("\nFolder: {} (UUID: {})", folder_name, folder_uuid);
         println!("  Original Path: {}", folder_local_path);
@@ -99,12 +116,10 @@ pub fn list_backup_records(backup_set_path: &Path, password: Option<&str>) -> Re
             let timestamp_str = record.creation_date.map_or_else(
                 || "Unknown Timestamp".to_string(),
                 |ts| {
-                    // Attempt to convert u64 to i64 for timestamp, assuming positive values.
-                    // A more robust solution would handle potential overflow if ts is too large.
-                    let secs = (ts / 1000) as i64;
-                    let nanos = ((ts % 1000) * 1_000_000) as u32;
-                    chrono::DateTime::from_timestamp(secs, nanos)
-                        .map_or_else(|| ts.to_string(), |dt| dt.format("%Y-%m-%d %H:%M:%S UTC").to_string())
+                    chrono::DateTime::from_timestamp(ts.try_into().unwrap(), 0).map_or_else(
+                        || ts.to_string(),
+                        |dt| dt.format("%Y-%m-%d %H:%M:%S UTC").to_string(),
+                    )
                 },
             );
             println!(
@@ -112,7 +127,10 @@ pub fn list_backup_records(backup_set_path: &Path, password: Option<&str>) -> Re
                 timestamp_str,
                 record.creation_date.unwrap_or(0)
             );
-            println!("    Arq Version: {}", record.arq_version.as_deref().unwrap_or("N/A"));
+            println!(
+                "    Arq Version: {}",
+                record.arq_version.as_deref().unwrap_or("N/A")
+            );
             println!("    Complete: {}", record.is_complete.unwrap_or(false));
             println!("    Error Count: {}", record.error_count.unwrap_or(0));
             println!("    Root Node Size: {} bytes", record.node.item_size);
@@ -124,13 +142,20 @@ pub fn list_backup_records(backup_set_path: &Path, password: Option<&str>) -> Re
     Ok(())
 }
 
-pub fn list_file_versions(backup_set_path: &Path, file_path_in_backup: &str, password: Option<&str>) -> Result<()> {
+pub fn list_file_versions(
+    backup_set_path: &Path,
+    file_path_in_backup: &str,
+    password: Option<&str>,
+) -> Result<()> {
     let backup_set = load_backup_set(backup_set_path, password)?;
     let keyset = backup_set.encryption_keyset();
     println!("Versions for file: {}", file_path_in_backup);
     println!("------------------------------------");
 
-    let path_parts: Vec<&str> = file_path_in_backup.split('/').filter(|s| !s.is_empty()).collect();
+    let path_parts: Vec<&str> = file_path_in_backup
+        .split('/')
+        .filter(|s| !s.is_empty())
+        .collect();
     if path_parts.is_empty() {
         return Err(Error::Generic("File path cannot be empty".to_string()));
     }
@@ -140,58 +165,108 @@ pub fn list_file_versions(backup_set_path: &Path, file_path_in_backup: &str, pas
     for (folder_uuid, records) in &backup_set.backup_records {
         for record in records {
             let record_local_path_str = record.local_path.as_deref().unwrap_or("");
-            let bf_config_local_path_str = backup_set.backup_folder_configs.get(folder_uuid).map_or("", |c| &c.local_path);
+            let bf_config_local_path_str = backup_set
+                .backup_folder_configs
+                .get(folder_uuid)
+                .map_or("", |c| &c.local_path);
             let mut effective_path_parts = path_parts.clone();
 
-            eprintln!("DEBUG list_file_versions: File: '{}', Record LocalPath: '{}', BFConfig LocalPath: '{}'", file_path_in_backup, record_local_path_str, bf_config_local_path_str);
+            eprintln!(
+                "DEBUG list_file_versions: File: '{}', Record LocalPath: '{}', BFConfig LocalPath: '{}'",
+                file_path_in_backup, record_local_path_str, bf_config_local_path_str
+            );
 
-            if !record_local_path_str.is_empty() && file_path_in_backup.starts_with(record_local_path_str) {
-                let relative_file_path = file_path_in_backup.strip_prefix(record_local_path_str).unwrap_or(file_path_in_backup);
-                eprintln!("DEBUG list_file_versions: Relative to record_local_path: '{}'", relative_file_path);
+            if !record_local_path_str.is_empty()
+                && file_path_in_backup.starts_with(record_local_path_str)
+            {
+                let relative_file_path = file_path_in_backup
+                    .strip_prefix(record_local_path_str)
+                    .unwrap_or(file_path_in_backup);
+                eprintln!(
+                    "DEBUG list_file_versions: Relative to record_local_path: '{}'",
+                    relative_file_path
+                );
                 let relative_file_path_trimmed = relative_file_path.trim_start_matches('/');
-                effective_path_parts = relative_file_path_trimmed.split('/').filter(|s| !s.is_empty()).collect();
+                effective_path_parts = relative_file_path_trimmed
+                    .split('/')
+                    .filter(|s| !s.is_empty())
+                    .collect();
                 if effective_path_parts.is_empty() && !relative_file_path_trimmed.is_empty() {
-                     effective_path_parts = vec![relative_file_path_trimmed];
+                    effective_path_parts = vec![relative_file_path_trimmed];
                 }
-            } else if record_local_path_str.is_empty() && backup_set.backup_folder_configs.get(folder_uuid).is_some() {
-                 if let Some(bf_config) = backup_set.backup_folder_configs.get(folder_uuid) {
-                     if file_path_in_backup.starts_with(&bf_config.local_path) {
-                        let relative_file_path = file_path_in_backup.strip_prefix(&bf_config.local_path).unwrap_or(file_path_in_backup);
-                        eprintln!("DEBUG list_file_versions: Relative to bf_config.local_path: '{}'", relative_file_path);
+            } else if record_local_path_str.is_empty()
+                && backup_set.backup_folder_configs.get(folder_uuid).is_some()
+            {
+                if let Some(bf_config) = backup_set.backup_folder_configs.get(folder_uuid) {
+                    if file_path_in_backup.starts_with(&bf_config.local_path) {
+                        let relative_file_path = file_path_in_backup
+                            .strip_prefix(&bf_config.local_path)
+                            .unwrap_or(file_path_in_backup);
+                        eprintln!(
+                            "DEBUG list_file_versions: Relative to bf_config.local_path: '{}'",
+                            relative_file_path
+                        );
                         let relative_file_path_trimmed = relative_file_path.trim_start_matches('/');
-                        effective_path_parts = relative_file_path_trimmed.split('/').filter(|s| !s.is_empty()).collect();
-                        if effective_path_parts.is_empty() && !relative_file_path_trimmed.is_empty() {
-                             effective_path_parts = vec![relative_file_path_trimmed];
+                        effective_path_parts = relative_file_path_trimmed
+                            .split('/')
+                            .filter(|s| !s.is_empty())
+                            .collect();
+                        if effective_path_parts.is_empty() && !relative_file_path_trimmed.is_empty()
+                        {
+                            effective_path_parts = vec![relative_file_path_trimmed];
                         }
-                     }
-                 }
+                    }
+                }
             }
-            eprintln!("DEBUG list_file_versions: Effective path parts for find_node: {:?}", effective_path_parts);
+            eprintln!(
+                "DEBUG list_file_versions: Effective path parts for find_node: {:?}",
+                effective_path_parts
+            );
 
             if effective_path_parts.is_empty() {
                 continue;
             }
 
-            match find_node_in_record_tree(&record.node, &effective_path_parts, 0, backup_set_path, keyset) {
+            match find_node_in_record_tree(
+                &record.node,
+                &effective_path_parts,
+                0,
+                backup_set_path,
+                keyset,
+            ) {
                 Ok(Some(node)) if !node.is_tree => {
-                    eprintln!("DEBUG list_file_versions: Found file node: {:?}, size: {}", node.data_blob_locs.first().map(|b|&b.blob_identifier), node.item_size);
+                    eprintln!(
+                        "DEBUG list_file_versions: Found file node: {:?}, size: {}",
+                        node.data_blob_locs.first().map(|b| &b.blob_identifier),
+                        node.item_size
+                    );
                     let timestamp_str = record.creation_date.map_or_else(
                         || "Unknown Timestamp".to_string(),
-                        |ts| chrono::DateTime::from_timestamp(ts as i64 / 1000, 0).unwrap().format("%Y-%m-%d %H:%M:%S UTC").to_string(),
+                        |ts| {
+                            chrono::DateTime::from_timestamp(ts as i64 / 1000, 0)
+                                .unwrap()
+                                .format("%Y-%m-%d %H:%M:%S UTC")
+                                .to_string()
+                        },
                     );
                     println!(
                         "  - Record Timestamp: {} (Raw: {:?}), Size: {} bytes, Modified: {}",
                         timestamp_str,
                         record.creation_date.unwrap_or(0),
                         node.item_size,
-                        chrono::DateTime::from_timestamp(node.modification_time_sec, 0).unwrap().format("%Y-%m-%d %H:%M:%S")
+                        chrono::DateTime::from_timestamp(node.modification_time_sec, 0)
+                            .unwrap()
+                            .format("%Y-%m-%d %H:%M:%S")
                     );
                     found_versions += 1;
                 }
-                Ok(Some(_node)) => { }
-                Ok(None) => { }
+                Ok(Some(_node)) => {}
+                Ok(None) => {}
                 Err(e) => {
-                    eprintln!("Warning: Error processing record {:?}: {}", record.creation_date, e);
+                    eprintln!(
+                        "Warning: Error processing record {:?}: {}",
+                        record.creation_date, e
+                    );
                 }
             }
         }
@@ -203,65 +278,118 @@ pub fn list_file_versions(backup_set_path: &Path, file_path_in_backup: &str, pas
     Ok(())
 }
 
-pub fn list_folder_versions(backup_set_path: &Path, folder_path_in_backup: &str, password: Option<&str>) -> Result<()> {
+pub fn list_folder_versions(
+    backup_set_path: &Path,
+    folder_path_in_backup: &str,
+    password: Option<&str>,
+) -> Result<()> {
     let backup_set = load_backup_set(backup_set_path, password)?;
     let keyset = backup_set.encryption_keyset();
     println!("Versions for folder: {}", folder_path_in_backup);
     println!("--------------------------------------");
 
-    let path_parts: Vec<&str> = folder_path_in_backup.split('/').filter(|s| !s.is_empty()).collect();
+    let path_parts: Vec<&str> = folder_path_in_backup
+        .split('/')
+        .filter(|s| !s.is_empty())
+        .collect();
     let mut found_versions = 0;
 
     for (folder_uuid, records) in &backup_set.backup_records {
         for record in records {
             let record_local_path_str = record.local_path.as_deref().unwrap_or("");
-            let bf_config_local_path_str = backup_set.backup_folder_configs.get(folder_uuid).map_or("", |c| &c.local_path);
+            let bf_config_local_path_str = backup_set
+                .backup_folder_configs
+                .get(folder_uuid)
+                .map_or("", |c| &c.local_path);
             let mut effective_path_parts = path_parts.clone();
 
-            eprintln!("DEBUG list_folder_versions: Folder: '{}', Record LocalPath: '{}', BFConfig LocalPath: '{}'", folder_path_in_backup, record_local_path_str, bf_config_local_path_str);
+            eprintln!(
+                "DEBUG list_folder_versions: Folder: '{}', Record LocalPath: '{}', BFConfig LocalPath: '{}'",
+                folder_path_in_backup, record_local_path_str, bf_config_local_path_str
+            );
 
             if folder_path_in_backup == "/" || folder_path_in_backup.is_empty() {
                 effective_path_parts = Vec::new();
-            } else if !record_local_path_str.is_empty() && folder_path_in_backup.starts_with(record_local_path_str) {
-                let relative_folder_path = folder_path_in_backup.strip_prefix(record_local_path_str).unwrap_or(folder_path_in_backup);
-                eprintln!("DEBUG list_folder_versions: Relative to record_local_path: '{}'", relative_folder_path);
+            } else if !record_local_path_str.is_empty()
+                && folder_path_in_backup.starts_with(record_local_path_str)
+            {
+                let relative_folder_path = folder_path_in_backup
+                    .strip_prefix(record_local_path_str)
+                    .unwrap_or(folder_path_in_backup);
+                eprintln!(
+                    "DEBUG list_folder_versions: Relative to record_local_path: '{}'",
+                    relative_folder_path
+                );
                 let relative_folder_path_trimmed = relative_folder_path.trim_start_matches('/');
-                effective_path_parts = relative_folder_path_trimmed.split('/').filter(|s| !s.is_empty()).collect();
-                 if relative_folder_path_trimmed.is_empty() && !relative_folder_path.is_empty() && folder_path_in_backup != "/" {
+                effective_path_parts = relative_folder_path_trimmed
+                    .split('/')
+                    .filter(|s| !s.is_empty())
+                    .collect();
+                if relative_folder_path_trimmed.is_empty()
+                    && !relative_folder_path.is_empty()
+                    && folder_path_in_backup != "/"
+                {
                     effective_path_parts = Vec::new();
                 }
-            } else if record_local_path_str.is_empty() && backup_set.backup_folder_configs.get(folder_uuid).is_some() {
-                 if let Some(bf_config) = backup_set.backup_folder_configs.get(folder_uuid) {
-                     if folder_path_in_backup.starts_with(&bf_config.local_path) {
-                        let relative_folder_path = folder_path_in_backup.strip_prefix(&bf_config.local_path).unwrap_or(folder_path_in_backup);
-                        let relative_folder_path_trimmed = relative_folder_path.trim_start_matches('/');
-                        effective_path_parts = relative_folder_path_trimmed.split('/').filter(|s| !s.is_empty()).collect();
-                        if relative_folder_path_trimmed.is_empty() && !relative_folder_path.is_empty() && folder_path_in_backup != "/"  {
-                             effective_path_parts = Vec::new();
+            } else if record_local_path_str.is_empty()
+                && backup_set.backup_folder_configs.get(folder_uuid).is_some()
+            {
+                if let Some(bf_config) = backup_set.backup_folder_configs.get(folder_uuid) {
+                    if folder_path_in_backup.starts_with(&bf_config.local_path) {
+                        let relative_folder_path = folder_path_in_backup
+                            .strip_prefix(&bf_config.local_path)
+                            .unwrap_or(folder_path_in_backup);
+                        let relative_folder_path_trimmed =
+                            relative_folder_path.trim_start_matches('/');
+                        effective_path_parts = relative_folder_path_trimmed
+                            .split('/')
+                            .filter(|s| !s.is_empty())
+                            .collect();
+                        if relative_folder_path_trimmed.is_empty()
+                            && !relative_folder_path.is_empty()
+                            && folder_path_in_backup != "/"
+                        {
+                            effective_path_parts = Vec::new();
                         }
-                     }
-                 }
+                    }
+                }
             }
 
-            match find_node_in_record_tree(&record.node, &effective_path_parts, 0, backup_set_path, keyset) {
+            match find_node_in_record_tree(
+                &record.node,
+                &effective_path_parts,
+                0,
+                backup_set_path,
+                keyset,
+            ) {
                 Ok(Some(node)) if node.is_tree => {
                     let timestamp_str = record.creation_date.map_or_else(
                         || "Unknown Timestamp".to_string(),
-                        |ts| chrono::DateTime::from_timestamp(ts as i64 / 1000, 0).unwrap().format("%Y-%m-%d %H:%M:%S UTC").to_string(),
+                        |ts| {
+                            chrono::DateTime::from_timestamp(ts as i64 / 1000, 0)
+                                .unwrap()
+                                .format("%Y-%m-%d %H:%M:%S UTC")
+                                .to_string()
+                        },
                     );
                     println!(
                         "  - Record Timestamp: {} (Raw: {:?}), Items: ~{}, Modified: {}",
                         timestamp_str,
                         record.creation_date.unwrap_or(0),
                         node.contained_files_count.unwrap_or(0),
-                        chrono::DateTime::from_timestamp(node.modification_time_sec, 0).unwrap().format("%Y-%m-%d %H:%M:%S")
+                        chrono::DateTime::from_timestamp(node.modification_time_sec, 0)
+                            .unwrap()
+                            .format("%Y-%m-%d %H:%M:%S")
                     );
                     found_versions += 1;
                 }
-                Ok(Some(_node)) => { }
-                Ok(None) => { }
+                Ok(Some(_node)) => {}
+                Ok(None) => {}
                 Err(e) => {
-                    eprintln!("Warning: Error processing record {:?}: {}", record.creation_date, e);
+                    eprintln!(
+                        "Warning: Error processing record {:?}: {}",
+                        record.creation_date, e
+                    );
                 }
             }
         }
@@ -272,7 +400,12 @@ pub fn list_folder_versions(backup_set_path: &Path, folder_path_in_backup: &str,
     Ok(())
 }
 
-pub fn restore_full_record(backup_set_path: &Path, record_identifier: &str, destination: &Path, password: Option<&str>) -> Result<()> {
+pub fn restore_full_record(
+    backup_set_path: &Path,
+    record_identifier: &str,
+    destination: &Path,
+    password: Option<&str>,
+) -> Result<()> {
     let backup_set = load_backup_set(backup_set_path, password)?;
     let keyset = backup_set.encryption_keyset();
 
@@ -280,20 +413,26 @@ pub fn restore_full_record(backup_set_path: &Path, record_identifier: &str, dest
         std::fs::create_dir_all(destination)?;
     }
     if !destination.is_dir() {
-        return Err(Error::Generic(format!("Destination '{}' is not a directory.", destination.display())));
+        return Err(Error::Generic(format!(
+            "Destination '{}' is not a directory.",
+            destination.display()
+        )));
     }
 
     match find_record_by_identifier(&backup_set, record_identifier) {
         Some(record) => {
-            let timestamp_str = record.creation_date.map_or_else(
-                || record_identifier.to_string(),
-                |ts| ts.to_string(),
-            );
+            let timestamp_str = record
+                .creation_date
+                .map_or_else(|| record_identifier.to_string(), |ts| ts.to_string());
             let record_dest_name = format!("record_{}", timestamp_str);
             let final_destination = destination.join(record_dest_name);
             std::fs::create_dir_all(&final_destination)?;
 
-            println!("Restoring record (Timestamp: {}) to {}...", timestamp_str, final_destination.display());
+            println!(
+                "Restoring record (Timestamp: {}) to {}...",
+                timestamp_str,
+                final_destination.display()
+            );
 
             let mut stats = ExtractionStats::default();
             extract_node_to_destination_recursive(
@@ -302,28 +441,48 @@ pub fn restore_full_record(backup_set_path: &Path, record_identifier: &str, dest
                 keyset,
                 &final_destination,
                 "",
-                &mut stats
+                &mut stats,
             )?;
-            println!("Successfully restored record. Files: {}, Dirs: {}, Total Size: {} bytes. Errors: {}",
-                     stats.files_restored, stats.dirs_created, stats.bytes_restored, stats.errors);
+            println!(
+                "Successfully restored record. Files: {}, Dirs: {}, Total Size: {} bytes. Errors: {}",
+                stats.files_restored, stats.dirs_created, stats.bytes_restored, stats.errors
+            );
             if stats.errors > 0 {
-                eprintln!("Warning: {} errors occurred during restoration.", stats.errors);
+                eprintln!(
+                    "Warning: {} errors occurred during restoration.",
+                    stats.errors
+                );
             }
             Ok(())
         }
-        None => Err(Error::NotFound(format!("Record with identifier '{}' not found.", record_identifier))),
+        None => Err(Error::NotFound(format!(
+            "Record with identifier '{}' not found.",
+            record_identifier
+        ))),
     }
 }
 
-
-pub fn restore_specific_file_from_record(backup_set_path: &Path, record_identifier: &str, file_path_in_backup: &str, destination: &Path, password: Option<&str>) -> Result<()> {
+pub fn restore_specific_file_from_record(
+    backup_set_path: &Path,
+    record_identifier: &str,
+    file_path_in_backup: &str,
+    destination: &Path,
+    password: Option<&str>,
+) -> Result<()> {
     let backup_set = load_backup_set(backup_set_path, password)?;
     let keyset = backup_set.encryption_keyset();
 
-    let record = find_record_by_identifier(&backup_set, record_identifier)
-        .ok_or_else(|| Error::NotFound(format!("Record with identifier '{}' not found.", record_identifier)))?;
+    let record = find_record_by_identifier(&backup_set, record_identifier).ok_or_else(|| {
+        Error::NotFound(format!(
+            "Record with identifier '{}' not found.",
+            record_identifier
+        ))
+    })?;
 
-    let path_parts: Vec<&str> = file_path_in_backup.split('/').filter(|s| !s.is_empty()).collect();
+    let path_parts: Vec<&str> = file_path_in_backup
+        .split('/')
+        .filter(|s| !s.is_empty())
+        .collect();
     if path_parts.is_empty() {
         return Err(Error::Generic("File path cannot be empty".to_string()));
     }
@@ -331,37 +490,69 @@ pub fn restore_specific_file_from_record(backup_set_path: &Path, record_identifi
     let record_local_path_str = record.local_path.as_deref().unwrap_or("");
     let mut effective_path_parts = path_parts.clone();
     if !record_local_path_str.is_empty() && file_path_in_backup.starts_with(record_local_path_str) {
-        let relative_file_path = file_path_in_backup.strip_prefix(record_local_path_str).unwrap_or(file_path_in_backup);
+        let relative_file_path = file_path_in_backup
+            .strip_prefix(record_local_path_str)
+            .unwrap_or(file_path_in_backup);
         let relative_file_path_trimmed = relative_file_path.trim_start_matches('/');
-        effective_path_parts = relative_file_path_trimmed.split('/').filter(|s| !s.is_empty()).collect();
+        effective_path_parts = relative_file_path_trimmed
+            .split('/')
+            .filter(|s| !s.is_empty())
+            .collect();
         if effective_path_parts.is_empty() && !relative_file_path_trimmed.is_empty() {
-             effective_path_parts = vec![relative_file_path_trimmed];
+            effective_path_parts = vec![relative_file_path_trimmed];
         }
     } else if record_local_path_str.is_empty() {
-        if let Some(bf_config) = backup_set.backup_folder_configs.get(&record.backup_folder_uuid) {
+        if let Some(bf_config) = backup_set
+            .backup_folder_configs
+            .get(&record.backup_folder_uuid)
+        {
             if file_path_in_backup.starts_with(&bf_config.local_path) {
-                let relative_file_path = file_path_in_backup.strip_prefix(&bf_config.local_path).unwrap_or(file_path_in_backup);
+                let relative_file_path = file_path_in_backup
+                    .strip_prefix(&bf_config.local_path)
+                    .unwrap_or(file_path_in_backup);
                 let relative_file_path_trimmed = relative_file_path.trim_start_matches('/');
-                effective_path_parts = relative_file_path_trimmed.split('/').filter(|s| !s.is_empty()).collect();
+                effective_path_parts = relative_file_path_trimmed
+                    .split('/')
+                    .filter(|s| !s.is_empty())
+                    .collect();
                 if effective_path_parts.is_empty() && !relative_file_path_trimmed.is_empty() {
-                     effective_path_parts = vec![relative_file_path_trimmed];
+                    effective_path_parts = vec![relative_file_path_trimmed];
                 }
             }
         }
     }
     if effective_path_parts.is_empty() {
-        return Err(Error::NotFound(format!("Adjusted file path is empty for '{}' relative to record's local path '{}'. Cannot restore directory root as a file.", file_path_in_backup, record_local_path_str)));
+        return Err(Error::NotFound(format!(
+            "Adjusted file path is empty for '{}' relative to record's local path '{}'. Cannot restore directory root as a file.",
+            file_path_in_backup, record_local_path_str
+        )));
     }
 
-    let target_node = find_node_in_record_tree(&record.node, &effective_path_parts, 0, backup_set_path, keyset)?
-        .ok_or_else(|| Error::NotFound(format!("File '{}' not found in record '{}'.", file_path_in_backup, record_identifier)))?;
+    let target_node = find_node_in_record_tree(
+        &record.node,
+        &effective_path_parts,
+        0,
+        backup_set_path,
+        keyset,
+    )?
+    .ok_or_else(|| {
+        Error::NotFound(format!(
+            "File '{}' not found in record '{}'.",
+            file_path_in_backup, record_identifier
+        ))
+    })?;
 
     if target_node.is_tree {
-        return Err(Error::Generic(format!("Path '{}' points to a directory, not a file.", file_path_in_backup)));
+        return Err(Error::Generic(format!(
+            "Path '{}' points to a directory, not a file.",
+            file_path_in_backup
+        )));
     }
 
     let output_path = if destination.is_dir() || destination.to_string_lossy().ends_with('/') {
-        let filename = effective_path_parts.last().ok_or_else(|| Error::Generic("Could not determine filename".to_string()))?;
+        let filename = effective_path_parts
+            .last()
+            .ok_or_else(|| Error::Generic("Could not determine filename".to_string()))?;
         destination.join(filename)
     } else {
         destination.to_path_buf()
@@ -373,7 +564,12 @@ pub fn restore_specific_file_from_record(backup_set_path: &Path, record_identifi
         }
     }
 
-    println!("Restoring file '{}' from record (Timestamp: {:?}) to {}...", file_path_in_backup, record.creation_date, output_path.display());
+    println!(
+        "Restoring file '{}' from record (Timestamp: {:?}) to {}...",
+        file_path_in_backup,
+        record.creation_date,
+        output_path.display()
+    );
     let file_data = target_node.reconstruct_file_data_with_encryption(backup_set_path, keyset)?;
     std::fs::write(&output_path, file_data)?;
 
@@ -381,60 +577,116 @@ pub fn restore_specific_file_from_record(backup_set_path: &Path, record_identifi
     Ok(())
 }
 
-pub fn restore_specific_folder_from_record(backup_set_path: &Path, record_identifier: &str, folder_path_in_backup: &str, destination: &Path, password: Option<&str>) -> Result<()> {
+pub fn restore_specific_folder_from_record(
+    backup_set_path: &Path,
+    record_identifier: &str,
+    folder_path_in_backup: &str,
+    destination: &Path,
+    password: Option<&str>,
+) -> Result<()> {
     let backup_set = load_backup_set(backup_set_path, password)?;
     let keyset = backup_set.encryption_keyset();
 
-    let record = find_record_by_identifier(&backup_set, record_identifier)
-        .ok_or_else(|| Error::NotFound(format!("Record with identifier '{}' not found.", record_identifier)))?;
+    let record = find_record_by_identifier(&backup_set, record_identifier).ok_or_else(|| {
+        Error::NotFound(format!(
+            "Record with identifier '{}' not found.",
+            record_identifier
+        ))
+    })?;
 
-    let path_parts: Vec<&str> = folder_path_in_backup.split('/').filter(|s| !s.is_empty()).collect();
+    let path_parts: Vec<&str> = folder_path_in_backup
+        .split('/')
+        .filter(|s| !s.is_empty())
+        .collect();
     let mut effective_path_parts = path_parts.clone();
     let record_local_path_str = record.local_path.as_deref().unwrap_or("");
 
     if folder_path_in_backup == "/" || folder_path_in_backup.is_empty() {
         effective_path_parts = Vec::new();
-    } else if !record_local_path_str.is_empty() && folder_path_in_backup.starts_with(record_local_path_str) {
-        let relative_path = folder_path_in_backup.strip_prefix(record_local_path_str).unwrap_or(folder_path_in_backup);
+    } else if !record_local_path_str.is_empty()
+        && folder_path_in_backup.starts_with(record_local_path_str)
+    {
+        let relative_path = folder_path_in_backup
+            .strip_prefix(record_local_path_str)
+            .unwrap_or(folder_path_in_backup);
         let trimmed_relative_path = relative_path.trim_start_matches('/');
-        effective_path_parts = trimmed_relative_path.split('/').filter(|s| !s.is_empty()).collect();
-        if trimmed_relative_path.is_empty() && !relative_path.is_empty() && folder_path_in_backup != "/" {
-             effective_path_parts = Vec::new();
+        effective_path_parts = trimmed_relative_path
+            .split('/')
+            .filter(|s| !s.is_empty())
+            .collect();
+        if trimmed_relative_path.is_empty()
+            && !relative_path.is_empty()
+            && folder_path_in_backup != "/"
+        {
+            effective_path_parts = Vec::new();
         }
     } else if record_local_path_str.is_empty() {
-         if let Some(bf_config) = backup_set.backup_folder_configs.get(&record.backup_folder_uuid) {
-             if folder_path_in_backup.starts_with(&bf_config.local_path) {
-                let relative_path = folder_path_in_backup.strip_prefix(&bf_config.local_path).unwrap_or(folder_path_in_backup);
+        if let Some(bf_config) = backup_set
+            .backup_folder_configs
+            .get(&record.backup_folder_uuid)
+        {
+            if folder_path_in_backup.starts_with(&bf_config.local_path) {
+                let relative_path = folder_path_in_backup
+                    .strip_prefix(&bf_config.local_path)
+                    .unwrap_or(folder_path_in_backup);
                 let trimmed_relative_path = relative_path.trim_start_matches('/');
-                effective_path_parts = trimmed_relative_path.split('/').filter(|s| !s.is_empty()).collect();
-                if trimmed_relative_path.is_empty() && !relative_path.is_empty() && folder_path_in_backup != "/" {
-                     effective_path_parts = Vec::new();
+                effective_path_parts = trimmed_relative_path
+                    .split('/')
+                    .filter(|s| !s.is_empty())
+                    .collect();
+                if trimmed_relative_path.is_empty()
+                    && !relative_path.is_empty()
+                    && folder_path_in_backup != "/"
+                {
+                    effective_path_parts = Vec::new();
                 }
-             }
-         }
+            }
+        }
     }
 
-    let target_node = find_node_in_record_tree(&record.node, &effective_path_parts, 0, backup_set_path, keyset)?
-        .ok_or_else(|| Error::NotFound(format!("Folder '{}' not found in record '{}'.", folder_path_in_backup, record_identifier)))?;
+    let target_node = find_node_in_record_tree(
+        &record.node,
+        &effective_path_parts,
+        0,
+        backup_set_path,
+        keyset,
+    )?
+    .ok_or_else(|| {
+        Error::NotFound(format!(
+            "Folder '{}' not found in record '{}'.",
+            folder_path_in_backup, record_identifier
+        ))
+    })?;
 
     if !target_node.is_tree {
-        return Err(Error::Generic(format!("Path '{}' points to a file, not a directory.", folder_path_in_backup)));
+        return Err(Error::Generic(format!(
+            "Path '{}' points to a file, not a directory.",
+            folder_path_in_backup
+        )));
     }
 
     if !destination.exists() {
         std::fs::create_dir_all(destination)?;
     }
     if !destination.is_dir() {
-        return Err(Error::Generic(format!("Destination '{}' is not a directory.", destination.display())));
+        return Err(Error::Generic(format!(
+            "Destination '{}' is not a directory.",
+            destination.display()
+        )));
     }
 
-    let base_folder_name = effective_path_parts.last().map_or("root_content", |n|*n);
+    let base_folder_name = effective_path_parts.last().map_or("root_content", |n| *n);
     let final_destination_for_folder_content = destination.join(base_folder_name);
     if !final_destination_for_folder_content.exists() {
         std::fs::create_dir_all(&final_destination_for_folder_content)?;
     }
 
-    println!("Restoring folder '{}' from record (Timestamp: {:?}) to {}...", folder_path_in_backup, record.creation_date, final_destination_for_folder_content.display());
+    println!(
+        "Restoring folder '{}' from record (Timestamp: {:?}) to {}...",
+        folder_path_in_backup,
+        record.creation_date,
+        final_destination_for_folder_content.display()
+    );
 
     let mut stats = ExtractionStats::default();
     extract_node_to_destination_recursive(
@@ -443,18 +695,28 @@ pub fn restore_specific_folder_from_record(backup_set_path: &Path, record_identi
         keyset,
         &final_destination_for_folder_content,
         "",
-        &mut stats
+        &mut stats,
     )?;
 
-    println!("Successfully restored folder. Files: {}, Dirs: {}, Total Size: {} bytes. Errors: {}",
-             stats.files_restored, stats.dirs_created, stats.bytes_restored, stats.errors);
+    println!(
+        "Successfully restored folder. Files: {}, Dirs: {}, Total Size: {} bytes. Errors: {}",
+        stats.files_restored, stats.dirs_created, stats.bytes_restored, stats.errors
+    );
     if stats.errors > 0 {
-        eprintln!("Warning: {} errors occurred during restoration.", stats.errors);
+        eprintln!(
+            "Warning: {} errors occurred during restoration.",
+            stats.errors
+        );
     }
     Ok(())
 }
 
-pub fn restore_all_folder_versions(backup_set_path: &Path, folder_path_in_backup: &str, destination_root: &Path, password: Option<&str>) -> Result<()> {
+pub fn restore_all_folder_versions(
+    backup_set_path: &Path,
+    folder_path_in_backup: &str,
+    destination_root: &Path,
+    password: Option<&str>,
+) -> Result<()> {
     let backup_set = load_backup_set(backup_set_path, password)?;
     let keyset = backup_set.encryption_keyset();
 
@@ -462,12 +724,22 @@ pub fn restore_all_folder_versions(backup_set_path: &Path, folder_path_in_backup
         std::fs::create_dir_all(destination_root)?;
     }
     if !destination_root.is_dir() {
-        return Err(Error::Generic(format!("Destination root '{}' is not a directory.", destination_root.display())));
+        return Err(Error::Generic(format!(
+            "Destination root '{}' is not a directory.",
+            destination_root.display()
+        )));
     }
 
-    println!("Restoring all versions of folder '{}' to root '{}'", folder_path_in_backup, destination_root.display());
+    println!(
+        "Restoring all versions of folder '{}' to root '{}'",
+        folder_path_in_backup,
+        destination_root.display()
+    );
 
-    let path_parts: Vec<&str> = folder_path_in_backup.split('/').filter(|s| !s.is_empty()).collect();
+    let path_parts: Vec<&str> = folder_path_in_backup
+        .split('/')
+        .filter(|s| !s.is_empty())
+        .collect();
     let mut versions_restored_count = 0;
 
     for (folder_uuid, records) in &backup_set.backup_records {
@@ -477,44 +749,77 @@ pub fn restore_all_folder_versions(backup_set_path: &Path, folder_path_in_backup
 
             if folder_path_in_backup == "/" || folder_path_in_backup.is_empty() {
                 effective_path_parts = Vec::new();
-            } else if !record_local_path_str.is_empty() && folder_path_in_backup.starts_with(record_local_path_str) {
-                let relative_path = folder_path_in_backup.strip_prefix(record_local_path_str).unwrap_or(folder_path_in_backup);
+            } else if !record_local_path_str.is_empty()
+                && folder_path_in_backup.starts_with(record_local_path_str)
+            {
+                let relative_path = folder_path_in_backup
+                    .strip_prefix(record_local_path_str)
+                    .unwrap_or(folder_path_in_backup);
                 let trimmed_relative_path = relative_path.trim_start_matches('/');
-                effective_path_parts = trimmed_relative_path.split('/').filter(|s| !s.is_empty()).collect();
-                if trimmed_relative_path.is_empty() && !relative_path.is_empty() && folder_path_in_backup != "/" {
-                     effective_path_parts = Vec::new();
+                effective_path_parts = trimmed_relative_path
+                    .split('/')
+                    .filter(|s| !s.is_empty())
+                    .collect();
+                if trimmed_relative_path.is_empty()
+                    && !relative_path.is_empty()
+                    && folder_path_in_backup != "/"
+                {
+                    effective_path_parts = Vec::new();
                 }
             } else if record_local_path_str.is_empty() {
                 if let Some(bf_config) = backup_set.backup_folder_configs.get(folder_uuid) {
-                     if folder_path_in_backup.starts_with(&bf_config.local_path) {
-                        let relative_path = folder_path_in_backup.strip_prefix(&bf_config.local_path).unwrap_or(folder_path_in_backup);
+                    if folder_path_in_backup.starts_with(&bf_config.local_path) {
+                        let relative_path = folder_path_in_backup
+                            .strip_prefix(&bf_config.local_path)
+                            .unwrap_or(folder_path_in_backup);
                         let trimmed_relative_path = relative_path.trim_start_matches('/');
-                        effective_path_parts = trimmed_relative_path.split('/').filter(|s| !s.is_empty()).collect();
-                        if trimmed_relative_path.is_empty() && !relative_path.is_empty() && folder_path_in_backup != "/" {
-                             effective_path_parts = Vec::new();
+                        effective_path_parts = trimmed_relative_path
+                            .split('/')
+                            .filter(|s| !s.is_empty())
+                            .collect();
+                        if trimmed_relative_path.is_empty()
+                            && !relative_path.is_empty()
+                            && folder_path_in_backup != "/"
+                        {
+                            effective_path_parts = Vec::new();
                         }
-                     }
+                    }
                 }
             }
 
-            if let Ok(Some(target_node)) = find_node_in_record_tree(&record.node, &effective_path_parts, 0, backup_set_path, keyset) {
+            if let Ok(Some(target_node)) = find_node_in_record_tree(
+                &record.node,
+                &effective_path_parts,
+                0,
+                backup_set_path,
+                keyset,
+            ) {
                 if target_node.is_tree {
                     let timestamp_str = record.creation_date.map_or_else(
                         || format!("unknown_ts_{}", versions_restored_count),
-                        |ts| ts.to_string(),
+                        |ts| {
+                            DateTime::from_timestamp(ts.try_into().unwrap(), 0)
+                                .unwrap()
+                                .to_rfc3339()
+                        },
                     );
 
-                    let version_dest_dir_name = format!("version_{}", timestamp_str);
+                    let version_dest_dir_name = format!("{}", timestamp_str);
                     let version_destination = destination_root.join(version_dest_dir_name);
 
-                    let content_dest_dir_name = effective_path_parts.last().map_or("root_content", |n|*n);
+                    let content_dest_dir_name =
+                        effective_path_parts.last().map_or("root_content", |n| *n);
                     let final_content_destination = version_destination.join(content_dest_dir_name);
 
                     if !final_content_destination.exists() {
                         std::fs::create_dir_all(&final_content_destination)?;
                     }
 
-                    println!("  Restoring version from record (Timestamp: {}) to {}...", timestamp_str, final_content_destination.display());
+                    println!(
+                        "  Restoring version from record (Timestamp: {}) to {}...",
+                        timestamp_str,
+                        final_content_destination.display()
+                    );
                     let mut stats = ExtractionStats::default();
                     match extract_node_to_destination_recursive(
                         &target_node,
@@ -522,18 +827,29 @@ pub fn restore_all_folder_versions(backup_set_path: &Path, folder_path_in_backup
                         keyset,
                         &final_content_destination,
                         "",
-                        &mut stats
+                        &mut stats,
                     ) {
                         Ok(_) => {
-                            println!("    Successfully restored version. Files: {}, Dirs: {}, Size: {} bytes. Errors: {}",
-                                     stats.files_restored, stats.dirs_created, stats.bytes_restored, stats.errors);
+                            println!(
+                                "    Successfully restored version. Files: {}, Dirs: {}, Size: {} bytes. Errors: {}",
+                                stats.files_restored,
+                                stats.dirs_created,
+                                stats.bytes_restored,
+                                stats.errors
+                            );
                             if stats.errors > 0 {
-                                eprintln!("    Warning: {} errors occurred during this version's restoration.", stats.errors);
+                                eprintln!(
+                                    "    Warning: {} errors occurred during this version's restoration.",
+                                    stats.errors
+                                );
                             }
                             versions_restored_count += 1;
                         }
                         Err(e) => {
-                             eprintln!("    Error restoring version from record {}: {}", timestamp_str, e);
+                            eprintln!(
+                                "    Error restoring version from record {}: {}",
+                                timestamp_str, e
+                            );
                         }
                     }
                 }
@@ -542,14 +858,19 @@ pub fn restore_all_folder_versions(backup_set_path: &Path, folder_path_in_backup
     }
 
     if versions_restored_count == 0 {
-        println!("No versions of folder '{}' found to restore.", folder_path_in_backup);
+        println!(
+            "No versions of folder '{}' found to restore.",
+            folder_path_in_backup
+        );
     } else {
-        println!("Finished restoring {} versions of folder '{}'.", versions_restored_count, folder_path_in_backup);
+        println!(
+            "Finished restoring {} versions of folder '{}'.",
+            versions_restored_count, folder_path_in_backup
+        );
     }
 
     Ok(())
 }
-
 
 // --- Helper for recursive extraction (based on arq7_test.rs logic) ---
 #[derive(Debug, Default, Clone, Copy)]
@@ -597,17 +918,24 @@ fn extract_node_to_destination_recursive(
                 }
             }
             Ok(None) => {
-                eprintln!("Warning: Node {} is a tree but has no loadable tree data.", node_output_path.display());
+                eprintln!(
+                    "Warning: Node {} is a tree but has no loadable tree data.",
+                    node_output_path.display()
+                );
             }
             Err(e) => {
-                eprintln!("Error loading tree for {}: {}", node_output_path.display(), e);
+                eprintln!(
+                    "Error loading tree for {}: {}",
+                    node_output_path.display(),
+                    e
+                );
                 stats.errors += 1;
             }
         }
     } else {
         if let Some(parent_dir) = node_output_path.parent() {
             if !parent_dir.exists() {
-                 std::fs::create_dir_all(parent_dir).map_err(Error::IoError)?;
+                std::fs::create_dir_all(parent_dir).map_err(Error::IoError)?;
             }
         }
 
@@ -619,13 +947,22 @@ fn extract_node_to_destination_recursive(
 
                 if node.modification_time_sec > 0 {
                     use std::time::UNIX_EPOCH;
-                    if let Some(mtime) = UNIX_EPOCH.checked_add(std::time::Duration::from_secs(node.modification_time_sec as u64)) {
-                        let _ = filetime::set_file_mtime(&node_output_path, filetime::FileTime::from_system_time(mtime));
+                    if let Some(mtime) = UNIX_EPOCH.checked_add(std::time::Duration::from_secs(
+                        node.modification_time_sec as u64,
+                    )) {
+                        let _ = filetime::set_file_mtime(
+                            &node_output_path,
+                            filetime::FileTime::from_system_time(mtime),
+                        );
                     }
                 }
             }
             Err(e) => {
-                eprintln!("Error reconstructing file data for {}: {}", node_output_path.display(), e);
+                eprintln!(
+                    "Error reconstructing file data for {}: {}",
+                    node_output_path.display(),
+                    e
+                );
                 stats.errors += 1;
             }
         }
