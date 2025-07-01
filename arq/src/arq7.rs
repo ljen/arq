@@ -327,8 +327,9 @@ pub struct BackupFolders {
     pub s3_glacier_object_dirs: Vec<String>,
     #[serde(rename = "s3DeepArchiveObjectDirs")]
     pub s3_deep_archive_object_dirs: Vec<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     #[serde(rename = "s3GlacierIRObjectDirs")]
-    pub s3_glacier_ir_object_dirs: Vec<String>,
+    pub s3_glacier_ir_object_dirs: Option<Vec<String>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     #[serde(rename = "importedFrom")]
     pub imported_from: Option<String>,
