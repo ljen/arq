@@ -12,8 +12,8 @@ doc = false
 arq = { path = "../arq" }
 clap = "~2.34"
 rpassword = "7.0"
-ring = "0.16.20"
-chrono = "0.4.41"
+ring = "0.17"
+chrono = { version = "0.4", default-features = false, features = ["alloc"] }
 filetime = "0.2" # Added filetime
 
 [dev-dependencies]
