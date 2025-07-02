@@ -448,8 +448,10 @@ pub struct BackupFolderPlan {
     pub local_path: String,
     #[serde(rename = "allDrives")]
     pub all_drives: bool,
+    #[serde(default)]
+    #[serde(skip_serializing_if = "Option::is_none")]
     #[serde(rename = "skipTMExcludes")]
-    pub skip_tm_excludes: bool,
+    pub skip_tm_excludes: Option<bool>,
     #[serde(rename = "regexExcludes")]
     pub regex_excludes: Vec<String>,
     pub name: String,
@@ -484,18 +486,21 @@ pub struct BackupPlan {
     #[serde(rename = "keepDeletedFiles")]
     pub keep_deleted_files: bool,
     pub version: u32,
+    #[serde(skip_serializing_if = "Option::is_none")]
     #[serde(rename = "createdAtProConsole")]
-    pub created_at_pro_console: bool,
+    pub created_at_pro_console: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     #[serde(rename = "backupFolderPlanMountPointsAreInitialized")]
-    pub backup_folder_plan_mount_points_are_initialized: bool,
+    pub backup_folder_plan_mount_points_are_initialized: Option<bool>,
     #[serde(rename = "includeNewVolumes")]
     pub include_new_volumes: bool,
     #[serde(rename = "retainMonths")]
     pub retain_months: u32,
     #[serde(rename = "useAPFSSnapshots")]
     pub use_apfs_snapshots: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
     #[serde(rename = "backupSetIsInitialized")]
-    pub backup_set_is_initialized: bool,
+    pub backup_set_is_initialized: Option<bool>,
     #[serde(rename = "backupFolderPlansByUUID")]
     pub backup_folder_plans_by_uuid: HashMap<String, BackupFolderPlan>,
     #[serde(rename = "notifyOnError")]
@@ -507,15 +512,16 @@ pub struct BackupPlan {
     #[serde(rename = "excludedWiFiNetworkNames")]
     pub excluded_wi_fi_network_names: Vec<String>,
     #[serde(rename = "objectLockAvailable")]
-    pub object_lock_available: bool,
-    pub managed: bool,
+    pub object_lock_available: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub managed: Option<bool>,
     pub name: String,
     #[serde(rename = "wakeForBackup")]
     pub wake_for_backup: bool,
     #[serde(rename = "includeNetworkInterfaces")]
-    pub include_network_interfaces: bool,
-    #[serde(rename = "datalessFilesOption")]
-    pub dataless_files_option: u32,
+    pub include_network_interfaces: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub dataless_files_option: Option<u32>,
     #[serde(rename = "retainAll")]
     pub retain_all: bool,
     #[serde(rename = "isEncrypted")]
@@ -526,21 +532,22 @@ pub struct BackupPlan {
     #[serde(rename = "preventSleep")]
     pub prevent_sleep: bool,
     #[serde(rename = "creationTime")]
-    pub creation_time: f64,
+    pub creation_time: u64,
     #[serde(rename = "pauseOnBattery")]
     pub pause_on_battery: bool,
     #[serde(rename = "retainWeeks")]
     pub retain_weeks: u32,
     #[serde(rename = "retainHours")]
     pub retain_hours: u32,
-    #[serde(rename = "preventBackupOnConstrainedNetworks")]
-    pub prevent_backup_on_constrained_networks: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub prevent_backup_on_constrained_networks: Option<bool>,
     #[serde(rename = "includeWiFiNetworks")]
     pub include_wi_fi_networks: bool,
     #[serde(rename = "threadCount")]
     pub thread_count: u32,
-    #[serde(rename = "preventBackupOnExpensiveNetworks")]
-    pub prevent_backup_on_expensive_networks: bool,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub prevent_backup_on_expensive_networks: Option<bool>,
     #[serde(rename = "emailReportJSON")]
     pub email_report_json: EmailReport,
     #[serde(rename = "includeFileListInActivityLog")]
