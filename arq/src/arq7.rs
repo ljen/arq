@@ -29,40 +29,48 @@
 //! ### Loading a complete backup set:
 //! ```rust
 //! use arq::arq7::BackupSet;
+//! use std::error::Error;
 //!
-//! let backup_set = BackupSet::from_directory("/path/to/backup/set")?;
-//! println!("Backup name: {}", backup_set.backup_config.backup_name);
+//! fn main() -> Result<(), Box<dyn Error>> {
+//!     let backup_set = BackupSet::from_directory("/path/to/backup/set")?;
+//!     println!("Backup name: {}", backup_set.backup_config.backup_name);
 //!
-//! // Access backup records
-//! for (folder_uuid, records) in &backup_set.backup_records {
-//!     println!("Folder {}: {} records", folder_uuid, records.len());
+//!     // Access backup records
+//!     for (folder_uuid, records) in &backup_set.backup_records {
+//!         println!("Folder {}: {} records", folder_uuid, records.len());
+//!     }
+//!     Ok(())
 //! }
 //! ```
 //!
 //! ### Loading individual components:
 //! ```rust
 //! use arq::arq7::{BackupConfig, BackupPlan};
+//! use std::error::Error;
 //!
-//! let config = BackupConfig::from_file("backupconfig.json")?;
-//! let plan = BackupPlan::from_file("backupplan.json")?;
+//! fn main() -> Result<(), Box<dyn Error>> {
+//!     let config = BackupConfig::from_file("backupconfig.json")?;
+//!     let plan = BackupPlan::from_file("backupplan.json")?;
+//!     Ok(())
+//! }
 //! ```
 //!
 //! ## Arq 7 Directory Structure
 //!
 //! ```
 //! backup_set_directory/
-//! ├── backupconfig.json          # Backup configuration
-//! ├── backupfolders.json         # Object directory locations
-//! ├── backupplan.json            # Backup plan settings
-//! ├── backupfolders/             # Per-folder configurations
-//! │   └── <folder-uuid>/
-//! │       ├── backupfolder.json  # Folder metadata
-//! │       └── backuprecords/     # Backup records by timestamp
-//! │           └── <timestamp>/
-//! │               └── *.backuprecord  # LZ4-compressed JSON records
-//! ├── blobpacks/                 # Packed blob data
-//! ├── treepacks/                 # Packed tree data
-//! └── standardobjects/           # Standalone objects
+//! +-- backupconfig.json          # Backup configuration
+//! +-- backupfolders.json         # Object directory locations
+//! +-- backupplan.json            # Backup plan settings
+//! +-- backupfolders/             # Per-folder configurations
+//! |   L-- <folder-uuid>/
+//! |       +-- backupfolder.json  # Folder metadata
+//! |       L-- backuprecords/     # Backup records by timestamp
+//! |           L-- <timestamp>/
+//! |               L-- *.backuprecord  # LZ4-compressed JSON records
+//! +-- blobpacks/                 # Packed blob data
+//! +-- treepacks/                 # Packed tree data
+//! L-- standardobjects/           # Standalone objects
 //! ```
 //!
 //! ## Data Format Notes
@@ -90,7 +98,7 @@ use std::path::Path;
 /// It is encrypted with the encryption password you chose when you created the backup plan.
 ///
 /// The encrypted format is:
-/// ```
+/// ```text
 /// header                          41 52 51 5f 45 4e 43 52   ARQ_ENCR
 ///                                 59 50 54 45 44 5f 4d 41   YPTED_MA
 ///                                 53 54 45 52 5f 4b 45 59   STER_KEY
@@ -388,8 +396,10 @@ pub struct EmailReport {
     pub start_tls: bool,
     #[serde(rename = "authenticationType")]
     pub authentication_type: String,
+    #[serde(default)]
+    #[serde(skip_serializing_if = "Option::is_none")]
     #[serde(rename = "reportHELOUseIP")]
-    pub report_helo_use_ip: bool,
+    pub report_helo_use_ip: Option<bool>,
     pub when: String,
     #[serde(rename = "type")]
     pub report_type: String,
@@ -489,7 +499,7 @@ pub struct BackupPlan {
     #[serde(rename = "retainDays")]
     pub retain_days: u32,
     #[serde(rename = "updateTime")]
-    pub update_time: u64,
+    pub update_time: f64,
     #[serde(rename = "excludedWiFiNetworkNames")]
     pub excluded_wi_fi_network_names: Vec<String>,
     #[serde(rename = "objectLockAvailable")]
@@ -512,7 +522,7 @@ pub struct BackupPlan {
     #[serde(rename = "preventSleep")]
     pub prevent_sleep: bool,
     #[serde(rename = "creationTime")]
-    pub creation_time: u64,
+    pub creation_time: f64,
     #[serde(rename = "pauseOnBattery")]
     pub pause_on_battery: bool,
     #[serde(rename = "retainWeeks")]

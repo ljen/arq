@@ -32,6 +32,38 @@ fn test_parse_backup_config() {
 }
 
 #[test]
+fn test_parse_email_report_optional_helo_ip() {
+    let json_with_helo_ip = r#"{
+        "port": 587,
+        "startTLS": false,
+        "authenticationType": "none",
+        "reportHELOUseIP": true,
+        "when": "never",
+        "type": "custom"
+    }"#;
+    let email_report_with: EmailReport = serde_json::from_str(json_with_helo_ip).unwrap();
+    assert_eq!(email_report_with.report_helo_use_ip, Some(true));
+
+    let json_without_helo_ip = r#"{
+        "port": 25,
+        "startTLS": true,
+        "authenticationType": "login",
+        "when": "daily",
+        "type": "summary"
+    }"#;
+    let email_report_without: EmailReport = serde_json::from_str(json_without_helo_ip).unwrap();
+    assert_eq!(email_report_without.report_helo_use_ip, None);
+
+    // Test serialization: field should be absent if None
+    let serialized_without = serde_json::to_string(&email_report_without).unwrap();
+    assert!(!serialized_without.contains("reportHELOUseIP"));
+
+    // Test serialization: field should be present if Some
+    let serialized_with = serde_json::to_string(&email_report_with).unwrap();
+    assert!(serialized_with.contains("\"reportHELOUseIP\":true"));
+}
+
+#[test]
 fn test_parse_backup_folders() {
     let folders_path = Path::new(ARQ7_TEST_DATA_DIR_NOT_ENCRYPTED).join("backupfolders.json");
     let folders = BackupFolders::from_file(folders_path).unwrap();
@@ -89,7 +121,7 @@ fn test_parse_backup_plan() {
     assert!(plan.backup_set_is_initialized);
     assert!(plan.notify_on_error);
     assert_eq!(plan.retain_days, 30);
-    assert_eq!(plan.update_time, 1751139832);
+    assert_eq!(plan.update_time, 1751139832.867);
     assert!(plan.excluded_wi_fi_network_names.is_empty());
     assert!(!plan.object_lock_available);
     assert!(!plan.managed);
@@ -101,7 +133,7 @@ fn test_parse_backup_plan() {
     assert!(plan.active);
     assert!(!plan.notify_on_success);
     assert!(!plan.prevent_sleep);
-    assert_eq!(plan.creation_time, 1751139826);
+    assert_eq!(plan.creation_time, 1751139826.003);
     assert!(!plan.pause_on_battery);
     assert_eq!(plan.retain_weeks, 52);
     assert_eq!(plan.retain_hours, 24);
@@ -132,7 +164,7 @@ fn test_parse_backup_plan() {
     assert_eq!(plan.email_report_json.port, 587);
     assert!(!plan.email_report_json.start_tls);
     assert_eq!(plan.email_report_json.authentication_type, "none");
-    assert!(plan.email_report_json.report_helo_use_ip);
+    assert_eq!(plan.email_report_json.report_helo_use_ip, Some(true));
     assert_eq!(plan.email_report_json.when, "never");
     assert_eq!(plan.email_report_json.report_type, "custom");
 
