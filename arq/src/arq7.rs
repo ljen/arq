@@ -87,6 +87,8 @@ use crate::error::{Error, Result};
 use crate::object_encryption::{calculate_hmacsha256, EncryptedObject};
 use crate::type_utils::ArqRead;
 use byteorder::{BigEndian, ReadBytesExt};
+use serde::de::Deserializer;
+use serde::Deserialize; // <--- Added this line
 use std::collections::HashMap;
 use std::fs::File;
 use std::io::{BufRead, BufReader, Read, Seek, SeekFrom};
@@ -486,11 +488,9 @@ pub struct BackupPlan {
     #[serde(rename = "keepDeletedFiles")]
     pub keep_deleted_files: bool,
     pub version: u32,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    #[serde(rename = "createdAtProConsole")]
+    #[serde(rename = "createdAtProConsole", skip_serializing_if = "Option::is_none", default)]
     pub created_at_pro_console: Option<bool>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    #[serde(rename = "backupFolderPlanMountPointsAreInitialized")]
+    #[serde(rename = "backupFolderPlanMountPointsAreInitialized", skip_serializing_if = "Option::is_none", default)]
     pub backup_folder_plan_mount_points_are_initialized: Option<bool>,
     #[serde(rename = "includeNewVolumes")]
     pub include_new_volumes: bool,
@@ -498,8 +498,7 @@ pub struct BackupPlan {
     pub retain_months: u32,
     #[serde(rename = "useAPFSSnapshots")]
     pub use_apfs_snapshots: bool,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    #[serde(rename = "backupSetIsInitialized")]
+    #[serde(rename = "backupSetIsInitialized", skip_serializing_if = "Option::is_none", default)]
     pub backup_set_is_initialized: Option<bool>,
     #[serde(rename = "backupFolderPlansByUUID")]
     pub backup_folder_plans_by_uuid: HashMap<String, BackupFolderPlan>,
@@ -507,20 +506,20 @@ pub struct BackupPlan {
     pub notify_on_error: bool,
     #[serde(rename = "retainDays")]
     pub retain_days: u32,
-    #[serde(rename = "updateTime")]
+    #[serde(rename = "updateTime", with = "f64_parser")]
     pub update_time: f64,
     #[serde(rename = "excludedWiFiNetworkNames")]
     pub excluded_wi_fi_network_names: Vec<String>,
-    #[serde(rename = "objectLockAvailable")]
+    #[serde(rename = "objectLockAvailable", skip_serializing_if = "Option::is_none", default)]
     pub object_lock_available: Option<bool>,
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(rename = "managed", skip_serializing_if = "Option::is_none", default)]
     pub managed: Option<bool>,
     pub name: String,
     #[serde(rename = "wakeForBackup")]
     pub wake_for_backup: bool,
-    #[serde(rename = "includeNetworkInterfaces")]
+    #[serde(rename = "includeNetworkInterfaces", skip_serializing_if = "Option::is_none", default)]
     pub include_network_interfaces: Option<bool>,
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(rename = "datalessFilesOption", skip_serializing_if = "Option::is_none", default)]
     pub dataless_files_option: Option<u32>,
     #[serde(rename = "retainAll")]
     pub retain_all: bool,
@@ -531,7 +530,7 @@ pub struct BackupPlan {
     pub notify_on_success: bool,
     #[serde(rename = "preventSleep")]
     pub prevent_sleep: bool,
-    #[serde(rename = "creationTime")]
+    #[serde(rename = "creationTime", with = "f64_to_u64_parser")]
     pub creation_time: u64,
     #[serde(rename = "pauseOnBattery")]
     pub pause_on_battery: bool,
@@ -539,14 +538,14 @@ pub struct BackupPlan {
     pub retain_weeks: u32,
     #[serde(rename = "retainHours")]
     pub retain_hours: u32,
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(rename = "preventBackupOnConstrainedNetworks", skip_serializing_if = "Option::is_none", default)]
     pub prevent_backup_on_constrained_networks: Option<bool>,
     #[serde(rename = "includeWiFiNetworks")]
     pub include_wi_fi_networks: bool,
     #[serde(rename = "threadCount")]
     pub thread_count: u32,
 
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(rename = "preventBackupOnExpensiveNetworks", skip_serializing_if = "Option::is_none", default)]
     pub prevent_backup_on_expensive_networks: Option<bool>,
     #[serde(rename = "emailReportJSON")]
     pub email_report_json: EmailReport,
@@ -555,6 +554,63 @@ pub struct BackupPlan {
     #[serde(rename = "noBackupsAlertDays")]
     pub no_backups_alert_days: u32,
 }
+
+mod f64_to_u64_parser {
+    use super::*;
+    pub fn deserialize<'de, D>(deserializer: D) -> std::result::Result<u64, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        #[derive(Deserialize)]
+        #[serde(untagged)]
+        enum FloatOrInt {
+            Float(f64),
+            Int(u64),
+        }
+
+        match FloatOrInt::deserialize(deserializer)? {
+            FloatOrInt::Float(f) => Ok(f as u64),
+            FloatOrInt::Int(i) => Ok(i),
+        }
+    }
+
+    use serde::Serializer;
+    pub fn serialize<S>(date: &u64, serializer: S) -> std::result::Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        serializer.serialize_u64(*date)
+    }
+}
+
+mod f64_parser {
+    use super::*;
+    pub fn deserialize<'de, D>(deserializer: D) -> std::result::Result<f64, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        #[derive(Deserialize)]
+        #[serde(untagged)]
+        enum FloatOrInt {
+            Float(f64),
+            Int(u64), // Allow integer timestamps too
+        }
+
+        match FloatOrInt::deserialize(deserializer)? {
+            FloatOrInt::Float(f) => Ok(f),
+            FloatOrInt::Int(i) => Ok(i as f64),
+        }
+    }
+
+    use serde::Serializer;
+    pub fn serialize<S>(date: &f64, serializer: S) -> std::result::Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        serializer.serialize_f64(*date)
+    }
+}
+
 
 /// BackupFolder represents a backupfolder.json file within the backupfolders/<UUID>/ directory
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -730,7 +786,6 @@ impl Node {
                 Ok(blob_loc) => data_blob_locs.push(blob_loc),
                 Err(_) => {
                     panic!();
-                    break;
                 }
             }
         }
@@ -748,7 +803,6 @@ impl Node {
                 parsed_xattrs_blob_locs.push(blob_loc);
             } else {
                 panic!();
-                break;
             }
         }
         let xattrs_blob_locs = if parsed_xattrs_blob_locs.is_empty() && xattrs_blob_locs_count == 0
@@ -1742,78 +1796,6 @@ impl BlobLoc {
                 "Unsupported compression type: {}",
                 self.compression_type
             ))),
-        }
-    }
-
-    /// Load data from a specific pack file (legacy method)
-    fn load_from_pack_file(&self, blob_path: &std::path::Path) -> Result<Vec<u8>> {
-        use std::io::{Read, Seek};
-
-        if self.is_packed {
-            // Load from pack file using exact offset and length
-            let mut file = std::fs::File::open(blob_path)?;
-            file.seek(std::io::SeekFrom::Start(self.offset))?;
-
-            let mut buffer = vec![0u8; self.length as usize];
-            let bytes_read = file.read(&mut buffer)?;
-            buffer.truncate(bytes_read);
-
-            // Handle blob pack format based on compression type
-            if self.compression_type == 2 {
-                // LZ4 format: [4-byte decompressed length][LZ4 compressed data]
-                if buffer.len() >= 4 {
-                    let decompressed_length =
-                        u32::from_be_bytes([buffer[0], buffer[1], buffer[2], buffer[3]]) as usize;
-
-                    // LZ4 compressed data starts after the 4-byte length header
-                    let compressed_data = &buffer[4..];
-
-                    // Decompress using LZ4
-                    match lz4_flex::decompress(compressed_data, decompressed_length) {
-                        Ok(decompressed) => return Ok(decompressed),
-                        Err(_) => {
-                            // If LZ4 decompression fails, fall back to treating as raw data
-                            // This handles edge cases where data might not be properly compressed
-                            if decompressed_length <= buffer.len() - 4 {
-                                return Ok(buffer[4..4 + decompressed_length].to_vec());
-                            }
-                        }
-                    }
-                }
-            } else if self.compression_type == 0 {
-                // Uncompressed format: [4-byte content length][raw data]
-                if buffer.len() >= 4 {
-                    let content_length =
-                        u32::from_be_bytes([buffer[0], buffer[1], buffer[2], buffer[3]]) as usize;
-
-                    // Raw data starts after the 4-byte length header
-                    if content_length <= buffer.len() - 4 {
-                        return Ok(buffer[4..4 + content_length].to_vec());
-                    }
-                }
-            }
-
-            // Fallback - return the raw buffer if we can't parse the format
-            Ok(buffer)
-        } else {
-            // Load standalone object
-            let data = std::fs::read(blob_path)?;
-
-            // Handle compression
-            if self.compression_type == 2 {
-                // LZ4 compression with 4-byte length prefix
-                if data.len() >= 4 {
-                    let decompressed_length =
-                        u32::from_be_bytes([data[0], data[1], data[2], data[3]]);
-                    let decompressed =
-                        lz4_flex::decompress(&data[4..], decompressed_length as usize)?;
-                    Ok(decompressed)
-                } else {
-                    Ok(data)
-                }
-            } else {
-                Ok(data)
-            }
         }
     }
 
