@@ -213,11 +213,33 @@ fn test_parse_backup_folder() {
     // assert_eq!(folder.local_path, "/arq/arq_backup_source");
     assert!(!folder.migrated_from_arq60);
     assert_eq!(folder.storage_class, "STANDARD");
-    assert_eq!(folder.disk_identifier, "ROOT");
+    assert_eq!(folder.disk_identifier, Some("ROOT".to_string()));
     assert_eq!(folder.uuid, "F71BB248-E3A0-45E3-B67C-FEE397C5BD71");
     assert!(!folder.migrated_from_arq5);
     assert_eq!(folder.local_mount_point, "/");
     assert_eq!(folder.name, "arq_backup_source");
+
+    // Test serialization: field should be present if Some
+    let serialized_with = serde_json::to_string(&folder).unwrap();
+    assert!(serialized_with.contains("\"diskIdentifier\":\"ROOT\""));
+
+
+    let json_without_disk_identifier = r#"{
+        "localPath" : "/another/path",
+        "migratedFromArq60" : false,
+        "storageClass" : "GLACIER",
+        "uuid" : "TEST-UUID-NO-DISKID",
+        "migratedFromArq5" : true,
+        "localMountPoint" : "/mnt",
+        "name" : "no_disk_id_folder"
+    }"#;
+    let folder_without: BackupFolder = serde_json::from_str(json_without_disk_identifier).unwrap();
+    assert_eq!(folder_without.disk_identifier, None);
+    assert_eq!(folder_without.name, "no_disk_id_folder");
+
+    // Test serialization: field should be absent if None
+    let serialized_without = serde_json::to_string(&folder_without).unwrap();
+    assert!(!serialized_without.contains("diskIdentifier"));
 }
 
 #[test]
