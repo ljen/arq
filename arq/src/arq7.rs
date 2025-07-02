@@ -554,8 +554,10 @@ pub struct BackupFolder {
     pub migrated_from_arq60: bool,
     #[serde(rename = "storageClass")]
     pub storage_class: String,
+    #[serde(default)]
+    #[serde(skip_serializing_if = "Option::is_none")]
     #[serde(rename = "diskIdentifier")]
-    pub disk_identifier: String,
+    pub disk_identifier: Option<String>,
     pub uuid: String,
     #[serde(rename = "migratedFromArq5")]
     pub migrated_from_arq5: bool,

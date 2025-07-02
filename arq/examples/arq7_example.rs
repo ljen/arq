@@ -130,7 +130,7 @@ fn print_backup_folder_configs(backup_set: &BackupSet) {
         println!("  Local Path: {}", folder.local_path);
         println!("  Mount Point: {}", folder.local_mount_point);
         println!("  Storage Class: {}", folder.storage_class);
-        println!("  Disk ID: {}", folder.disk_identifier);
+        println!("  Disk ID: {:?}", folder.disk_identifier);
         println!("  Migrated from Arq 5: {}", folder.migrated_from_arq5);
         println!("  Migrated from Arq 6: {}", folder.migrated_from_arq60);
     }
