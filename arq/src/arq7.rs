@@ -422,8 +422,10 @@ pub struct EmailReport {
 pub struct BackupFolderPlan {
     #[serde(rename = "backupFolderUUID")]
     pub backup_folder_uuid: String,
+    #[serde(default)]
+    #[serde(skip_serializing_if = "Option::is_none")]
     #[serde(rename = "diskIdentifier")]
-    pub disk_identifier: String,
+    pub disk_identifier: Option<String>,
     #[serde(rename = "blobStorageClass")]
     pub blob_storage_class: String,
     #[serde(rename = "ignoredRelativePaths")]
