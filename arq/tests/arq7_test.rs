@@ -32,6 +32,60 @@ fn test_parse_backup_config() {
 }
 
 #[test]
+fn test_parse_backup_folder_plan_optional_disk_id() {
+    let json_with_disk_id = r#"{
+        "backupFolderUUID": "UUID1",
+        "diskIdentifier": "DISK_ID_PRESENT",
+        "blobStorageClass": "STANDARD",
+        "ignoredRelativePaths": [],
+        "skipIfNotMounted": false,
+        "skipDuringBackup": false,
+        "useDiskIdentifier": false,
+        "relativePath": "path1",
+        "wildcardExcludes": [],
+        "excludedDrives": [],
+        "localPath": "/local/path1",
+        "allDrives": false,
+        "skipTMExcludes": false,
+        "regexExcludes": [],
+        "name": "folder_plan_with_disk_id",
+        "localMountPoint": "/"
+    }"#;
+    let plan_with: BackupFolderPlan = serde_json::from_str(json_with_disk_id).unwrap();
+    assert_eq!(plan_with.disk_identifier, Some("DISK_ID_PRESENT".to_string()));
+    assert_eq!(plan_with.name, "folder_plan_with_disk_id");
+
+    // Test serialization: field should be present if Some
+    let serialized_with = serde_json::to_string(&plan_with).unwrap();
+    assert!(serialized_with.contains("\"diskIdentifier\":\"DISK_ID_PRESENT\""));
+
+    let json_without_disk_id = r#"{
+        "backupFolderUUID": "UUID2",
+        "blobStorageClass": "GLACIER",
+        "ignoredRelativePaths": ["ignore/me"],
+        "skipIfNotMounted": true,
+        "skipDuringBackup": true,
+        "useDiskIdentifier": true,
+        "relativePath": "path2",
+        "wildcardExcludes": ["*.tmp"],
+        "excludedDrives": ["D:"],
+        "localPath": "/local/path2",
+        "allDrives": true,
+        "skipTMExcludes": true,
+        "regexExcludes": ["^/private/"],
+        "name": "folder_plan_no_disk_id",
+        "localMountPoint": "/mnt"
+    }"#;
+    let plan_without: BackupFolderPlan = serde_json::from_str(json_without_disk_id).unwrap();
+    assert_eq!(plan_without.disk_identifier, None);
+    assert_eq!(plan_without.name, "folder_plan_no_disk_id");
+
+    // Test serialization: field should be absent if None
+    let serialized_without = serde_json::to_string(&plan_without).unwrap();
+    assert!(!serialized_without.contains("diskIdentifier"));
+}
+
+#[test]
 fn test_parse_email_report_optional_helo_ip() {
     let json_with_helo_ip = r#"{
         "port": 587,
@@ -178,7 +232,7 @@ fn test_parse_backup_plan() {
         folder_plan.backup_folder_uuid,
         "F71BB248-E3A0-45E3-B67C-FEE397C5BD71"
     );
-    assert_eq!(folder_plan.disk_identifier, "ROOT");
+    assert_eq!(folder_plan.disk_identifier, Some("ROOT".to_string()));
     assert_eq!(folder_plan.blob_storage_class, "STANDARD");
     assert!(folder_plan.ignored_relative_paths.is_empty());
     assert!(!folder_plan.skip_if_not_mounted);
