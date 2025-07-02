@@ -436,8 +436,10 @@ pub struct BackupFolderPlan {
     pub skip_during_backup: bool,
     #[serde(rename = "useDiskIdentifier")]
     pub use_disk_identifier: bool,
+    #[serde(default)]
+    #[serde(skip_serializing_if = "Option::is_none")]
     #[serde(rename = "relativePath")]
-    pub relative_path: String,
+    pub relative_path: Option<String>,
     #[serde(rename = "wildcardExcludes")]
     pub wildcard_excludes: Vec<String>,
     #[serde(rename = "excludedDrives")]
