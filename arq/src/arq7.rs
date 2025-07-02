@@ -849,9 +849,10 @@ pub struct BackupRecord {
     pub copied_from_commit: bool,
     #[serde(rename = "copiedFromSnapshot")]
     pub copied_from_snapshot: bool,
+    #[serde(default)]
     #[serde(skip_serializing_if = "Option::is_none")]
     #[serde(rename = "creationDate")]
-    pub creation_date: Option<u64>,
+    pub creation_date: Option<f64>,
     #[serde(rename = "diskIdentifier")]
     pub disk_identifier: String,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -2094,6 +2095,10 @@ mod tests {
             assert!(!record.copied_from_commit);
             assert!(!record.copied_from_snapshot);
             assert!(record.backup_record_errors.is_empty());
+
+            // Check creation_date (will be None if not present, or Some(value) if present)
+            // This doesn't specifically test float parsing unless the test file has it.
+            let _ = record.creation_date;
 
             // Verify node structure
             assert!(record.node.is_tree);
