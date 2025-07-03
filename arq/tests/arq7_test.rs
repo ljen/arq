@@ -32,6 +32,195 @@ fn test_parse_backup_config() {
 }
 
 #[test]
+fn test_parse_migrated_backup_record() {
+    let json_data = r#"
+    {
+        "version": 12,
+        "arqVersion": "5.16.0",
+        "backupFolderUUID": "EF287B91-7C53-4C9E-BC0F-C7DAFD3B097D",
+        "backupPlanUUID": "37FA0482-9BE1-46DC-9644-334271E810AD",
+        "computerOSType": 1,
+        "creationDate": 1582559134.293,
+        "isComplete": true,
+        "arq5BucketXML": "<plist>\n<dict>\n    <key>Endpoint</key>\n    <string>googledrive://user%40domain.com@www.googleapis.com/Arq+Backup+Data</string>\n   </dict>\n</plist>",
+        "backupRecordErrors": [
+            {
+                "errorMessage": "Error opening C:\\Users\\User1\\AppData\\Local\\Microsoft\\WindowsApps\\debian.exe: The file cannot be accessed by the system.\r\n",
+                "localPath": "/C/Users/User1/AppData/Local/Microsoft/WindowsApps/debian.exe",
+                "pathIsDirectory": false
+            },
+            {
+                "errorMessage": "Error opening C:\\Users\\User1\\AppData\\Local\\Microsoft\\WindowsApps\\GameBarElevatedFT_Alias.exe: The file cannot be accessed by the system.\r\n",
+                "localPath": "/C/Users/User1/AppData/Local/Microsoft/WindowsApps/GameBarElevatedFT_Alias.exe",
+                "pathIsDirectory": false
+            }
+        ],
+        "localPath": "/C",
+        "storageClass": "STANDARD",
+        "copiedFromSnapshot": false,
+        "copiedFromCommit": true,
+        "arq5TreeBlobKey": {
+            "storageType": 1,
+            "archiveSize": 0,
+            "sha1": "06f5547421444c64ed136756eaaa146bfde2ce64",
+            "stretchEncryptionKey": true,
+            "compressionType": 2
+        },
+        "archived": false,
+        "relativePath": "/37FA0482-9BE1-46DC-9644-334271E810AD/backupfolders/EF287B91-7C53-4C9E-BC0F-C7DAFD3B097D/backuprecords/00158/2559134.backuprecord",
+        "node": {
+            "isTree": true,
+            "itemSize": 0,
+            "deleted": false,
+            "computerOSType": 1,
+            "modificationTime_sec": 1582559134,
+            "modificationTime_nsec": 0,
+            "changeTime_sec": 1582559134,
+            "changeTime_nsec": 0,
+            "creationTime_sec": 1582559134,
+            "creationTime_nsec": 0,
+            "mac_st_mode": 16877,
+            "mac_st_ino": 0,
+            "mac_st_nlink": 1,
+            "mac_st_gid": 0,
+            "winAttrs": 16,
+            "mac_st_dev": 0,
+            "mac_st_rdev": 0,
+            "mac_st_flags": 0,
+            "dataBlobLocs": [],
+            "treeBlobLoc": {
+                "blobIdentifier": "06f5547421444c64ed136756eaaa146bfde2ce64",
+                "compressionType": 2,
+                "isPacked": false,
+                "length": 100,
+                "offset": 0,
+                "relativePath": "dummy/path",
+                "stretchEncryptionKey": true
+            }
+        },
+        "diskIdentifier": "some_disk_id"
+    }
+    "#;
+
+    let record: BackupRecord = serde_json::from_str(json_data).expect("Failed to parse migrated backup record JSON");
+
+    assert_eq!(record.version, 12);
+    assert_eq!(record.arq_version.as_deref(), Some("5.16.0"));
+    assert_eq!(record.backup_folder_uuid, "EF287B91-7C53-4C9E-BC0F-C7DAFD3B097D");
+    assert_eq!(record.backup_plan_uuid, "37FA0482-9BE1-46DC-9644-334271E810AD");
+    assert_eq!(record.computer_os_type, Some(1));
+    assert_eq!(record.creation_date, Some(1582559134.293));
+    assert_eq!(record.is_complete, Some(true));
+    assert!(record.arq5_bucket_xml.is_some());
+    assert_eq!(record.arq5_bucket_xml.as_deref().unwrap(), "<plist>\n<dict>\n    <key>Endpoint</key>\n    <string>googledrive://user%40domain.com@www.googleapis.com/Arq+Backup+Data</string>\n   </dict>\n</plist>");
+
+    let arq5_key = record.arq5_tree_blob_key.as_ref().expect("arq5TreeBlobKey should be present");
+    assert_eq!(arq5_key.storage_type, 1);
+    assert_eq!(arq5_key.archive_size, 0);
+    assert_eq!(arq5_key.sha1, "06f5547421444c64ed136756eaaa146bfde2ce64");
+    assert!(arq5_key.stretch_encryption_key);
+    assert_eq!(arq5_key.compression_type, 2);
+
+    assert_eq!(record.archived, Some(false));
+    assert_eq!(record.local_path.as_deref(), Some("/C"));
+    assert_eq!(record.storage_class, "STANDARD");
+    assert!(!record.copied_from_snapshot);
+    assert!(record.copied_from_commit);
+    assert_eq!(record.relative_path.as_deref(), Some("/37FA0482-9BE1-46DC-9644-334271E810AD/backupfolders/EF287B91-7C53-4C9E-BC0F-C7DAFD3B097D/backuprecords/00158/2559134.backuprecord"));
+
+    let errors = record.backup_record_errors.as_ref().expect("backupRecordErrors should be present");
+    assert_eq!(errors.len(), 2);
+    assert_eq!(errors[0].error_message, "Error opening C:\\Users\\User1\\AppData\\Local\\Microsoft\\WindowsApps\\debian.exe: The file cannot be accessed by the system.\r\n");
+    assert_eq!(errors[0].local_path, "/C/Users/User1/AppData/Local/Microsoft/WindowsApps/debian.exe");
+    assert!(!errors[0].path_is_directory);
+    assert_eq!(errors[1].error_message, "Error opening C:\\Users\\User1\\AppData\\Local\\Microsoft\\WindowsApps\\GameBarElevatedFT_Alias.exe: The file cannot be accessed by the system.\r\n");
+    assert_eq!(errors[1].local_path, "/C/Users/User1/AppData/Local/Microsoft/WindowsApps/GameBarElevatedFT_Alias.exe");
+    assert!(!errors[1].path_is_directory);
+
+    // Test a record without the new fields to ensure backward compatibility
+    let old_format_json = r#"
+    {
+        "version": 10,
+        "backupFolderUUID": "OLD-FOLDER-UUID",
+        "backupPlanUUID": "OLD-PLAN-UUID",
+        "copiedFromCommit": false,
+        "copiedFromSnapshot": true,
+        "storageClass": "GLACIER",
+        "node": {
+            "isTree": false,
+            "itemSize": 1024,
+            "deleted": false,
+            "computerOSType": 2,
+            "modificationTime_sec": 1500000000,
+            "modificationTime_nsec": 0,
+            "changeTime_sec": 1500000000,
+            "changeTime_nsec": 0,
+            "creationTime_sec": 1500000000,
+            "creationTime_nsec": 0,
+            "mac_st_mode": 33188,
+            "mac_st_ino": 123,
+            "mac_st_nlink": 1,
+            "mac_st_gid": 20,
+            "winAttrs": 32,
+            "mac_st_dev": 1,
+            "mac_st_rdev": 0,
+            "mac_st_flags": 0,
+            "dataBlobLocs": []
+        },
+        "diskIdentifier": "old_disk_id",
+        "backupRecordErrors": null
+    }
+    "#;
+    let old_record: BackupRecord = serde_json::from_str(old_format_json).expect("Failed to parse old format backup record");
+    assert_eq!(old_record.version, 10);
+    assert!(old_record.arq5_bucket_xml.is_none());
+    assert!(old_record.arq5_tree_blob_key.is_none());
+    assert!(old_record.backup_record_errors.is_none()); // Check that null is handled by Option<Vec<...>>
+
+    // Test a record with empty errors array
+    let empty_errors_json = r#"
+    {
+        "version": 11,
+        "backupFolderUUID": "EMPTY-ERRORS-UUID",
+        "backupPlanUUID": "EMPTY-ERRORS-PLAN-UUID",
+        "copiedFromCommit": false,
+        "copiedFromSnapshot": false,
+        "storageClass": "STANDARD",
+        "node": {
+            "isTree": true,
+            "itemSize": 0,
+            "deleted": false,
+            "computerOSType": 1,
+            "modificationTime_sec": 1500000001,
+            "modificationTime_nsec": 0,
+            "changeTime_sec": 1500000001,
+            "changeTime_nsec": 0,
+            "creationTime_sec": 1500000001,
+            "creationTime_nsec": 0,
+            "mac_st_mode": 16877,
+            "mac_st_ino": 0,
+            "mac_st_nlink": 1,
+            "mac_st_gid": 0,
+            "winAttrs": 16,
+            "mac_st_dev": 0,
+            "mac_st_rdev": 0,
+            "mac_st_flags": 0,
+            "dataBlobLocs": []
+        },
+        "diskIdentifier": "empty_disk_id",
+        "backupRecordErrors": []
+    }
+    "#;
+    let empty_errors_record: BackupRecord = serde_json::from_str(empty_errors_json).expect("Failed to parse backup record with empty errors");
+    assert_eq!(empty_errors_record.version, 11);
+    assert!(empty_errors_record.arq5_bucket_xml.is_none());
+    assert!(empty_errors_record.arq5_tree_blob_key.is_none());
+    assert!(empty_errors_record.backup_record_errors.is_some());
+    assert!(empty_errors_record.backup_record_errors.as_ref().map_or(false, |v| v.is_empty()));
+
+}
+
+#[test]
 fn test_parse_backup_folder_plan_optional_disk_id() {
     let json_with_disk_id = r#"{
         "backupFolderUUID": "UUID1",

@@ -324,7 +324,7 @@ fn demonstrate_content_extraction(
                 "\n   🕐 Backup Record #{} ({})",
                 record_idx + 1,
                 chrono::DateTime::from_timestamp(
-                    record.creation_date.unwrap_or(0) as i64 / 1000,
+                    record.creation_date.unwrap_or(0.0) as i64, // Corrected: unwrap_or(0.0) and ensure it's treated as seconds
                     0
                 )
                 .map(|dt| dt.format("%Y-%m-%d %H:%M:%S").to_string())

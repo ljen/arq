@@ -27,7 +27,7 @@
 //! ## Usage Examples
 //!
 //! ### Loading a complete backup set:
-//! ```rust
+//! ```rust,no_run
 //! use arq::arq7::BackupSet;
 //! use std::error::Error;
 //!
@@ -44,7 +44,7 @@
 //! ```
 //!
 //! ### Loading individual components:
-//! ```rust
+//! ```rust,no_run
 //! use arq::arq7::{BackupConfig, BackupPlan};
 //! use std::error::Error;
 //!
@@ -57,7 +57,7 @@
 //!
 //! ## Arq 7 Directory Structure
 //!
-//! ```
+//! ```text
 //! backup_set_directory/
 //! +-- backupconfig.json          # Backup configuration
 //! +-- backupfolders.json         # Object directory locations
@@ -89,6 +89,7 @@ use crate::type_utils::ArqRead;
 use byteorder::{BigEndian, ReadBytesExt};
 use serde::de::Deserializer;
 use serde::Deserialize; // <--- Added this line
+// use serde::Serialize; // <--- Commented out as it's unused for now
 use std::collections::HashMap;
 use std::fs::File;
 use std::io::{BufRead, BufReader, Read, Seek, SeekFrom};
@@ -890,6 +891,29 @@ impl Node {
 
 /// BackupRecord represents a backup record file containing backup metadata and the root node
 #[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct Arq5TreeBlobKey {
+    #[serde(rename = "storageType")]
+    pub storage_type: u32,
+    #[serde(rename = "archiveSize")]
+    pub archive_size: u64,
+    pub sha1: String,
+    #[serde(rename = "stretchEncryptionKey")]
+    pub stretch_encryption_key: bool,
+    #[serde(rename = "compressionType")]
+    pub compression_type: u32,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct BackupRecordError {
+    #[serde(rename = "errorMessage")]
+    pub error_message: String,
+    #[serde(rename = "localPath")]
+    pub local_path: String,
+    #[serde(rename = "pathIsDirectory")]
+    pub path_is_directory: bool,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct BackupRecord {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub archived: Option<bool>,
@@ -938,8 +962,16 @@ pub struct BackupRecord {
     #[serde(skip_serializing_if = "Option::is_none")]
     #[serde(rename = "volumeName")]
     pub volume_name: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(rename = "arq5BucketXML")]
+    pub arq5_bucket_xml: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(rename = "arq5TreeBlobKey")]
+    pub arq5_tree_blob_key: Option<Arq5TreeBlobKey>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(default)] // Add default for deserialization if field is missing
     #[serde(rename = "backupRecordErrors")]
-    pub backup_record_errors: Vec<String>,
+    pub backup_record_errors: Option<Vec<BackupRecordError>>,
 }
 
 /// BackupSet represents an entire Arq 7 backup set
@@ -2083,7 +2115,8 @@ mod tests {
             assert_eq!(record.version, 100);
             assert!(!record.copied_from_commit);
             assert!(!record.copied_from_snapshot);
-            assert!(record.backup_record_errors.is_empty());
+            // assert!(record.backup_record_errors.is_empty()); // Original line causing error
+            assert!(record.backup_record_errors.as_ref().map_or(true, |v| v.is_empty())); // Corrected line
 
             // Check creation_date (will be None if not present, or Some(value) if present)
             // This doesn't specifically test float parsing unless the test file has it.
@@ -2099,6 +2132,12 @@ mod tests {
             if let Some(arq_version) = &record.arq_version {
                 assert!(arq_version.starts_with("7."));
             }
+
+            // Check that backup_record_errors can be empty or None
+            // If it's Some, it should be empty for this specific test file,
+            // as the original test file's record did not have errors.
+            // If it's None, that's also acceptable with the new structure.
+            assert!(record.backup_record_errors.as_ref().map_or(true, |v| v.is_empty()));
         }
     }
 }
