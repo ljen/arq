@@ -145,30 +145,46 @@ fn test_json_blob_locations() {
         backup_set.backup_records.len()
     );
 
-    for (folder_uuid, records) in &backup_set.backup_records {
-        println!("Folder {}: {} records", folder_uuid, records.len());
+    for (folder_uuid, generic_records) in &backup_set.backup_records { // Renamed records to generic_records
+        println!("Folder {}: {} records", folder_uuid, generic_records.len());
 
-        for (i, record) in records.iter().enumerate() {
-            println!(
-                "  Record {}: is_tree={}, has_tree_blob_loc={}",
-                i,
-                record.node.is_tree,
-                record.node.tree_blob_loc.is_some()
-            );
-
-            if let Some(tree_blob_loc) = &record.node.tree_blob_loc {
+        for (i, generic_record) in generic_records.iter().enumerate() { // Renamed record to generic_record
+            if let GenericBackupRecord::Arq7(record) = generic_record { // Match on Arq7 variant
                 println!(
-                    "    Tree blob: {} bytes at offset {} in {}",
-                    tree_blob_loc.length, tree_blob_loc.offset, tree_blob_loc.relative_path
+                    "  Record {} (Arq7 v{}): is_tree={}, has_tree_blob_loc={}", // Added version
+                    i,
+                    record.version, // Display version
+                    record.node.is_tree,
+                    record.node.tree_blob_loc.is_some()
                 );
-            }
 
-            println!("    Data blobs: {}", record.node.data_blob_locs.len());
-            for (j, data_blob) in record.node.data_blob_locs.iter().enumerate() {
-                println!(
-                    "      Data blob {}: {} bytes at offset {} in {}",
-                    j, data_blob.length, data_blob.offset, data_blob.relative_path
+                if let Some(tree_blob_loc) = &record.node.tree_blob_loc {
+                    println!(
+                        "    Tree blob: {} bytes at offset {} in {}",
+                        tree_blob_loc.length, tree_blob_loc.offset, tree_blob_loc.relative_path
+                    );
+                }
+
+                println!("    Data blobs: {}", record.node.data_blob_locs.len());
+                for (j, data_blob) in record.node.data_blob_locs.iter().enumerate() {
+                    println!(
+                        "      Data blob {}: {} bytes at offset {} in {}",
+                        j, data_blob.length, data_blob.offset, data_blob.relative_path
+                    );
+                }
+            } else if let GenericBackupRecord::Arq5(record) = generic_record {
+                 println!(
+                    "  Record {} (Arq5 v{}): Arq5TreeBlobKey: {}",
+                    i,
+                    record.version,
+                    record.arq5_tree_blob_key.is_some()
                 );
+                if let Some(key) = &record.arq5_tree_blob_key {
+                     println!(
+                        "    Arq5 Tree Blob Key: sha1={}, size={}, type={}, compression={}",
+                        key.sha1, key.archive_size, key.storage_type, key.compression_type
+                    );
+                }
             }
         }
     }

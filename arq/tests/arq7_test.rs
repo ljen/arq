@@ -32,7 +32,7 @@ fn test_parse_backup_config() {
 }
 
 #[test]
-fn test_parse_migrated_backup_record() {
+fn test_parse_arq5_migrated_backup_record() {
     let json_data = r#"
     {
         "version": 12,
@@ -67,85 +67,186 @@ fn test_parse_migrated_backup_record() {
             "compressionType": 2
         },
         "archived": false,
-        "relativePath": "/37FA0482-9BE1-46DC-9644-334271E810AD/backupfolders/EF287B91-7C53-4C9E-BC0F-C7DAFD3B097D/backuprecords/00158/2559134.backuprecord",
+        "relativePath": "/37FA0482-9BE1-46DC-9644-334271E810AD/backupfolders/EF287B91-7C53-4C9E-BC0F-C7DAFD3B097D/backuprecords/00158/2559134.backuprecord"
+    }
+    "#; // Removed "node" and "diskIdentifier" from this v12 example as per latest user-provided JSON
+
+    let generic_record: GenericBackupRecord = serde_json::from_str(json_data)
+        .expect("Failed to parse Arq5 migrated backup record JSON into GenericBackupRecord");
+
+    match generic_record {
+        GenericBackupRecord::Arq5(record) => {
+            assert_eq!(record.version, 12);
+            assert_eq!(record.arq_version.as_deref(), Some("5.16.0"));
+            assert_eq!(record.backup_folder_uuid, "EF287B91-7C53-4C9E-BC0F-C7DAFD3B097D");
+            assert_eq!(record.backup_plan_uuid, "37FA0482-9BE1-46DC-9644-334271E810AD");
+            assert_eq!(record.computer_os_type, Some(1));
+            assert_eq!(record.creation_date, Some(1582559134.293));
+            assert_eq!(record.is_complete, Some(true));
+            assert!(record.arq5_bucket_xml.is_some());
+            assert_eq!(record.arq5_bucket_xml.as_deref().unwrap(), "<plist>\n<dict>\n    <key>Endpoint</key>\n    <string>googledrive://user%40domain.com@www.googleapis.com/Arq+Backup+Data</string>\n   </dict>\n</plist>");
+
+            let arq5_key = record.arq5_tree_blob_key.as_ref().expect("arq5TreeBlobKey should be present");
+            assert_eq!(arq5_key.storage_type, 1);
+            assert_eq!(arq5_key.archive_size, 0);
+            assert_eq!(arq5_key.sha1, "06f5547421444c64ed136756eaaa146bfde2ce64");
+            assert!(arq5_key.stretch_encryption_key);
+            assert_eq!(arq5_key.compression_type, 2);
+
+            assert_eq!(record.archived, Some(false));
+            assert_eq!(record.local_path.as_deref(), Some("/C"));
+            assert_eq!(record.storage_class, "STANDARD");
+            assert!(!record.copied_from_snapshot);
+            assert!(record.copied_from_commit);
+            assert_eq!(record.relative_path.as_deref(), Some("/37FA0482-9BE1-46DC-9644-334271E810AD/backupfolders/EF287B91-7C53-4C9E-BC0F-C7DAFD3B097D/backuprecords/00158/2559134.backuprecord"));
+
+            let errors = record.backup_record_errors.as_ref().expect("backupRecordErrors should be present");
+            assert_eq!(errors.len(), 2);
+            assert_eq!(errors[0].error_message, "Error opening C:\\Users\\User1\\AppData\\Local\\Microsoft\\WindowsApps\\debian.exe: The file cannot be accessed by the system.\r\n");
+            assert_eq!(errors[0].local_path, "/C/Users/User1/AppData/Local/Microsoft/WindowsApps/debian.exe");
+            assert!(!errors[0].path_is_directory);
+            assert_eq!(errors[1].error_message, "Error opening C:\\Users\\User1\\AppData\\Local\\Microsoft\\WindowsApps\\GameBarElevatedFT_Alias.exe: The file cannot be accessed by the system.\r\n");
+            assert_eq!(errors[1].local_path, "/C/Users/User1/AppData/Local/Microsoft/WindowsApps/GameBarElevatedFT_Alias.exe");
+            assert!(!errors[1].path_is_directory);
+        }
+        GenericBackupRecord::Arq7(_) => {
+            panic!("Parsed as Arq7BackupRecord, expected Arq5BackupRecord for version 12");
+        }
+    }
+}
+
+#[test]
+fn test_parse_arq7_native_backup_record() {
+    let json_data = r#"
+    {
+        "backupFolderUUID": "CEAA7545-3174-4E7C-A580-3D10BAED153E",
+        "diskIdentifier": "ROOT",
+        "storageClass": "STANDARD",
+        "version": 100,
+        "backupPlanUUID": "D1154AC6-01EB-41FE-B115-114464350B92",
+        "backupRecordErrors": [],
+        "copiedFromSnapshot": false,
+        "copiedFromCommit": false,
         "node": {
-            "isTree": true,
-            "itemSize": 0,
-            "deleted": false,
-            "computerOSType": 1,
-            "modificationTime_sec": 1582559134,
-            "modificationTime_nsec": 0,
-            "changeTime_sec": 1582559134,
-            "changeTime_nsec": 0,
-            "creationTime_sec": 1582559134,
-            "creationTime_nsec": 0,
-            "mac_st_mode": 16877,
-            "mac_st_ino": 0,
-            "mac_st_nlink": 1,
-            "mac_st_gid": 0,
-            "winAttrs": 16,
-            "mac_st_dev": 0,
+            "creationTime_sec": 1735296644,
+            "itemSize": 58,
+            "treeBlobLoc": {
+                "offset": 564,
+                "length": 644,
+                "isPacked": true,
+                "isLargePack": false,
+                "relativePath": "/D1154AC6-01EB-41FE-B115-114464350B92/treepacks/09/409732-872C-45A2-935F-8DD318B90390.pack",
+                "blobIdentifier": "25c575dc4072fb42dfbfae196357ea4dc565cafb9e727649fd986de50041552b",
+                "stretchEncryptionKey": true,
+                "compressionType": 2
+            },
+            "mac_st_gid": 20,
             "mac_st_rdev": 0,
             "mac_st_flags": 0,
+            "reparsePointIsDirectory": false,
+            "deleted": false,
+            "mac_st_mode": 16877,
+            "computerOSType": 1,
             "dataBlobLocs": [],
-            "treeBlobLoc": {
-                "blobIdentifier": "06f5547421444c64ed136756eaaa146bfde2ce64",
-                "compressionType": 2,
-                "isPacked": false,
-                "length": 100,
-                "offset": 0,
-                "relativePath": "dummy/path",
-                "stretchEncryptionKey": true
-            }
+            "creationTime_nsec": 818932340,
+            "mac_st_nlink": 4,
+            "reparseTag": 0,
+            "modificationTime_nsec": 20553808,
+            "changeTime_nsec": 20553808,
+            "changeTime_sec": 1736107164,
+            "isTree": true,
+            "winAttrs": 0,
+            "mac_st_ino": 149347023,
+            "groupName": "staff",
+            "userName": "ljensen",
+            "mac_st_dev": 16777234,
+            "containedFilesCount": 3,
+            "mac_st_uid": 501,
+            "xattrsBlobLocs": [],
+            "modificationTime_sec": 1736107164
         },
-        "diskIdentifier": "some_disk_id"
+        "arqVersion": "7.34",
+        "archived": false,
+        "backupPlanJSON": {
+            "transferRateJSON": { "enabled": false, "startTimeOfDay": "08:00", "daysOfWeek": ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"], "scheduleType": "Always", "endTimeOfDay": "17:00"},
+            "cpuUsage": 25, "id": 7, "storageLocationId": 5, "excludedNetworkInterfaces": [], "needsArq5Buckets": false, "useBuzhash": false, "arq5UseS3IA": false, "objectLockUpdateIntervalDays": 30,
+            "planUUID": "D1154AC6-01EB-41FE-B115-114464350B92",
+            "scheduleJSON": { "backUpAndValidate": true, "startWhenVolumeIsConnected": false, "daysOfWeek": ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"], "pauseDuringWindow": false, "minutesAfterHour": 0, "everyHours": 1, "type": "Hourly"},
+            "keepDeletedFiles": false, "version": 2, "createdAtProConsole": false, "backupFolderPlanMountPointsAreInitialized": true, "includeNewVolumes": false, "retainMonths": 60, "useAPFSSnapshots": true, "backupSetIsInitialized": true,
+            "backupFolderPlansByUUID": {
+                "CEAA7545-3174-4E7C-A580-3D10BAED153E": {
+                    "backupFolderUUID": "CEAA7545-3174-4E7C-A580-3D10BAED153E", "diskIdentifier": "ROOT", "blobStorageClass": "STANDARD", "ignoredRelativePaths": [], "skipIfNotMounted": false, "skipDuringBackup": false, "useDiskIdentifier": false,
+                    "relativePath": "Users/ljensen/Projects/2024-12-arq-decryption/arq_backup_source", "wildcardExcludes": [], "excludedDrives": [], "localPath": "/Users/ljensen/Projects/2024-12-arq-decryption/arq_backup_source",
+                    "allDrives": false, "skipTMExcludes": false, "regexExcludes": [], "name": "arq_backup_source", "localMountPoint": "/"
+                }
+            },
+            "notifyOnError": true, "retainDays": 30, "updateTime": 1736712820.0, "excludedWiFiNetworkNames": [], "objectLockAvailable": false, "managed": false, "name": "Back up to arq_storage_location Encrypted",
+            "wakeForBackup": false, "includeNetworkInterfaces": false, "datalessFilesOption": 0, "retainAll": true, "isEncrypted": true, "active": true, "notifyOnSuccess": false, "preventSleep": false,
+            "creationTime": 1736712813, "pauseOnBattery": false, "retainWeeks": 52, "retainHours": 24, "preventBackupOnConstrainedNetworks": false, "includeWiFiNetworks": false, "threadCount": 2,
+            "preventBackupOnExpensiveNetworks": false,
+            "emailReportJSON": { "port": 587, "startTLS": false, "authenticationType": "none", "reportHELOUseIP": true, "when": "never", "type": "custom"},
+            "includeFileListInActivityLog": false, "noBackupsAlertDays": 5
+        },
+        "relativePath": "/D1154AC6-01EB-41FE-B115-114464350B92/backupfolders/CEAA7545-3174-4E7C-A580-3D10BAED153E/backuprecords/00173/6712823.backuprecord",
+        "computerOSType": 1,
+        "localPath": "/arq-decryption/arq_backup_source",
+        "localMountPoint": "/",
+        "isComplete": true,
+        "creationDate": 1736712823,
+        "volumeName": "Macintosh HD"
     }
     "#;
 
-    let record: BackupRecord = serde_json::from_str(json_data).expect("Failed to parse migrated backup record JSON");
+    let generic_record: GenericBackupRecord = serde_json::from_str(json_data)
+        .expect("Failed to parse Arq7 native backup record JSON into GenericBackupRecord");
 
-    assert_eq!(record.version, 12);
-    assert_eq!(record.arq_version.as_deref(), Some("5.16.0"));
-    assert_eq!(record.backup_folder_uuid, "EF287B91-7C53-4C9E-BC0F-C7DAFD3B097D");
-    assert_eq!(record.backup_plan_uuid, "37FA0482-9BE1-46DC-9644-334271E810AD");
-    assert_eq!(record.computer_os_type, Some(1));
-    assert_eq!(record.creation_date, Some(1582559134.293));
-    assert_eq!(record.is_complete, Some(true));
-    assert!(record.arq5_bucket_xml.is_some());
-    assert_eq!(record.arq5_bucket_xml.as_deref().unwrap(), "<plist>\n<dict>\n    <key>Endpoint</key>\n    <string>googledrive://user%40domain.com@www.googleapis.com/Arq+Backup+Data</string>\n   </dict>\n</plist>");
+    match generic_record {
+        GenericBackupRecord::Arq7(record) => {
+            assert_eq!(record.version, 100);
+            assert_eq!(record.backup_folder_uuid, "CEAA7545-3174-4E7C-A580-3D10BAED153E");
+            assert_eq!(record.disk_identifier, "ROOT");
+            assert_eq!(record.storage_class, "STANDARD");
+            assert_eq!(record.backup_plan_uuid, "D1154AC6-01EB-41FE-B115-114464350B92");
+            assert!(record.backup_record_errors.is_some());
+            assert!(record.backup_record_errors.as_ref().unwrap().is_empty());
+            assert!(!record.copied_from_snapshot);
+            assert!(!record.copied_from_commit);
+            assert_eq!(record.node.item_size, 58);
+            assert_eq!(record.node.is_tree, true);
+            assert_eq!(record.arq_version.as_deref(), Some("7.34"));
+            assert_eq!(record.archived, Some(false));
+            assert!(record.backup_plan_json.is_some());
+            let bpj = record.backup_plan_json.as_ref().unwrap();
+            assert_eq!(bpj.plan_uuid, "D1154AC6-01EB-41FE-B115-114464350B92");
+            assert_eq!(bpj.name, "Back up to arq_storage_location Encrypted");
+            assert_eq!(record.relative_path.as_deref(), Some("/D1154AC6-01EB-41FE-B115-114464350B92/backupfolders/CEAA7545-3174-4E7C-A580-3D10BAED153E/backuprecords/00173/6712823.backuprecord"));
+            assert_eq!(record.computer_os_type, Some(1));
+            assert_eq!(record.local_path.as_deref(), Some("/arq-decryption/arq_backup_source"));
+            assert_eq!(record.local_mount_point.as_deref(), Some("/"));
+            assert_eq!(record.is_complete, Some(true));
+            assert_eq!(record.creation_date, Some(1736712823.0)); // Ensure it's parsed as float
+            assert_eq!(record.volume_name.as_deref(), Some("Macintosh HD"));
+        }
+        GenericBackupRecord::Arq5(_) => {
+            panic!("Parsed as Arq5BackupRecord, expected Arq7BackupRecord for version 100");
+        }
+    }
+}
 
-    let arq5_key = record.arq5_tree_blob_key.as_ref().expect("arq5TreeBlobKey should be present");
-    assert_eq!(arq5_key.storage_type, 1);
-    assert_eq!(arq5_key.archive_size, 0);
-    assert_eq!(arq5_key.sha1, "06f5547421444c64ed136756eaaa146bfde2ce64");
-    assert!(arq5_key.stretch_encryption_key);
-    assert_eq!(arq5_key.compression_type, 2);
-
-    assert_eq!(record.archived, Some(false));
-    assert_eq!(record.local_path.as_deref(), Some("/C"));
-    assert_eq!(record.storage_class, "STANDARD");
-    assert!(!record.copied_from_snapshot);
-    assert!(record.copied_from_commit);
-    assert_eq!(record.relative_path.as_deref(), Some("/37FA0482-9BE1-46DC-9644-334271E810AD/backupfolders/EF287B91-7C53-4C9E-BC0F-C7DAFD3B097D/backuprecords/00158/2559134.backuprecord"));
-
-    let errors = record.backup_record_errors.as_ref().expect("backupRecordErrors should be present");
-    assert_eq!(errors.len(), 2);
-    assert_eq!(errors[0].error_message, "Error opening C:\\Users\\User1\\AppData\\Local\\Microsoft\\WindowsApps\\debian.exe: The file cannot be accessed by the system.\r\n");
-    assert_eq!(errors[0].local_path, "/C/Users/User1/AppData/Local/Microsoft/WindowsApps/debian.exe");
-    assert!(!errors[0].path_is_directory);
-    assert_eq!(errors[1].error_message, "Error opening C:\\Users\\User1\\AppData\\Local\\Microsoft\\WindowsApps\\GameBarElevatedFT_Alias.exe: The file cannot be accessed by the system.\r\n");
-    assert_eq!(errors[1].local_path, "/C/Users/User1/AppData/Local/Microsoft/WindowsApps/GameBarElevatedFT_Alias.exe");
-    assert!(!errors[1].path_is_directory);
-
-    // Test a record without the new fields to ensure backward compatibility
-    let old_format_json = r#"
+// Test for backward compatibility with old Arq7 records that might not have all new Option<> fields of Arq7BackupRecord,
+// and also ensuring Arq5 records are not misparsed as Arq7.
+#[test]
+fn test_generic_backup_record_deserialization_priority_and_optional_fields() {
+    // This JSON is an Arq7 record (version 100) but missing some optional fields like `volumeName`
+    let old_arq7_format_json = r#"
     {
-        "version": 10,
-        "backupFolderUUID": "OLD-FOLDER-UUID",
-        "backupPlanUUID": "OLD-PLAN-UUID",
+        "backupFolderUUID": "OLD-ARQ7-FOLDER-UUID",
+        "diskIdentifier": "old_arq7_disk_id",
+        "storageClass": "GLACIER",
+        "version": 100,
+        "backupPlanUUID": "OLD-ARQ7-PLAN-UUID",
         "copiedFromCommit": false,
         "copiedFromSnapshot": true,
-        "storageClass": "GLACIER",
         "node": {
             "isTree": false,
             "itemSize": 1024,
@@ -167,58 +268,51 @@ fn test_parse_migrated_backup_record() {
             "mac_st_flags": 0,
             "dataBlobLocs": []
         },
-        "diskIdentifier": "old_disk_id",
         "backupRecordErrors": null
     }
     "#;
-    let old_record: BackupRecord = serde_json::from_str(old_format_json).expect("Failed to parse old format backup record");
-    assert_eq!(old_record.version, 10);
-    assert!(old_record.arq5_bucket_xml.is_none());
-    assert!(old_record.arq5_tree_blob_key.is_none());
-    assert!(old_record.backup_record_errors.is_none()); // Check that null is handled by Option<Vec<...>>
+    let generic_record_old_arq7: GenericBackupRecord = serde_json::from_str(old_arq7_format_json)
+        .expect("Failed to parse old Arq7 format into GenericBackupRecord");
 
-    // Test a record with empty errors array
-    let empty_errors_json = r#"
-    {
-        "version": 11,
-        "backupFolderUUID": "EMPTY-ERRORS-UUID",
-        "backupPlanUUID": "EMPTY-ERRORS-PLAN-UUID",
-        "copiedFromCommit": false,
-        "copiedFromSnapshot": false,
-        "storageClass": "STANDARD",
-        "node": {
-            "isTree": true,
-            "itemSize": 0,
-            "deleted": false,
-            "computerOSType": 1,
-            "modificationTime_sec": 1500000001,
-            "modificationTime_nsec": 0,
-            "changeTime_sec": 1500000001,
-            "changeTime_nsec": 0,
-            "creationTime_sec": 1500000001,
-            "creationTime_nsec": 0,
-            "mac_st_mode": 16877,
-            "mac_st_ino": 0,
-            "mac_st_nlink": 1,
-            "mac_st_gid": 0,
-            "winAttrs": 16,
-            "mac_st_dev": 0,
-            "mac_st_rdev": 0,
-            "mac_st_flags": 0,
-            "dataBlobLocs": []
-        },
-        "diskIdentifier": "empty_disk_id",
-        "backupRecordErrors": []
+    match generic_record_old_arq7 {
+        GenericBackupRecord::Arq7(record) => {
+            assert_eq!(record.version, 100);
+            assert_eq!(record.backup_folder_uuid, "OLD-ARQ7-FOLDER-UUID");
+            assert!(record.volume_name.is_none()); // Example of an optional field being None
+            assert!(record.backup_record_errors.is_none());
+        }
+        GenericBackupRecord::Arq5(_) => {
+            panic!("Parsed as Arq5BackupRecord, expected Arq7BackupRecord for old Arq7 format");
+        }
     }
-    "#;
-    let empty_errors_record: BackupRecord = serde_json::from_str(empty_errors_json).expect("Failed to parse backup record with empty errors");
-    assert_eq!(empty_errors_record.version, 11);
-    assert!(empty_errors_record.arq5_bucket_xml.is_none());
-    assert!(empty_errors_record.arq5_tree_blob_key.is_none());
-    assert!(empty_errors_record.backup_record_errors.is_some());
-    assert!(empty_errors_record.backup_record_errors.as_ref().map_or(false, |v| v.is_empty()));
 
+    // Test a v12 record again to ensure it's still parsed as Arq5
+    let arq5_json_data = r#"
+    {
+        "version": 12,
+        "arqVersion": "5.16.0",
+        "backupFolderUUID": "EF287B91-7C53-4C9E-BC0F-C7DAFD3B097D",
+        "backupPlanUUID": "37FA0482-9BE1-46DC-9644-334271E810AD",
+        "arq5BucketXML": "test",
+        "storageClass": "STANDARD",
+        "copiedFromSnapshot": false,
+        "copiedFromCommit": false
+    }
+    "#; // Minimal Arq5, added required fields
+    let generic_record_arq5: GenericBackupRecord = serde_json::from_str(arq5_json_data)
+        .expect("Failed to parse minimal Arq5 into GenericBackupRecord");
+
+    match generic_record_arq5 {
+        GenericBackupRecord::Arq5(record) => {
+            assert_eq!(record.version, 12);
+            assert_eq!(record.arq_version.as_deref(), Some("5.16.0"));
+        }
+        GenericBackupRecord::Arq7(_) => {
+            panic!("Parsed minimal Arq5 as Arq7BackupRecord");
+        }
+    }
 }
+
 
 #[test]
 fn test_parse_backup_folder_plan_optional_disk_id() {
@@ -582,7 +676,7 @@ fn test_binary_tree_loading_comprehensive() {
             .backup_records
             .get("F71BB248-E3A0-45E3-B67C-FEE397C5BD71")
         {
-            if let Some(record) = records.first() {
+            if let Some(GenericBackupRecord::Arq7(record)) = records.first() { // Match on Arq7 variant
                 // Verify the node has a tree blob location
                 assert!(record.node.tree_blob_loc.is_some());
                 let tree_blob_loc = record.node.tree_blob_loc.as_ref().unwrap();
@@ -887,7 +981,7 @@ fn test_encrypted_tree_loading() {
         .backup_records
         .get("CEAA7545-3174-4E7C-A580-3D10BAED153E")
     {
-        if let Some(record) = folder_records.first() {
+        if let Some(GenericBackupRecord::Arq7(record)) = folder_records.first() { // Match on Arq7 variant
             // Load the tree with encryption support
             if let Ok(Some(tree)) = record.node.load_tree_with_encryption(
                 ARQ7_TEST_DATA_DIR_ENCRYPTED,
@@ -1014,23 +1108,39 @@ struct ExtractionStats {
 }
 
 fn extract_backup_record(
-    record: &arq::arq7::BackupRecord,
+    generic_record: &arq::arq7::GenericBackupRecord, // Changed to GenericBackupRecord
     backup_set_path: &Path,
     output_dir: &Path,
     stats: &mut ExtractionStats,
     keyset: Option<&EncryptedKeySet>,
 ) {
-    if record.node.is_tree {
-        extract_tree_node(&record.node, backup_set_path, output_dir, "", stats, keyset);
-    } else {
-        extract_file_node(
-            &record.node,
-            backup_set_path,
-            output_dir,
-            "root_file", // Should ideally get a name, but for a single root file, this is okay.
-            stats,
-            keyset,
-        );
+    match generic_record {
+        GenericBackupRecord::Arq7(record) => {
+            if record.node.is_tree {
+                extract_tree_node(&record.node, backup_set_path, output_dir, "", stats, keyset);
+            } else {
+                extract_file_node(
+                    &record.node,
+                    backup_set_path,
+                    output_dir,
+                    record.local_path.as_deref().unwrap_or("root_file"), // Use localPath if available
+                    stats,
+                    keyset,
+                );
+            }
+        }
+        GenericBackupRecord::Arq5(record) => {
+            // Arq5 records don't have a direct top-level node in this new structure.
+            // Extraction logic for Arq5 would be different, possibly based on arq5TreeBlobKey
+            // or arq5BucketXML, which is out of scope for this example's extraction helpers.
+            eprintln!(
+                "Skipping extraction for Arq5 record (version {}), UUID: {}. Node-based extraction not applicable.",
+                record.version, record.backup_folder_uuid
+            );
+            // We could potentially try to "extract" the arq5BucketXML to a file if desired,
+            // or interpret arq5TreeBlobKey if it pointed to a single extractable item.
+            // For now, this example focuses on node-based extraction from Arq7.
+        }
     }
 }
 
@@ -1477,14 +1587,14 @@ struct FileReadStats {
 }
 
 fn read_all_nodes_recursive(
-    node: &arq::arq7::Node,
+    generic_record_node: &arq::arq7::Node, // Parameter renamed for clarity, it's a node from a GenericRecord::Arq7
     backup_set_path: &Path,
     keyset: Option<&EncryptedKeySet>,
     stats: &mut FileReadStats,
     current_path_for_debug: String, // For logging/debugging
 ) {
-    if node.is_tree {
-        if let Some(tree_blob_loc) = &node.tree_blob_loc {
+    if generic_record_node.is_tree {
+        if let Some(tree_blob_loc) = &generic_record_node.tree_blob_loc {
             match tree_blob_loc.load_tree_with_encryption(backup_set_path, keyset) {
                 Ok(Some(tree)) => {
                     for (name, child_node) in &tree.child_nodes {
@@ -1493,8 +1603,8 @@ fn read_all_nodes_recursive(
                         } else {
                             format!("{}/{}", current_path_for_debug, name)
                         };
-                        read_all_nodes_recursive(
-                            child_node, // child_node is &Node
+                        read_all_nodes_recursive( // Recursive call with child_node
+                            child_node,
                             backup_set_path,
                             keyset,
                             stats,
@@ -1503,9 +1613,6 @@ fn read_all_nodes_recursive(
                     }
                 }
                 Ok(None) => {
-                    // This case might occur if a tree node points to an empty or non-existent tree blob.
-                    // Depending on strictness, this could be an error or just a note.
-                    // For this test, let's consider it a potential issue if not expected.
                     // eprintln!(
                     //     "Warning: Tree node at '{}' has a blob location but no tree data could be loaded.",
                     //     current_path_for_debug
@@ -1520,12 +1627,11 @@ fn read_all_nodes_recursive(
                 }
             }
         } else {
-            // It's a tree node but has no tree_blob_loc. This could be an empty directory.
             // eprintln!("Info: Tree node at '{}' has no tree blob location (possibly an empty directory).", current_path_for_debug);
         }
     } else {
         // This is a file node
-        match node.reconstruct_file_data_with_encryption(backup_set_path, keyset) {
+        match generic_record_node.reconstruct_file_data_with_encryption(backup_set_path, keyset) {
             Ok(data) => {
                 stats.files_read += 1;
                 stats.bytes_read += data.len() as u64;
@@ -1546,6 +1652,9 @@ fn read_all_nodes_recursive(
     }
 }
 
+
+// The calling site for read_all_nodes_recursive needs to be updated
+// in test_read_all_files_encrypted_backup
 #[test]
 fn test_read_all_files_encrypted_backup() {
     let backup_set_dir = Path::new(ARQ7_TEST_DATA_DIR_ENCRYPTED);
@@ -1577,17 +1686,25 @@ fn test_read_all_files_encrypted_backup() {
             let record_root_path_for_debug = format!(
                 "record_{}_{}",
                 folder_uuid,
-                record
-                    .creation_date
-                    .map_or_else(|| i.to_string(), |cd| cd.to_string())
+                match record { // Access creation_date based on variant
+                    GenericBackupRecord::Arq7(r) => r.creation_date.map_or_else(|| i.to_string(), |cd| cd.to_string()),
+                    GenericBackupRecord::Arq5(r) => r.creation_date.map_or_else(|| i.to_string(), |cd| cd.to_string()),
+                }
             );
-            read_all_nodes_recursive(
-                &record.node,
-                backup_set_dir,
-                backup_set.encryption_keyset(),
-                &mut stats,
-                record_root_path_for_debug,
-            );
+            // Call read_all_nodes_recursive only for Arq7 records that have a node
+            if let GenericBackupRecord::Arq7(arq7_record) = record {
+                read_all_nodes_recursive(
+                    &arq7_record.node, // Pass the node from Arq7BackupRecord
+                    backup_set_dir,
+                    backup_set.encryption_keyset(),
+                    &mut stats,
+                    record_root_path_for_debug,
+                );
+            } else {
+                // Optionally handle Arq5 records here if they contribute to FileReadStats
+                // For now, this test focuses on node-based file reading from Arq7.
+                // eprintln!("Skipping file content reading for Arq5 record: {}", record_root_path_for_debug);
+            }
         }
     }
 

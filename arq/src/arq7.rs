@@ -914,64 +914,126 @@ pub struct BackupRecordError {
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
-pub struct BackupRecord {
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub archived: Option<bool>,
-    #[serde(skip_serializing_if = "Option::is_none")]
+pub struct Arq5BackupRecord {
+    pub version: u32, // Expected 12
     #[serde(rename = "arqVersion")]
     pub arq_version: Option<String>,
     #[serde(rename = "backupFolderUUID")]
     pub backup_folder_uuid: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    #[serde(rename = "backupPlanJSON")]
-    pub backup_plan_json: Option<BackupPlan>,
     #[serde(rename = "backupPlanUUID")]
     pub backup_plan_uuid: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
     #[serde(rename = "computerOSType")]
     pub computer_os_type: Option<u32>,
-    #[serde(rename = "copiedFromCommit")]
-    pub copied_from_commit: bool,
-    #[serde(rename = "copiedFromSnapshot")]
-    pub copied_from_snapshot: bool,
-    #[serde(default)]
-    #[serde(skip_serializing_if = "Option::is_none")]
     #[serde(rename = "creationDate")]
     pub creation_date: Option<f64>,
-    #[serde(rename = "diskIdentifier")]
-    pub disk_identifier: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    #[serde(rename = "errorCount")]
-    pub error_count: Option<u32>,
-    #[serde(skip_serializing_if = "Option::is_none")]
     #[serde(rename = "isComplete")]
     pub is_complete: Option<bool>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    #[serde(rename = "localMountPoint")]
-    pub local_mount_point: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    #[serde(rename = "localPath")]
-    pub local_path: Option<String>,
-    pub node: Node,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    #[serde(rename = "relativePath")]
-    pub relative_path: Option<String>,
-    #[serde(rename = "storageClass")]
-    pub storage_class: String,
-    pub version: u32,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    #[serde(rename = "volumeName")]
-    pub volume_name: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
     #[serde(rename = "arq5BucketXML")]
     pub arq5_bucket_xml: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(rename = "backupRecordErrors")]
+    #[serde(default)]
+    pub backup_record_errors: Option<Vec<BackupRecordError>>,
+    #[serde(rename = "localPath")]
+    pub local_path: Option<String>,
+    #[serde(rename = "storageClass")]
+    pub storage_class: String,
+    #[serde(rename = "copiedFromSnapshot")]
+    pub copied_from_snapshot: bool,
+    #[serde(rename = "copiedFromCommit")]
+    pub copied_from_commit: bool,
     #[serde(rename = "arq5TreeBlobKey")]
     pub arq5_tree_blob_key: Option<Arq5TreeBlobKey>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    #[serde(default)] // Add default for deserialization if field is missing
+    pub archived: Option<bool>, // Matches example, though original top-level was not optional
+    #[serde(rename = "relativePath")]
+    pub relative_path: Option<String>,
+    // No top-level 'node' field in the provided v12 JSON example
+    // No 'diskIdentifier' in the provided v12 JSON example
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct Arq7BackupRecord {
+    #[serde(rename = "backupFolderUUID")]
+    pub backup_folder_uuid: String,
+    #[serde(rename = "diskIdentifier")]
+    pub disk_identifier: String, // Present in v100
+    #[serde(rename = "storageClass")]
+    pub storage_class: String,
+    pub version: u32, // Expected 100
+    #[serde(rename = "backupPlanUUID")]
+    pub backup_plan_uuid: String,
     #[serde(rename = "backupRecordErrors")]
+    #[serde(default)]
     pub backup_record_errors: Option<Vec<BackupRecordError>>,
+    #[serde(rename = "copiedFromSnapshot")]
+    pub copied_from_snapshot: bool,
+    #[serde(rename = "copiedFromCommit")]
+    pub copied_from_commit: bool,
+    pub node: Node,
+    #[serde(rename = "arqVersion")]
+    pub arq_version: Option<String>,
+    pub archived: Option<bool>,
+    #[serde(rename = "backupPlanJSON")]
+    pub backup_plan_json: Option<BackupPlan>,
+    #[serde(rename = "relativePath")]
+    pub relative_path: Option<String>,
+    #[serde(rename = "computerOSType")]
+    pub computer_os_type: Option<u32>, // Was optional, matches v100
+    #[serde(rename = "localPath")]
+    pub local_path: Option<String>, // Was optional, matches v100
+    #[serde(rename = "localMountPoint")]
+    pub local_mount_point: Option<String>, // Present in v100
+    #[serde(rename = "isComplete")]
+    pub is_complete: Option<bool>, // Was optional, matches v100
+    #[serde(rename = "creationDate")]
+    #[serde(default)] // Default for Option<f64>
+    #[serde(with = "f64_parser_allow_int")] // Allow parsing from integer or float
+    pub creation_date: Option<f64>, // V100 has int, f64 is fine
+    #[serde(rename = "volumeName")]
+    pub volume_name: Option<String>, // Present in v100
+    // Removed arq5BucketXML and arq5TreeBlobKey
+    // Removed errorCount as backupRecordErrors is now structured
+}
+
+// Custom deserializer module for creationDate in Arq7BackupRecord
+// to handle cases where it might be an integer in JSON but needs to be Option<f64>
+mod f64_parser_allow_int {
+    use serde::{Deserialize, Deserializer, Serializer};
+
+    pub fn deserialize<'de, D>(deserializer: D) -> Result<Option<f64>, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        #[derive(Deserialize)]
+        #[serde(untagged)]
+        enum MaybeFloatOrInt {
+            Float(f64),
+            Int(i64), // Allow i64 as Arq7 v100 example has integer timestamp
+            None, // Allow it to be null or missing
+        }
+
+        match MaybeFloatOrInt::deserialize(deserializer)? {
+            MaybeFloatOrInt::Float(f) => Ok(Some(f)),
+            MaybeFloatOrInt::Int(i) => Ok(Some(i as f64)),
+            MaybeFloatOrInt::None => Ok(None), // This case handles explicit nulls. `#[serde(default)]` handles missing.
+        }
+    }
+
+    pub fn serialize<S>(date: &Option<f64>, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        match date {
+            Some(d) => serializer.serialize_f64(*d),
+            None => serializer.serialize_none(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(untagged)] // Attempt to deserialize as Arq7 first, then Arq5
+pub enum GenericBackupRecord {
+    Arq7(Arq7BackupRecord),
+    Arq5(Arq5BackupRecord),
 }
 
 /// BackupSet represents an entire Arq 7 backup set
@@ -981,7 +1043,7 @@ pub struct BackupSet {
     pub backup_folders: BackupFolders,
     pub backup_plan: BackupPlan,
     pub backup_folder_configs: HashMap<String, BackupFolder>,
-    pub backup_records: HashMap<String, Vec<BackupRecord>>,
+    pub backup_records: HashMap<String, Vec<GenericBackupRecord>>, // Changed to GenericBackupRecord
     pub encryption_keyset: Option<EncryptedKeySet>,
 }
 
@@ -1297,7 +1359,7 @@ impl BackupSet {
     /// Recursively load backup record files from a directory
     fn load_backup_records_recursive(
         dir: &std::path::Path,
-        records: &mut Vec<BackupRecord>,
+        records: &mut Vec<GenericBackupRecord>, // Changed to GenericBackupRecord
     ) -> Result<()> {
         for entry in std::fs::read_dir(dir)? {
             let entry = entry?;
@@ -1308,7 +1370,7 @@ impl BackupSet {
                 Self::load_backup_records_recursive(&path, records)?;
             } else if path.extension().and_then(|s| s.to_str()) == Some("backuprecord") {
                 // Try to parse backup record file
-                match BackupRecord::from_file(&path) {
+                match GenericBackupRecord::from_file(&path) { // Changed to GenericBackupRecord
                     Ok(record) => records.push(record),
                     Err(e) => {
                         // Log error but continue processing other files
@@ -1323,7 +1385,7 @@ impl BackupSet {
     fn load_backup_records_with_encryption(
         backupfolders_dir: &Path,
         keyset: Option<&EncryptedKeySet>,
-    ) -> Result<HashMap<String, Vec<BackupRecord>>> {
+    ) -> Result<HashMap<String, Vec<GenericBackupRecord>>> { // Changed to GenericBackupRecord
         let mut backup_records = HashMap::new();
 
         if !backupfolders_dir.exists() {
@@ -1342,7 +1404,7 @@ impl BackupSet {
                     // Recursively traverse backup records directories
                     fn collect_records(
                         dir: &Path,
-                        records: &mut Vec<BackupRecord>,
+                        records: &mut Vec<GenericBackupRecord>, // Changed to GenericBackupRecord
                         keyset: Option<&EncryptedKeySet>,
                     ) -> Result<()> {
                         for entry in std::fs::read_dir(dir)? {
@@ -1352,7 +1414,7 @@ impl BackupSet {
                             if path.is_dir() {
                                 collect_records(&path, records, keyset)?;
                             } else if path.extension().map_or(false, |ext| ext == "backuprecord") {
-                                match BackupRecord::from_file_with_encryption(&path, keyset) {
+                                match GenericBackupRecord::from_file_with_encryption(&path, keyset) { // Changed to GenericBackupRecord
                                     Ok(record) => records.push(record),
                                     Err(e) => {
                                         eprintln!(
@@ -1392,31 +1454,33 @@ impl BackupSet {
     ) -> Result<()> {
         // Find the file in the backup records
         for (_, records) in &self.backup_records {
-            for record in records {
-                if let Some(node) =
-                    self.find_node_by_path(&record.node, file_path, backup_set_dir.as_ref())?
-                {
-                    if !node.is_tree {
-                        return node.extract_file_with_encryption(
-                            backup_set_dir,
-                            output_path,
-                            self.encryption_keyset.as_ref(),
-                        );
+            for generic_record in records {
+                if let GenericBackupRecord::Arq7(record) = generic_record { // Only Arq7 records have a direct node
+                    if let Some(node) =
+                        self.find_node_by_path(&record.node, file_path, backup_set_dir.as_ref())?
+                    {
+                        if !node.is_tree {
+                            return node.extract_file_with_encryption(
+                                backup_set_dir.as_ref(), // Ensure P1 is AsRef<Path>
+                                output_path,
+                                self.encryption_keyset.as_ref(),
+                            );
+                        }
                     }
                 }
             }
         }
 
         Err(Error::InvalidFormat(format!(
-            "File not found: {}",
+            "File not found or not extractable from Arq7 records: {}", // Clarified error
             file_path
         )))
     }
 
-    /// Recursively find a node by path
+    /// Recursively find a node by path (operates on a given Node, typically from an Arq7 record)
     fn find_node_by_path(
         &self,
-        node: &Node,
+        node: &Node, // This function is now more general, called with a specific node
         target_path: &str,
         backup_set_dir: &Path,
     ) -> Result<Option<Node>> {
@@ -1424,6 +1488,8 @@ impl BackupSet {
         self.find_node_recursive(node, &path_parts, 0, backup_set_dir)
     }
 
+    // find_node_recursive remains largely the same as it operates on a Node,
+    // but its callers need to ensure they provide a valid Node.
     fn find_node_recursive(
         &self,
         node: &Node,
@@ -1439,46 +1505,44 @@ impl BackupSet {
             return Ok(None);
         }
 
-        // Load the tree data
         if let Some(tree) =
             node.load_tree_with_encryption(backup_set_dir, self.encryption_keyset.as_ref())?
         {
             let target_name = path_parts[depth];
-
             if let Some(child_node) = tree.child_nodes.get(target_name) {
-                // child_node is already &Node
-                // let child_node = Node::from_binary_node(child_binary_node); // No longer needed
                 return self.find_node_recursive(
-                    child_node, // Pass &Node directly
+                    child_node,
                     path_parts,
                     depth + 1,
                     backup_set_dir,
                 );
             }
         }
-
         Ok(None)
     }
 
-    /// List all files in the backup set
+    /// List all files in the backup set (primarily from Arq7 records)
     pub fn list_all_files<P: AsRef<Path>>(&self, backup_set_dir: P) -> Result<Vec<String>> {
         let mut files = Vec::new();
-        let backup_set_dir = backup_set_dir.as_ref();
+        let backup_set_dir_ref = backup_set_dir.as_ref();
 
         for (_, records) in &self.backup_records {
-            for record in records {
-                self.collect_files_recursive(
-                    &record.node,
-                    String::new(),
-                    &mut files,
-                    backup_set_dir,
-                )?;
+            for generic_record in records {
+                if let GenericBackupRecord::Arq7(record) = generic_record {
+                    self.collect_files_recursive(
+                        &record.node,
+                        String::new(),
+                        &mut files,
+                        backup_set_dir_ref,
+                    )?;
+                }
+                // Arq5 records do not have a top-level node in this structure for listing files directly.
             }
         }
-
         Ok(files)
     }
 
+    // collect_files_recursive remains largely the same.
     fn collect_files_recursive(
         &self,
         node: &Node,
@@ -1487,72 +1551,76 @@ impl BackupSet {
         backup_set_dir: &Path,
     ) -> Result<()> {
         if !node.is_tree {
-            // This is a file
             if !current_path.is_empty() {
                 files.push(current_path);
             }
             return Ok(());
         }
 
-        // This is a directory, traverse its children
         if let Some(tree) =
             node.load_tree_with_encryption(backup_set_dir, self.encryption_keyset.as_ref())?
         {
             for (name, child_node) in &tree.child_nodes {
-                // child_node is already &Node
-                // let child_node = Node::from_binary_node(child_binary_node); // No longer needed
                 let child_path = if current_path.is_empty() {
                     name.clone()
                 } else {
                     format!("{}/{}", current_path, name)
                 };
-
-                self.collect_files_recursive(&child_node, child_path, files, backup_set_dir)?;
+                self.collect_files_recursive(child_node, child_path, files, backup_set_dir)?;
             }
         }
-
         Ok(())
     }
 
     /// Get backup statistics
     pub fn get_statistics<P: AsRef<Path>>(&self, backup_set_dir: P) -> Result<BackupStatistics> {
         let mut stats = BackupStatistics::default();
-        let backup_set_dir = backup_set_dir.as_ref();
+        let backup_set_dir_ref = backup_set_dir.as_ref();
 
-        for (_, records) in &self.backup_records {
-            stats.folder_count += 1;
-            stats.record_count += records.len() as u32;
+        for (_, records_vec) in &self.backup_records { // Renamed records to records_vec to avoid conflict
+            stats.folder_count += 1; // This counts folders in backup_records map, not file system folders.
+            stats.record_count += records_vec.len() as u32;
 
-            for record in records {
-                let (file_count, total_size) = count_files_in_node(
-                    &record.node,
-                    backup_set_dir,
-                    self.encryption_keyset.as_ref(),
-                )?;
-
-                stats.total_files += file_count;
-                stats.total_size += total_size;
-
-                if record.is_complete.unwrap_or(false) {
-                    stats.complete_backups += 1;
+            for generic_record in records_vec {
+                match generic_record {
+                    GenericBackupRecord::Arq7(record) => {
+                        let (file_count, total_size) = count_files_in_node(
+                            &record.node,
+                            backup_set_dir_ref,
+                            self.encryption_keyset.as_ref(),
+                        )?;
+                        stats.total_files += file_count;
+                        stats.total_size += total_size;
+                        if record.is_complete.unwrap_or(false) {
+                            stats.complete_backups += 1;
+                        }
+                    }
+                    GenericBackupRecord::Arq5(record) => {
+                        // Arq5 records don't have a direct node for file counting here.
+                        // We could potentially sum itemSize if arq5TreeBlobKey implies a single item,
+                        // but that's an assumption. For now, only count if complete.
+                        if record.is_complete.unwrap_or(false) {
+                            stats.complete_backups += 1;
+                        }
+                        // total_files and total_size for Arq5 might need different logic
+                        // based on arq5TreeBlobKey or other fields if applicable.
+                    }
                 }
             }
         }
-
         Ok(stats)
     }
 
     /// Verify backup integrity by checking all blob locations
     pub fn verify_integrity<P: AsRef<Path>>(&self, backup_set_dir: P) -> Result<IntegrityReport> {
         let mut report = IntegrityReport::default();
-        let backup_set_dir = backup_set_dir.as_ref();
+        let backup_set_dir_ref = backup_set_dir.as_ref();
 
-        // Check all blob locations
-        let blob_locations = self.find_all_blob_locations();
+        let blob_locations = self.find_all_blob_locations(); // This method needs adjustment
         report.total_blobs = blob_locations.len() as u32;
 
         for blob_loc in blob_locations {
-            match blob_loc.load_data(backup_set_dir, self.encryption_keyset.as_ref()) {
+            match blob_loc.load_data(backup_set_dir_ref, self.encryption_keyset.as_ref()) {
                 Ok(data) => {
                     report.valid_blobs += 1;
                     report.total_blob_size += data.len() as u64;
@@ -1568,8 +1636,8 @@ impl BackupSet {
         }
 
         // Check pack files exist
-        let treepacks_dir = backup_set_dir.join("treepacks");
-        let blobpacks_dir = backup_set_dir.join("blobpacks");
+        let treepacks_dir = backup_set_dir_ref.join("treepacks"); // Used backup_set_dir_ref
+        let blobpacks_dir = backup_set_dir_ref.join("blobpacks"); // Used backup_set_dir_ref
 
         report.treepacks_exist = treepacks_dir.exists();
         report.blobpacks_exist = blobpacks_dir.exists();
@@ -1578,18 +1646,18 @@ impl BackupSet {
     }
 }
 
-impl BackupRecord {
-    /// Load a BackupRecord from a file path
+impl GenericBackupRecord {
+    /// Load a GenericBackupRecord from a file path
     /// The file format is: 4-byte big-endian length + LZ4-compressed JSON data
     pub fn from_file<P: AsRef<Path>>(path: P) -> Result<Self> {
         Self::from_file_with_encryption(path, None)
     }
 
-    /// Load BackupRecord from file, optionally decrypting if needed
+    /// Load GenericBackupRecord from file, optionally decrypting if needed
     pub fn from_file_with_encryption<P: AsRef<Path>>(
         path: P,
         keyset: Option<&EncryptedKeySet>,
-    ) -> Result<BackupRecord> {
+    ) -> Result<Self> { // Changed BackupRecord to Self
         let path_ref = path.as_ref();
         let file = File::open(path_ref)?;
         let mut reader = BufReader::new(file);
@@ -1597,16 +1665,16 @@ impl BackupRecord {
         Self::from_reader_with_encryption(&mut reader, keyset)
     }
 
-    /// Load a BackupRecord from a reader
+    /// Load a GenericBackupRecord from a reader
     pub fn from_reader<R: BufRead>(reader: R) -> Result<Self> {
         Self::from_reader_with_encryption(reader, None)
     }
 
-    /// Load BackupRecord from reader, optionally decrypting if needed
+    /// Load GenericBackupRecord from reader, optionally decrypting if needed
     pub fn from_reader_with_encryption<R: BufRead>(
         mut reader: R,
         keyset: Option<&EncryptedKeySet>,
-    ) -> Result<BackupRecord> {
+    ) -> Result<Self> { // Changed BackupRecord to Self
         let data = if let Some(keyset) = keyset {
             // Check if this is an encrypted file by peeking at the header
             let mut header = [0u8; 4];
@@ -1944,37 +2012,55 @@ impl Node {
 impl BackupSet {
     /// Find real blob locations for files in the backup records
     /// This can be used when binary parsing produces fake blob paths
-    pub fn find_all_blob_locations(&self) -> Vec<&BlobLoc> {
+    pub fn find_all_blob_locations(&self) -> Vec<BlobLoc> { // Changed to return owned BlobLocs
         let mut blob_locations = Vec::new();
 
-        for (_, records) in &self.backup_records {
-            // Iterate correctly through the HashMap
-            for record in records {
-                collect_blob_locations_from_node(&record.node, &mut blob_locations);
-                // Correct logic
+        for (_, records_vec) in &self.backup_records {
+            for generic_record in records_vec {
+                match generic_record {
+                    GenericBackupRecord::Arq7(record) => {
+                        collect_blob_locations_from_node(&record.node, &mut blob_locations);
+                    }
+                    GenericBackupRecord::Arq5(record) => {
+                        if let Some(key) = &record.arq5_tree_blob_key {
+                            // Convert Arq5TreeBlobKey to BlobLoc. This is an approximation.
+                            blob_locations.push(BlobLoc {
+                                blob_identifier: key.sha1.clone(),
+                                compression_type: key.compression_type,
+                                is_packed: false, // Assumption for Arq5TreeBlobKey
+                                length: key.archive_size,
+                                offset: 0,        // Assumption for Arq5TreeBlobKey
+                                relative_path: format!("arq5_migrated_tree_blob/{}", key.sha1), // Placeholder path
+                                stretch_encryption_key: key.stretch_encryption_key,
+                                is_large_pack: None, // Arq5 might not have this concept
+                            });
+                        }
+                        // backupRecordErrors in Arq5 might list problematic files, but these are not primary data blobs.
+                        // arq5BucketXML parsing is out of scope.
+                    }
+                }
             }
         }
-
         blob_locations
     }
 }
 
-/// Recursively collect blob locations from a node tree
-fn collect_blob_locations_from_node<'a>(node: &'a Node, blob_locations: &mut Vec<&'a BlobLoc>) {
+/// Recursively collect blob locations from a node tree (used for Arq7 records)
+fn collect_blob_locations_from_node(node: &Node, blob_locations: &mut Vec<BlobLoc>) { // Changed to Vec<BlobLoc>
     // Add data blob locations from this node
     for blob_loc in &node.data_blob_locs {
-        blob_locations.push(blob_loc);
+        blob_locations.push(blob_loc.clone()); // Clone to own
     }
 
     // Add tree blob location if present
     if let Some(tree_blob_loc) = &node.tree_blob_loc {
-        blob_locations.push(tree_blob_loc);
+        blob_locations.push(tree_blob_loc.clone()); // Clone to own
     }
 
     // Add xattrs blob locations if present
     if let Some(xattrs_blob_locs) = &node.xattrs_blob_locs {
         for blob_loc in xattrs_blob_locs {
-            blob_locations.push(blob_loc);
+            blob_locations.push(blob_loc.clone()); // Clone to own
         }
     }
 }
@@ -2024,7 +2110,7 @@ mod tests {
                 .backup_records
                 .get("29F6E502-2737-4417-8023-4940D61BA375")
             {
-                if let Some(record) = records.first() {
+                if let Some(GenericBackupRecord::Arq7(record)) = records.first() { // Match on Arq7 variant
                     // Try to load the tree referenced by the root node
                     match record.node.load_tree(backup_set_dir) {
                         Ok(Some(_tree)) => {
@@ -2036,6 +2122,10 @@ mod tests {
                             println!("Tree loading failed (expected if pack files don't exist)");
                         }
                     }
+                } else if let Some(GenericBackupRecord::Arq5(_record)) = records.first() {
+                    // Arq5 records don't have a direct .node field in this test's context for tree loading.
+                    // This test is primarily for Arq7 tree loading.
+                    println!("Skipping Arq5 record for binary tree loading test.");
                 }
             }
         }
@@ -2095,49 +2185,55 @@ mod tests {
 
     #[test]
     fn test_backup_record_parsing() {
-        // Test that backup records can be parsed from the test data
+        // Test that Arq7 native backup records (version 100) can be parsed from test data
+        // This test uses a v100 record. The v12 (Arq5 migrated) records are tested elsewhere.
         let record_path = std::path::Path::new("tests/arq_storage_location/FD5575D9-B7E1-43D9-B29C-B54ACC9BC2A9/backupfolders/29F6E502-2737-4417-8023-4940D61BA375/backuprecords/00173/6107191.backuprecord");
 
         if record_path.exists() {
-            let record = BackupRecord::from_file(record_path).unwrap();
+            let generic_record = GenericBackupRecord::from_file(record_path).unwrap();
 
-            // Verify basic record structure
-            assert_eq!(
-                record.backup_folder_uuid,
-                "29F6E502-2737-4417-8023-4940D61BA375"
-            );
-            assert_eq!(
-                record.backup_plan_uuid,
-                "FD5575D9-B7E1-43D9-B29C-B54ACC9BC2A9"
-            );
-            assert_eq!(record.disk_identifier, "ROOT");
-            assert_eq!(record.storage_class, "STANDARD");
-            assert_eq!(record.version, 100);
-            assert!(!record.copied_from_commit);
-            assert!(!record.copied_from_snapshot);
-            // assert!(record.backup_record_errors.is_empty()); // Original line causing error
-            assert!(record.backup_record_errors.as_ref().map_or(true, |v| v.is_empty())); // Corrected line
+            match generic_record {
+                GenericBackupRecord::Arq7(record) => {
+                    // Verify basic record structure for Arq7BackupRecord
+                    assert_eq!(
+                        record.backup_folder_uuid,
+                        "29F6E502-2737-4417-8023-4940D61BA375"
+                    );
+                    assert_eq!(
+                        record.backup_plan_uuid,
+                        "FD5575D9-B7E1-43D9-B29C-B54ACC9BC2A9"
+                    );
+                    assert_eq!(record.disk_identifier, "ROOT"); // Field specific to Arq7BackupRecord
+                    assert_eq!(record.storage_class, "STANDARD");
+                    assert_eq!(record.version, 100); // Expecting version 100 for Arq7 native
+                    assert!(!record.copied_from_commit);
+                    assert!(!record.copied_from_snapshot);
 
-            // Check creation_date (will be None if not present, or Some(value) if present)
-            // This doesn't specifically test float parsing unless the test file has it.
-            let _ = record.creation_date;
+                    // Check backupRecordErrors (should be Some([]) or None for this file)
+                    assert!(record.backup_record_errors.as_ref().map_or(true, |v| v.is_empty()));
 
-            // Verify node structure
-            assert!(record.node.is_tree);
-            assert_eq!(record.node.computer_os_type, 1);
-            assert!(!record.node.deleted);
-            assert!(record.node.tree_blob_loc.is_some());
+                    let _ = record.creation_date; // Check it exists
 
-            // Verify arq version if present
-            if let Some(arq_version) = &record.arq_version {
-                assert!(arq_version.starts_with("7."));
+                    // Verify node structure
+                    assert!(record.node.is_tree);
+                    assert_eq!(record.node.computer_os_type, 1);
+                    assert!(!record.node.deleted);
+                    assert!(record.node.tree_blob_loc.is_some());
+
+                    // Verify arq version if present
+                    if let Some(arq_version) = &record.arq_version {
+                        assert!(arq_version.starts_with("7."));
+                    }
+
+                    // Arq7 specific fields should not be present in Arq5BackupRecord, so this checks we got an Arq7
+                    assert!(record.backup_plan_json.is_some());
+                }
+                GenericBackupRecord::Arq5(_) => {
+                    panic!("Parsed Arq7 native record as Arq5BackupRecord. File: {:?}", record_path);
+                }
             }
-
-            // Check that backup_record_errors can be empty or None
-            // If it's Some, it should be empty for this specific test file,
-            // as the original test file's record did not have errors.
-            // If it's None, that's also acceptable with the new structure.
-            assert!(record.backup_record_errors.as_ref().map_or(true, |v| v.is_empty()));
+        }  else {
+            eprintln!("Warning: Test file not found, skipping test_backup_record_parsing: {:?}", record_path);
         }
     }
 }
