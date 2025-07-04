@@ -1,0 +1,23 @@
+[package]
+name = "evu"
+version = "0.1.0"
+authors = ["Norberto Lopes <nlopes.ml@gmail.com>"]
+edition = "2024"
+
+[[bin]]
+name = "evu"
+doc = false
+
+[dependencies]
+arq = { path = "../arq" }
+clap = "~2.34"
+rpassword = "7.0"
+ring = "0.17"
+chrono = { version = "0.4", default-features = false, features = ["alloc"] }
+filetime = "0.2" # Added filetime
+
+[dev-dependencies]
+assert_cmd = "2.0"
+predicates = "3.0"
+tempfile = "3.3"
+serde_json = "1.0" # Added for temp test
