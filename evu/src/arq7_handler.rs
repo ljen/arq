@@ -330,7 +330,7 @@ pub fn list_file_versions(
     }
 
     if found_versions == 0 {
-        println!("No Arq7 versions found for this file.");
+        println!("No Arq7 versions found for this folder."); // Changed message
     }
     Ok(())
 }
@@ -356,13 +356,19 @@ pub fn list_folder_versions(
             match gen_record {
                 arq::arq7::GenericBackupRecord::Arq7(record) => {
                     let record_local_path_str = record.local_path.as_deref().unwrap_or("");
+                    // bf_config_local_path_str is used for debug printing only
                     let bf_config_local_path_str = backup_set
                         .backup_folder_configs
                         .get(folder_uuid)
                         .map_or("", |c| &c.local_path);
                     let mut effective_path_parts = path_parts.clone();
 
-                    // Path adjustment logic (remains largely the same)
+                    eprintln!(
+                        "DEBUG list_folder_versions: Folder: '{}', Record LocalPath: '{}', BFConfig LocalPath: '{}'",
+                        folder_path_in_backup, record_local_path_str, bf_config_local_path_str
+                    );
+
+                    // Path adjustment logic
                     if folder_path_in_backup == "/" || folder_path_in_backup.is_empty() {
                         effective_path_parts = Vec::new();
                     } else if !record_local_path_str.is_empty()
@@ -382,44 +388,82 @@ pub fn list_folder_versions(
                         {
                             effective_path_parts = Vec::new();
                         }
+                    } else if record_local_path_str.is_empty()
+                        && backup_set.backup_folder_configs.get(folder_uuid).is_some()
+                    {
+                        if let Some(bf_config) = backup_set.backup_folder_configs.get(folder_uuid) {
+                            if folder_path_in_backup.starts_with(&bf_config.local_path) {
+                                let relative_folder_path = folder_path_in_backup
+                                    .strip_prefix(&bf_config.local_path)
+                                    .unwrap_or(folder_path_in_backup);
+                                let relative_folder_path_trimmed =
+                                    relative_folder_path.trim_start_matches('/');
+                                effective_path_parts = relative_folder_path_trimmed
+                                    .split('/')
+                                    .filter(|s| !s.is_empty())
+                                    .collect();
+                                if relative_folder_path_trimmed.is_empty()
+                                    && !relative_folder_path.is_empty()
+                                    && folder_path_in_backup != "/"
+                                {
+                                     effective_path_parts = Vec::new();
+                                }
+                            }
+                        }
+                    }
+                    // End of path adjustment logic
+
+                    match find_node_in_record_tree(
+                        &record.node, // This is arq::arq7::Node from Arq7BackupRecord
+                        &effective_path_parts,
+                        0,
+                        backup_set_path,
+                        keyset,
+                    ) {
+                        Ok(Some(node)) if node.is_tree => {
+                            let timestamp_str = record.creation_date.map_or_else(
+                                || "Unknown Timestamp".to_string(),
+                                |ts_f64| { // Use ts_f64 for Arq7 f64 timestamp
+                                    chrono::DateTime::from_timestamp(ts_f64 as i64, (ts_f64.fract() * 1_000_000_000.0) as u32)
+                                        .unwrap()
+                                        .format("%Y-%m-%d %H:%M:%S UTC")
+                                        .to_string()
+                                },
+                            );
+                            println!(
+                                "  - Record Timestamp: {} (Arq7, Raw: {:?}), Items: ~{}, Modified: {}",
+                                timestamp_str,
+                                record.creation_date.unwrap_or(0.0), // Use 0.0 for f64
+                                node.contained_files_count.unwrap_or(0),
+                                chrono::DateTime::from_timestamp(node.modification_time_sec, 0)
+                                    .unwrap()
+                                    .format("%Y-%m-%d %H:%M:%S")
+                            );
+                            found_versions += 1;
+                        }
+                        Ok(Some(_node)) => {}
+                        Ok(None) => {}
+                        Err(e) => {
+                            eprintln!(
+                                "Warning: Error processing Arq7 record {:?}: {}",
+                                record.creation_date, e
+                            );
+                        }
                     }
                 }
-            }
-
-            match find_node_in_record_tree(
-                &record.node,
-                &effective_path_parts,
-                0,
-                backup_set_path,
-                keyset,
-            ) {
-                Ok(Some(node)) if node.is_tree => {
+                arq::arq7::GenericBackupRecord::Arq5(record) => {
                     let timestamp_str = record.creation_date.map_or_else(
                         || "Unknown Timestamp".to_string(),
-                        |ts| {
-                            chrono::DateTime::from_timestamp(ts as i64 / 1000, 0)
+                        |ts_f64| {
+                            chrono::DateTime::from_timestamp(ts_f64 as i64, (ts_f64.fract() * 1_000_000_000.0) as u32)
                                 .unwrap()
                                 .format("%Y-%m-%d %H:%M:%S UTC")
                                 .to_string()
                         },
                     );
-                    println!(
-                        "  - Record Timestamp: {} (Raw: {:?}), Items: ~{}, Modified: {}",
-                        timestamp_str,
-                        record.creation_date.unwrap_or(0),
-                        node.contained_files_count.unwrap_or(0),
-                        chrono::DateTime::from_timestamp(node.modification_time_sec, 0)
-                            .unwrap()
-                            .format("%Y-%m-%d %H:%M:%S")
-                    );
-                    found_versions += 1;
-                }
-                Ok(Some(_node)) => {}
-                Ok(None) => {}
-                Err(e) => {
                     eprintln!(
-                        "Warning: Error processing record {:?}: {}",
-                        record.creation_date, e
+                        "DEBUG list_folder_versions: Skipping Arq5 record (Timestamp: {}) for detailed version listing.",
+                        timestamp_str
                     );
                 }
             }
