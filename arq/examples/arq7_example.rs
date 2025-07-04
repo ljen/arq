@@ -11,7 +11,8 @@ use std::path::Path;
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Path to an Arq 7 backup set directory
     let backup_set_path = "./tests/arq_storage_location/D1154AC6-01EB-41FE-B115-114464350B92";
-    //let backup_set_path = "tests/arq_storage_location/2E7BB0B6-BE5B-4A86-9E51-10FE730E1104";
+    //let backup_set_path = "./tests/exos/A26237FB-0F74-4383-A86C-8A5BFD4E295B";
+    let backup_passowrd = "asdfasdf1234";
 
     println!("🔍 Loading Arq 7 backup set from: {}", backup_set_path);
     println!("{}", "=".repeat(60));
@@ -24,9 +25,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
 
     let keyset_path = format!("{}/encryptedkeyset.dat", backup_set_path);
-    let keyset = EncryptedKeySet::from_file(keyset_path, "asdfasdf1234")?;
+    let keyset = EncryptedKeySet::from_file(keyset_path, backup_passowrd)?;
     // Load the complete backup set
-    match BackupSet::from_directory_with_password(backup_set_path, Some("asdfasdf1234")) {
+    match BackupSet::from_directory_with_password(backup_set_path, Some(backup_passowrd)) {
         // match BackupSet::from_directory(backup_set_path) {
         Ok(backup_set) => {
             print_backup_config(&backup_set);
@@ -156,17 +157,23 @@ fn print_backup_records(backup_set: &BackupSet) {
                     println!("    Copied from Commit: {}", record.copied_from_commit);
                     println!("    Copied from Snapshot: {}", record.copied_from_snapshot);
                     println!("    Disk Identifier: {}", record.disk_identifier);
-                    if let Some(vn) = &record.volume_name { println!("    Volume Name: {}", vn); }
+                    if let Some(vn) = &record.volume_name {
+                        println!("    Volume Name: {}", vn);
+                    }
 
                     if let Some(arq_version) = &record.arq_version {
                         println!("    Arq Version: {}", arq_version);
                     }
                     if let Some(creation_date) = record.creation_date {
-                        let dt = chrono::DateTime::from_timestamp(creation_date as i64, 0).unwrap_or_default();
+                        let dt = chrono::DateTime::from_timestamp(creation_date as i64, 0)
+                            .unwrap_or_default();
                         println!("    Creation Date: {}", dt.format("%Y-%m-%d %H:%M:%S UTC"));
                     }
                     if let Some(bpj) = &record.backup_plan_json {
-                         println!("    Backup Plan JSON: Present (Plan UUID: {})", bpj.plan_uuid);
+                        println!(
+                            "    Backup Plan JSON: Present (Plan UUID: {})",
+                            bpj.plan_uuid
+                        );
                     }
 
                     // Print node information
@@ -181,24 +188,38 @@ fn print_backup_records(backup_set: &BackupSet) {
                     if record.node.tree_blob_loc.is_some() {
                         println!("      Has Tree Blob Location: Yes");
                     }
-                    println!("      Data Blob Locations: {}", record.node.data_blob_locs.len());
+                    println!(
+                        "      Data Blob Locations: {}",
+                        record.node.data_blob_locs.len()
+                    );
                 }
                 arq::arq7::GenericBackupRecord::Arq5(record) => {
                     println!("  Record #{} (Arq5 Migrated): v{}", i + 1, record.version);
                     println!("    Storage Class: {}", record.storage_class);
                     println!("    Copied from Commit: {}", record.copied_from_commit);
                     println!("    Copied from Snapshot: {}", record.copied_from_snapshot);
-                    if let Some(av) = &record.arq_version { println!("    Arq Version (Original): {}", av); }
+                    if let Some(av) = &record.arq_version {
+                        println!("    Arq Version (Original): {}", av);
+                    }
                     if let Some(cd) = record.creation_date {
                         let dt = chrono::DateTime::from_timestamp(cd as i64, 0).unwrap_or_default();
                         println!("    Creation Date: {}", dt.format("%Y-%m-%d %H:%M:%S UTC"));
                     }
-                    if record.arq5_bucket_xml.is_some() { println!("    Arq5 Bucket XML: Present"); }
-                    if record.arq5_tree_blob_key.is_some() { println!("    Arq5 Tree Blob Key: Present"); }
+                    if record.arq5_bucket_xml.is_some() {
+                        println!("    Arq5 Bucket XML: Present");
+                    }
+                    if record.arq5_tree_blob_key.is_some() {
+                        println!("    Arq5 Tree Blob Key: Present");
+                    }
                     if let Some(errors) = &record.backup_record_errors {
                         println!("    Backup Record Errors: {} errors", errors.len());
-                         for err_detail in errors.iter().take(2) { // Print details of first 2 errors
-                            println!("      - {}: {}", err_detail.local_path, err_detail.error_message.lines().next().unwrap_or(""));
+                        for err_detail in errors.iter().take(2) {
+                            // Print details of first 2 errors
+                            println!(
+                                "      - {}: {}",
+                                err_detail.local_path,
+                                err_detail.error_message.lines().next().unwrap_or("")
+                            );
                         }
                     } else {
                         println!("    Backup Record Errors: None");
@@ -229,7 +250,10 @@ fn print_backup_statistics(backup_set: &BackupSet) {
     }
 
     println!("Total Folders (in backup plan): {}", total_folders);
-    println!("Total Backup Records: {} (Arq7: {}, Arq5: {})", total_records_count, total_arq7_records, total_arq5_records);
+    println!(
+        "Total Backup Records: {} (Arq7: {}, Arq5: {})",
+        total_records_count, total_arq7_records, total_arq5_records
+    );
 
     let mut total_size_arq7 = 0u64; // Corrected variable name
     let mut total_files_arq7 = 0u64; // Corrected variable name
@@ -267,7 +291,8 @@ fn list_all_files(backup_set: &BackupSet, backup_set_path: &str) {
     println!("\n📁 Complete File Listing (from Arq7 Records)"); // Clarified title
     println!("{}", "=".repeat(60));
 
-    for (folder_uuid, generic_records) in &backup_set.backup_records { // Renamed records
+    for (folder_uuid, generic_records) in &backup_set.backup_records {
+        // Renamed records
         println!("\n📂 Folder: {}", folder_uuid);
         let folder_config = backup_set.backup_folder_configs.get(folder_uuid);
         if let Some(config) = folder_config {
@@ -279,9 +304,14 @@ fn list_all_files(backup_set: &BackupSet, backup_set_path: &str) {
         for (record_idx, generic_record) in generic_records.iter().enumerate() {
             match generic_record {
                 arq::arq7::GenericBackupRecord::Arq7(record) => {
-                    println!("\n  🕐 Backup Record #{} (Arq7 v{})", record_idx + 1, record.version);
+                    println!(
+                        "\n  🕐 Backup Record #{} (Arq7 v{})",
+                        record_idx + 1,
+                        record.version
+                    );
                     if let Some(creation_date) = record.creation_date {
-                        let dt = chrono::DateTime::from_timestamp(creation_date as i64, 0).unwrap_or_default();
+                        let dt = chrono::DateTime::from_timestamp(creation_date as i64, 0)
+                            .unwrap_or_default();
                         println!("     Date: {}", dt.format("%Y-%m-%d %H:%M:%S UTC"));
                     }
                     if let Some(arq_version) = &record.arq_version {
@@ -313,9 +343,14 @@ fn list_all_files(backup_set: &BackupSet, backup_set_path: &str) {
                     }
                 }
                 arq::arq7::GenericBackupRecord::Arq5(record) => {
-                    println!("\n  🕐 Backup Record #{} (Arq5 v{})", record_idx + 1, record.version);
-                     if let Some(creation_date) = record.creation_date {
-                        let dt = chrono::DateTime::from_timestamp(creation_date as i64, 0).unwrap_or_default();
+                    println!(
+                        "\n  🕐 Backup Record #{} (Arq5 v{})",
+                        record_idx + 1,
+                        record.version
+                    );
+                    if let Some(creation_date) = record.creation_date {
+                        let dt = chrono::DateTime::from_timestamp(creation_date as i64, 0)
+                            .unwrap_or_default();
                         println!("     Date: {}", dt.format("%Y-%m-%d %H:%M:%S UTC"));
                     }
                     if let Some(arq_version) = &record.arq_version {
@@ -364,15 +399,17 @@ fn demonstrate_content_extraction(
             println!(
                 "\n   🕐 Backup Record #{} ({})",
                 record_idx + 1,
-                chrono::DateTime::from_timestamp(
-                    creation_date_opt.unwrap_or(0.0) as i64,
-                    0
-                )
-                .map(|dt| dt.format("%Y-%m-%d %H:%M:%S").to_string())
-                .unwrap_or_else(|| "unknown time".to_string())
+                chrono::DateTime::from_timestamp(creation_date_opt.unwrap_or(0.0) as i64, 0)
+                    .map(|dt| dt.format("%Y-%m-%d %H:%M:%S").to_string())
+                    .unwrap_or_else(|| "unknown time".to_string())
             );
 
-            let record_dir = format!("{}/{}_record_{}", extraction_root, folder_name, record_idx + 1);
+            let record_dir = format!(
+                "{}/{}_record_{}",
+                extraction_root,
+                folder_name,
+                record_idx + 1
+            );
             if let Err(e) = std::fs::create_dir_all(&record_dir) {
                 println!("      ❌ Failed to create record directory: {}", e);
                 total_errors += 1;
@@ -459,10 +496,14 @@ fn extract_backup_record(
                 record.version, record.backup_folder_uuid
             );
             if let Some(xml_data) = &record.arq5_bucket_xml {
-                let file_path = output_dir.join(format!("{}_arq5Bucket.xml", record.backup_folder_uuid));
+                let file_path =
+                    output_dir.join(format!("{}_arq5Bucket.xml", record.backup_folder_uuid));
                 match std::fs::write(&file_path, xml_data) {
                     Ok(_) => {
-                        println!("        📄 Extracted arq5BucketXML to: {}", file_path.display());
+                        println!(
+                            "        📄 Extracted arq5BucketXML to: {}",
+                            file_path.display()
+                        );
                         stats.files_restored += 1;
                         stats.bytes_restored += xml_data.len() as u64;
                     }
@@ -493,7 +534,8 @@ fn extract_tree_node(
     let full_output_path_obj = Path::new(&full_output_path); // Use a different name to avoid conflict
 
     if !relative_path.is_empty() {
-        if let Err(e) = std::fs::create_dir_all(&full_output_path_obj) { // Use renamed variable
+        if let Err(e) = std::fs::create_dir_all(&full_output_path_obj) {
+            // Use renamed variable
             println!(
                 "         ❌ Failed to create directory {}: {}",
                 relative_path, e
@@ -509,10 +551,12 @@ fn extract_tree_node(
     //     EncryptedKeySet::from_file(backup_set_path.join("encryptedkeyset.dat"), "asdfasdf1234")
     //         .unwrap();
     // let keyset = Some(&tmp); // keyset is passed in, no need to reload here
-    match node.load_tree_with_encryption(backup_set_path, keyset) { // Pass original keyset
+    match node.load_tree_with_encryption(backup_set_path, keyset) {
+        // Pass original keyset
         Ok(Some(tree)) => {
             // ... (rest of the function is mostly okay, but nested loop was an error)
-             for (child_name, child_node_ref) in &tree.child_nodes { // Iterate over tree.child_nodes
+            for (child_name, child_node_ref) in &tree.child_nodes {
+                // Iterate over tree.child_nodes
                 let child_path = if relative_path.is_empty() {
                     child_name.clone()
                 } else {
@@ -524,7 +568,7 @@ fn extract_tree_node(
                         child_node_ref,
                         backup_set_path,
                         &full_output_path_obj, // Children are extracted into this node's directory
-                        child_name, // Child's name is its relative path from this node
+                        child_name,            // Child's name is its relative path from this node
                         stats,
                         keyset,
                     );
@@ -575,7 +619,8 @@ fn extract_file_node(
         .iter()
         .any(|blob| !blob.relative_path.contains("unknown") && !blob.relative_path.is_empty());
 
-    if has_real_blobs || !node.data_blob_locs.is_empty() { // Try even if paths seem like placeholders
+    if has_real_blobs || !node.data_blob_locs.is_empty() {
+        // Try even if paths seem like placeholders
         match node.reconstruct_file_data_with_encryption(backup_set_path, keyset) {
             Ok(content) => {
                 if let Err(_e) = std::fs::write(&output_file_path, &content) {
@@ -589,7 +634,8 @@ fn extract_file_node(
                 stats.errors += 1;
             }
         }
-    } else if node.item_size == 0 { // item_size is a u64
+    } else if node.item_size == 0 {
+        // item_size is a u64
         if let Err(_e) = std::fs::write(&output_file_path, b"") {
             stats.errors += 1;
         } else {
@@ -609,7 +655,7 @@ fn extract_file_node(
 fn extract_using_json_fallback(
     node: &arq::arq7::Node,
     backup_set_path: &Path,
-    output_dir: &Path, // Changed to &Path
+    output_dir: &Path,    // Changed to &Path
     _relative_path: &str, // relative_path is not used here.
     stats: &mut ExtractionStats,
     keyset: Option<&EncryptedKeySet>,
@@ -626,13 +672,15 @@ fn extract_using_json_fallback(
     }
 }
 
-fn set_file_metadata(file_path: &Path, node: &arq::arq7::Node) { // Changed to &Path
+fn set_file_metadata(file_path: &Path, node: &arq::arq7::Node) {
+    // Changed to &Path
     if node.modification_time_sec > 0 {
         use std::time::UNIX_EPOCH;
-        if let Some(mtime) =
-            UNIX_EPOCH.checked_add(std::time::Duration::from_secs(node.modification_time_sec as u64))
-        {
-            let _ = filetime::set_file_mtime(file_path, filetime::FileTime::from_system_time(mtime));
+        if let Some(mtime) = UNIX_EPOCH.checked_add(std::time::Duration::from_secs(
+            node.modification_time_sec as u64,
+        )) {
+            let _ =
+                filetime::set_file_mtime(file_path, filetime::FileTime::from_system_time(mtime));
         }
     }
 }
@@ -662,17 +710,18 @@ fn list_files_recursive(
     // let keyset =
     //     EncryptedKeySet::from_file(backup_set_path.join("encryptedkeyset.dat"), "asdfasdf1234")
     //         .unwrap(); // This reload is inefficient and risky if password changes or file missing.
-                        // It's better to pass keyset down if needed by load_tree_with_encryption.
-                        // For now, assuming the global keyset passed to list_all_files is implicitly used by load_tree.
+    // It's better to pass keyset down if needed by load_tree_with_encryption.
+    // For now, assuming the global keyset passed to list_all_files is implicitly used by load_tree.
 
     if node.is_tree {
         println!("{}📁 {}/", indent, path_display);
         stats.total_directories += 1;
 
-        match node.load_tree_with_encryption(backup_set_path, None) { // Assuming global keyset if used by load_tree
+        match node.load_tree_with_encryption(backup_set_path, None) {
+            // Assuming global keyset if used by load_tree
             Ok(Some(tree)) => {
                 // ... (rest of the function)
-                 for (child_name, child_node_ref) in &tree.child_nodes {
+                for (child_name, child_node_ref) in &tree.child_nodes {
                     let child_path = if current_path.is_empty() {
                         format!("/{}/{}", folder_name, child_name)
                     } else {
@@ -720,8 +769,12 @@ fn show_file_details(node: &arq::arq7::Node, indent: &str) {
 
 fn get_file_icon(path: &str) -> &'static str {
     // ...
-    let extension = Path::new(path).extension().and_then(std::ffi::OsStr::to_str).unwrap_or("").to_lowercase();
-     match extension.as_str() {
+    let extension = Path::new(path)
+        .extension()
+        .and_then(std::ffi::OsStr::to_str)
+        .unwrap_or("")
+        .to_lowercase();
+    match extension.as_str() {
         "txt" | "md" | "readme" => "📝",
         "rs" | "py" | "js" | "ts" | "c" | "cpp" | "h" | "java" | "swift" | "kt" => "💻",
         "json" | "xml" | "yaml" | "yml" | "toml" | "plist" => "⚙️",
