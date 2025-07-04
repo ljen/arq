@@ -1,0 +1,20 @@
+{
+  "standardObjectDirs" : [
+    "\/2E7BB0B6-BE5B-4A86-9E51-10FE730E1104\/standardobjects"
+  ],
+  "standardIAObjectDirs" : [
+    "\/2E7BB0B6-BE5B-4A86-9E51-10FE730E1104\/standardiaobjects"
+  ],
+  "s3GlacierObjectDirs" : [
+    "\/2E7BB0B6-BE5B-4A86-9E51-10FE730E1104\/s3glacierobjects"
+  ],
+  "onezoneIAObjectDirs" : [
+    "\/2E7BB0B6-BE5B-4A86-9E51-10FE730E1104\/onezoneiaobjects"
+  ],
+  "s3DeepArchiveObjectDirs" : [
+    "\/2E7BB0B6-BE5B-4A86-9E51-10FE730E1104\/s3deeparchiveobjects"
+  ],
+  "s3GlacierIRObjectDirs" : [
+    "\/2E7BB0B6-BE5B-4A86-9E51-10FE730E1104\/s3glacierirobjects"
+  ]
+}
