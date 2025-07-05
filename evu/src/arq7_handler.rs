@@ -817,120 +817,120 @@ pub fn restore_all_folder_versions(
         .collect();
     let mut versions_restored_count = 0;
 
-    for (folder_uuid, records) in &backup_set.backup_records {
-        for record in records {
-            let record_local_path_str = record.local_path.as_deref().unwrap_or("");
-            let mut effective_path_parts = path_parts.clone();
+    // for (folder_uuid, records) in &backup_set.backup_records {
+    //     for record in records {
+    //         let record_local_path_str = record.local_path.as_deref().unwrap_or("");
+    //         let mut effective_path_parts: Vec<&str> = path_parts.clone();
 
-            if folder_path_in_backup == "/" || folder_path_in_backup.is_empty() {
-                effective_path_parts = Vec::new();
-            } else if !record_local_path_str.is_empty()
-                && folder_path_in_backup.starts_with(record_local_path_str)
-            {
-                let relative_path = folder_path_in_backup
-                    .strip_prefix(record_local_path_str)
-                    .unwrap_or(folder_path_in_backup);
-                let trimmed_relative_path = relative_path.trim_start_matches('/');
-                effective_path_parts = trimmed_relative_path
-                    .split('/')
-                    .filter(|s| !s.is_empty())
-                    .collect();
-                if trimmed_relative_path.is_empty()
-                    && !relative_path.is_empty()
-                    && folder_path_in_backup != "/"
-                {
-                    effective_path_parts = Vec::new();
-                }
-            } else if record_local_path_str.is_empty() {
-                if let Some(bf_config) = backup_set.backup_folder_configs.get(folder_uuid) {
-                    if folder_path_in_backup.starts_with(&bf_config.local_path) {
-                        let relative_path = folder_path_in_backup
-                            .strip_prefix(&bf_config.local_path)
-                            .unwrap_or(folder_path_in_backup);
-                        let trimmed_relative_path = relative_path.trim_start_matches('/');
-                        effective_path_parts = trimmed_relative_path
-                            .split('/')
-                            .filter(|s| !s.is_empty())
-                            .collect();
-                        if trimmed_relative_path.is_empty()
-                            && !relative_path.is_empty()
-                            && folder_path_in_backup != "/"
-                        {
-                            effective_path_parts = Vec::new();
-                        }
-                    }
-                }
-            }
+    //         if folder_path_in_backup == "/" || folder_path_in_backup.is_empty() {
+    //             effective_path_parts = Vec::new();
+    //         } else if !record_local_path_str.is_empty()
+    //             && folder_path_in_backup.starts_with(record_local_path_str)
+    //         {
+    //             let relative_path = folder_path_in_backup
+    //                 .strip_prefix(record_local_path_str)
+    //                 .unwrap_or(folder_path_in_backup);
+    //             let trimmed_relative_path = relative_path.trim_start_matches('/');
+    //             effective_path_parts = trimmed_relative_path
+    //                 .split('/')
+    //                 .filter(|s| !s.is_empty())
+    //                 .collect();
+    //             if trimmed_relative_path.is_empty()
+    //                 && !relative_path.is_empty()
+    //                 && folder_path_in_backup != "/"
+    //             {
+    //                 effective_path_parts = Vec::new();
+    //             }
+    //         } else if record_local_path_str.is_empty() {
+    //             if let Some(bf_config) = backup_set.backup_folder_configs.get(folder_uuid) {
+    //                 if folder_path_in_backup.starts_with(&bf_config.local_path) {
+    //                     let relative_path = folder_path_in_backup
+    //                         .strip_prefix(&bf_config.local_path)
+    //                         .unwrap_or(folder_path_in_backup);
+    //                     let trimmed_relative_path = relative_path.trim_start_matches('/');
+    //                     effective_path_parts = trimmed_relative_path
+    //                         .split('/')
+    //                         .filter(|s| !s.is_empty())
+    //                         .collect();
+    //                     if trimmed_relative_path.is_empty()
+    //                         && !relative_path.is_empty()
+    //                         && folder_path_in_backup != "/"
+    //                     {
+    //                         effective_path_parts = Vec::new();
+    //                     }
+    //                 }
+    //             }
+    //         }
 
-            if let Ok(Some(target_node)) = find_node_in_record_tree(
-                &record.node,
-                &effective_path_parts,
-                0,
-                backup_set_path,
-                keyset,
-            ) {
-                if target_node.is_tree {
-                    let timestamp_str = record.creation_date.map_or_else(
-                        || format!("unknown_ts_{}", versions_restored_count),
-                        |ts| {
-                            DateTime::from_timestamp(ts.try_into().unwrap(), 0)
-                                .unwrap()
-                                .to_rfc3339()
-                        },
-                    );
+    //         if let Ok(Some(target_node)) = find_node_in_record_tree(
+    //             &record.node,
+    //             &effective_path_parts,
+    //             0,
+    //             backup_set_path,
+    //             keyset,
+    //         ) {
+    //             if target_node.is_tree {
+    //                 let timestamp_str = record.creation_date.map_or_else(
+    //                     || format!("unknown_ts_{}", versions_restored_count),
+    //                     |ts| {
+    //                         DateTime::from_timestamp(ts.try_into().unwrap(), 0)
+    //                             .unwrap()
+    //                             .to_rfc3339()
+    //                     },
+    //                 );
 
-                    let version_dest_dir_name = format!("{}", timestamp_str);
-                    let version_destination = destination_root.join(version_dest_dir_name);
+    //                 let version_dest_dir_name = format!("{}", timestamp_str);
+    //                 let version_destination = destination_root.join(version_dest_dir_name);
 
-                    let content_dest_dir_name =
-                        effective_path_parts.last().map_or("root_content", |n| *n);
-                    let final_content_destination = version_destination.join(content_dest_dir_name);
+    //                 let content_dest_dir_name =
+    //                     effective_path_parts.last().map_or("root_content", |n| *n);
+    //                 let final_content_destination = version_destination.join(content_dest_dir_name);
 
-                    if !final_content_destination.exists() {
-                        std::fs::create_dir_all(&final_content_destination)?;
-                    }
+    //                 if !final_content_destination.exists() {
+    //                     std::fs::create_dir_all(&final_content_destination)?;
+    //                 }
 
-                    println!(
-                        "  Restoring version from record (Timestamp: {}) to {}...",
-                        timestamp_str,
-                        final_content_destination.display()
-                    );
-                    let mut stats = ExtractionStats::default();
-                    match extract_node_to_destination_recursive(
-                        &target_node,
-                        backup_set_path,
-                        keyset,
-                        &final_content_destination,
-                        "",
-                        &mut stats,
-                    ) {
-                        Ok(_) => {
-                            println!(
-                                "    Successfully restored version. Files: {}, Dirs: {}, Size: {} bytes. Errors: {}",
-                                stats.files_restored,
-                                stats.dirs_created,
-                                stats.bytes_restored,
-                                stats.errors
-                            );
-                            if stats.errors > 0 {
-                                eprintln!(
-                                    "    Warning: {} errors occurred during this version's restoration.",
-                                    stats.errors
-                                );
-                            }
-                            versions_restored_count += 1;
-                        }
-                        Err(e) => {
-                            eprintln!(
-                                "    Error restoring version from record {}: {}",
-                                timestamp_str, e
-                            );
-                        }
-                    }
-                }
-            }
-        }
-    }
+    //                 println!(
+    //                     "  Restoring version from record (Timestamp: {}) to {}...",
+    //                     timestamp_str,
+    //                     final_content_destination.display()
+    //                 );
+    //                 let mut stats = ExtractionStats::default();
+    //                 match extract_node_to_destination_recursive(
+    //                     &target_node,
+    //                     backup_set_path,
+    //                     keyset,
+    //                     &final_content_destination,
+    //                     "",
+    //                     &mut stats,
+    //                 ) {
+    //                     Ok(_) => {
+    //                         println!(
+    //                             "    Successfully restored version. Files: {}, Dirs: {}, Size: {} bytes. Errors: {}",
+    //                             stats.files_restored,
+    //                             stats.dirs_created,
+    //                             stats.bytes_restored,
+    //                             stats.errors
+    //                         );
+    //                         if stats.errors > 0 {
+    //                             eprintln!(
+    //                                 "    Warning: {} errors occurred during this version's restoration.",
+    //                                 stats.errors
+    //                             );
+    //                         }
+    //                         versions_restored_count += 1;
+    //                     }
+    //                     Err(e) => {
+    //                         eprintln!(
+    //                             "    Error restoring version from record {}: {}",
+    //                             timestamp_str, e
+    //                         );
+    //                     }
+    //                 }
+    //             }
+    //         }
+    //     }
+    // }
 
     if versions_restored_count == 0 {
         println!(
