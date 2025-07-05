@@ -6,12 +6,31 @@
 
 use arq::arq7::BackupSet;
 use arq::arq7::EncryptedKeySet;
-use std::path::Path;
+use arq::compression::CompressionType;
+use arq::tree;
+use arq::tree::Tree;
+use std::collections::TryReserveError;
+use std::fs::File;
+use std::io::Cursor;
+use std::io::{BufRead, BufReader, Read, Seek, SeekFrom};
+use std::path::{Path, PathBuf};
+
+pub enum Error {
+    ArqError(arq::error::Error),
+    OsError(std::ffi::OsString),
+    IoError(std::io::Error),
+    OptionError, // Consider removing if not used, or make more specific
+    NotFound(String),
+    Generic(String),       // Added for general errors
+    CliInputError(String), // Added for CLI argument errors
+    Error(String),         // Added for general errors
+    StdIoError(std::io::Error),
+}
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Path to an Arq 7 backup set directory
     let backup_set_path = "./tests/arq_storage_location/D1154AC6-01EB-41FE-B115-114464350B92";
-    //let backup_set_path = "./tests/exos/A26237FB-0F74-4383-A86C-8A5BFD4E295B";
+    // let backup_set_path = "./tests/exos/A26237FB-0F74-4383-A86C-8A5BFD4E295B";
     let backup_passowrd = "asdfasdf1234";
 
     println!("🔍 Loading Arq 7 backup set from: {}", backup_set_path);
@@ -20,11 +39,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Check if the backup set directory exists
     if !Path::new(backup_set_path).exists() {
         println!("❌ Backup set directory not found!");
-        println!("This example requires the test data directory to be present.");
         return Ok(());
     }
 
     let keyset_path = format!("{}/encryptedkeyset.dat", backup_set_path);
+    if !Path::new(&keyset_path).exists() {
+        println!("❌ Keyset files for Arq7 not found!");
+        return Ok(());
+    }
     let keyset = EncryptedKeySet::from_file(keyset_path, backup_passowrd)?;
     // Load the complete backup set
     match BackupSet::from_directory_with_password(backup_set_path, Some(backup_passowrd)) {
@@ -34,7 +56,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             print_backup_plan(&backup_set);
             print_backup_folders_config(&backup_set);
             print_backup_folder_configs(&backup_set);
-            print_backup_records(&backup_set);
+            print_backup_records(&backup_set, backup_set_path);
             print_backup_statistics(&backup_set);
             list_all_files(&backup_set, backup_set_path);
             demonstrate_content_extraction(&backup_set, backup_set_path, Some(&keyset));
@@ -137,13 +159,63 @@ fn print_backup_folder_configs(backup_set: &BackupSet) {
     }
 }
 
-fn print_backup_records(backup_set: &BackupSet) {
+fn get_file_reader(filename: PathBuf) -> BufReader<File> {
+    let file = match File::open(&filename) {
+        Ok(f) => f,
+        Err(err) => panic!(
+            "Could not open file {}: {}",
+            filename.as_path().to_str().unwrap(),
+            err
+        ),
+    };
+    BufReader::new(file)
+}
+
+// TODO: Do this better - don't read all files multiple times
+fn restore_blob_with_sha(path: &PathBuf, sha: &str, master_key: &[u8]) -> Result<Vec<u8>, Error> {
+    for entry in std::fs::read_dir(&path).map_err(Error::IoError)? {
+        let fname = entry
+            .map_err(Error::IoError)?
+            .file_name()
+            .to_str()
+            .unwrap()
+            .to_string();
+        if fname.ends_with(".index") {
+            let index_path = path.join(&fname);
+            let mut reader = get_file_reader(index_path.clone());
+            let index = arq::packset::PackIndex::new(&mut reader).map_err(Error::ArqError)?;
+            for obj in index.objects {
+                if obj.sha1 == sha {
+                    let pack_path = index_path.with_extension("pack");
+                    let mut reader = get_file_reader(pack_path.clone());
+                    let _seeked = reader.seek(SeekFrom::Start(obj.offset as u64));
+                    let pack = arq::packset::PackObject::new(&mut reader);
+                    match pack {
+                        Ok(pack) => {
+                            return Ok(match pack.data.decrypt(&master_key) {
+                                Ok(data) => data,
+                                Err(err) => return Err(Error::ArqError(err)),
+                            });
+                        }
+                        Err(err) => {
+                            return Err(Error::ArqError(err));
+                        }
+                    }
+                }
+            }
+        }
+    }
+    return Err(Error::NotFound("SHA not found".to_string()));
+}
+
+fn print_backup_records(backup_set: &BackupSet, backup_set_path: &str) -> Option<()> {
     println!("\n📝 Backup Records");
     println!("{}", "-".repeat(30));
+    let backup_set_path = Path::new(backup_set_path);
 
     if backup_set.backup_records.is_empty() {
         println!("No backup records found or failed to parse.");
-        return;
+        return None;
     }
 
     for (folder_uuid, generic_records) in &backup_set.backup_records {
@@ -211,23 +283,93 @@ fn print_backup_records(backup_set: &BackupSet) {
                     if record.arq5_tree_blob_key.is_some() {
                         println!("    Arq5 Tree Blob Key: Present");
                     }
-                    if let Some(errors) = &record.backup_record_errors {
-                        println!("    Backup Record Errors: {} errors", errors.len());
-                        for err_detail in errors.iter().take(2) {
-                            // Print details of first 2 errors
+                    let trees_path = backup_set_path
+                        .join("packsets/")
+                        .join(format!("{}-trees", record.backup_folder_uuid));
+                    match record.arq5_tree_blob_key.clone() {
+                        Some(key) => {
+                            let sha = key.sha1.clone();
+                            let data = restore_blob_with_sha(
+                                &trees_path,
+                                &sha,
+                                &backup_set
+                                    .encryption_keyset
+                                    .as_ref()
+                                    .unwrap()
+                                    .encryption_key
+                                    .clone(),
+                            )
+                            .ok()?;
+                            // let commit = tree::Commit::new(Cursor::new(data)).ok()?;
+
+                            // let tree_blob = restore_blob_with_sha(
+                            //     &trees_path,
+                            //     &commit.tree_sha1,
+                            //     &backup_set
+                            //         .encryption_keyset
+                            //         .as_ref()
+                            //         .unwrap()
+                            //         .encryption_key
+                            //         .clone(),
+                            // )
+                            // .ok()?;
+                            let tree =
+                                tree::Tree::new(&data, CompressionType::from(key.compression_type))
+                                    .ok()?;
+
+                            // Print node information
+                            println!("    Root Node:");
+                            println!("      Version: {}", tree.version);
+
+                            let dt = chrono::DateTime::from_timestamp(
+                                tree.mtime_sec,
+                                tree.mtime_nsec as u32,
+                            )
+                            .unwrap_or_default();
                             println!(
-                                "      - {}: {}",
-                                err_detail.local_path,
-                                err_detail.error_message.lines().next().unwrap_or("")
+                                "      Node mtime Date: {}",
+                                dt.format("%Y-%m-%d %H:%M:%S UTC")
                             );
+                            let dt = chrono::DateTime::from_timestamp(
+                                tree.ctime_sec,
+                                tree.create_time_nsec as u32,
+                            )
+                            .unwrap_or_default();
+                            println!(
+                                "      Node ctime Date: {}",
+                                dt.format("%Y-%m-%d %H:%M:%S UTC")
+                            );
+                            println!("      Missing nodes {}", tree.missing_nodes.len());
+                            println!("      Nodes:");
+                            for node in tree.nodes.iter() {
+                                if node.1.is_tree {
+                                    println!("         + 📁{}", node.0);
+                                } else {
+                                    println!("         - 📄{}", node.0);
+                                }
+                            }
+
+                            if let Some(errors) = &record.backup_record_errors {
+                                println!("    Backup Record Errors: {} errors", errors.len());
+                                for err_detail in errors.iter().take(2) {
+                                    // Print details of first 2 errors
+                                    println!(
+                                        "      - {}: {}",
+                                        err_detail.local_path,
+                                        err_detail.error_message.lines().next().unwrap_or("")
+                                    );
+                                }
+                            } else {
+                                println!("    Backup Record Errors: None");
+                            }
                         }
-                    } else {
-                        println!("    Backup Record Errors: None");
+                        None => println!("    Backup Record Errors: None"),
                     }
                 }
             }
         }
     }
+    None
 }
 
 fn print_backup_statistics(backup_set: &BackupSet) {
