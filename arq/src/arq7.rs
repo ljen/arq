@@ -287,30 +287,7 @@ where
     // Load as regular unencrypted file
     let file = File::open(path_ref)?;
     let reader = BufReader::new(file);
-    match serde_json::from_reader(reader) {
-        Ok(data) => Ok(data),
-        Err(err) => {
-            let type_id = TypeId::of::<T>();
-            if type_id == TypeId::of::<BackupFolders>() {
-                Err(Error::ParseError(format!(
-                    "Failed to parse BackupFolders: {}",
-                    err
-                )))
-            } else if type_id == TypeId::of::<BackupPlan>() {
-                Err(Error::ParseError(format!(
-                    "Failed to parse BackupPlan: {}",
-                    err
-                )))
-            } else if type_id == TypeId::of::<BackupConfig>() {
-                Err(Error::ParseError(format!(
-                    "Failed to parse BackupConfig: {}",
-                    err
-                )))
-            } else {
-                Err(Error::ParseError(format!("Parse error: {}", err)))
-            }
-        }
-    }
+    return Ok(serde_json::from_reader(reader)?)
 }
 
 /// BackupConfig represents the backupconfig.json file
