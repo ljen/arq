@@ -94,6 +94,7 @@ use std::collections::HashMap;
 use std::fs::File;
 use std::io::{BufRead, BufReader, Read, Seek, SeekFrom};
 use std::path::Path;
+use std::path::PathBuf;
 
 /// EncryptedKeySet represents the encryptedkeyset.dat file
 ///
@@ -1062,6 +1063,7 @@ pub struct BackupSet {
     pub backup_folder_configs: HashMap<String, BackupFolder>,
     pub backup_records: HashMap<String, Vec<GenericBackupRecord>>, // Changed to GenericBackupRecord
     pub encryption_keyset: Option<EncryptedKeySet>,
+    pub root_path: PathBuf,
 }
 
 #[derive(Debug, Default)]
@@ -1230,6 +1232,7 @@ impl Node {
 impl BackupSet {
     /// Load a complete BackupSet from a directory path
     pub fn from_directory<P: AsRef<std::path::Path>>(path: P) -> Result<Self> {
+        let root_path = PathBuf::from(path.as_ref());
         let path = path.as_ref();
 
         // Load main configuration files
@@ -1274,6 +1277,7 @@ impl BackupSet {
             backup_folder_configs,
             backup_records,
             encryption_keyset: None,
+            root_path,
         })
     }
 
@@ -1282,6 +1286,7 @@ impl BackupSet {
         dir_path: P,
         password: Option<&str>,
     ) -> Result<BackupSet> {
+        let root_path = PathBuf::from(dir_path.as_ref());
         let dir_path = dir_path.as_ref();
 
         // Load backup config first to check if encrypted
@@ -1360,6 +1365,7 @@ impl BackupSet {
             backup_folder_configs,
             backup_records,
             encryption_keyset,
+            root_path,
         })
     }
 
@@ -2673,6 +2679,9 @@ fn test_get_root_directory() {
         vec![GenericBackupRecord::Arq7(arq7_record)],
     );
 
+    // Create a dummy backup_set_dir for the test. It doesn't need to exist.
+    let dummy_backup_set_dir = std::path::PathBuf::from("dummy_backup_set_dir_for_test");
+
     let backup_set = BackupSet {
         backup_config,
         backup_folders,
@@ -2680,10 +2689,8 @@ fn test_get_root_directory() {
         backup_folder_configs: HashMap::new(),
         backup_records,
         encryption_keyset: None,
+        root_path: dummy_backup_set_dir.clone(),
     };
-
-    // Create a dummy backup_set_dir for the test. It doesn't need to exist.
-    let dummy_backup_set_dir = std::path::PathBuf::from("dummy_backup_set_dir_for_test");
 
     // --- Mocking the load_tree_with_encryption behavior ---
     // This is tricky because the actual method involves file system access.
