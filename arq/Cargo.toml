@@ -22,7 +22,7 @@ github = { workflow = "CI", repository = "nlopes/arq" }
 aes = "0.8"
 byteorder = "1.4"
 cbc = "0.1"
-chrono = "0.4"
+chrono = { version = "0.4", features = ["serde"] }
 digest = "0.10"
 hex-literal = "0.4"
 hmac = "0.12"
