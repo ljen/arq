@@ -213,6 +213,79 @@ impl Node {
     }
 }
 
+use std::fs::{self, File};
+use std::io::{Seek, SeekFrom}; // Removed BufReader from here
+use std::path::Path;
+use crate::packset::{PackIndex, PackObject};
+use crate::arq7::EncryptedKeySet; // Added import for EncryptedKeySet
+
+// Helper function to get a BufReader for a file, returning std::io::Error on failure.
+// Uses std::io::BufReader which is already imported at the top of the file.
+fn get_file_reader_for_restore(path: &Path) -> std::io::Result<BufReader<File>> {
+    let file = File::open(path)?;
+    Ok(BufReader::new(file))
+}
+
+// TODO: Do this better - don't read all files multiple times
+pub fn restore_blob_with_sha(
+    path: &Path,
+    sha: &str,
+    keyset: &EncryptedKeySet, // Changed master_key to keyset
+) -> Result<Option<Vec<u8>>> { // Changed to use the crate's Result alias correctly
+    for entry_result in fs::read_dir(path)? { // fs::read_dir error converted by From trait
+        let entry = entry_result?; // Individual DirEntry error converted by From trait
+
+        let fname = entry.file_name();
+        let fname_str = match fname.to_str() {
+            Some(s) => s,
+            None => {
+                // Log or handle non-UTF8 filenames if necessary, for now, skip.
+                // eprintln!("Skipping non-UTF8 filename: {:?}", fname);
+                continue;
+            }
+        };
+
+        if fname_str.ends_with(".index") {
+            let index_path = entry.path();
+            // Map IO errors specifically for file operations within the loop
+            let mut reader = get_file_reader_for_restore(&index_path)
+                .map_err(|e| crate::error::Error::IoError(e))?;
+
+            let index = PackIndex::new(&mut reader)?; // PackIndex::new can return arq::error::Error
+
+            for obj in index.objects {
+                if obj.sha1 == sha {
+                    let pack_path = index_path.with_extension("pack");
+                    if !pack_path.exists() {
+                        // If the .pack file doesn't exist, we can't proceed for this object.
+                        // This could be an error condition or just data missing.
+                        // Depending on strictness, could return an error or log and continue.
+                        // For now, let's treat as a potential issue for this specific index.
+                        // Consider returning a more specific error if this case is critical.
+                        // Or, if it's expected pack files might be missing, log and continue.
+                        // eprintln!("Pack file not found: {:?}", pack_path);
+                        continue; // Or return Err(crate::error::Error::InvalidFormat("Pack file missing".to_string()));
+                    }
+                    let mut pack_reader = get_file_reader_for_restore(&pack_path)
+                        .map_err(|e| crate::error::Error::IoError(e))?;
+
+                    pack_reader.seek(SeekFrom::Start(obj.offset as u64))
+                        .map_err(|e| crate::error::Error::IoError(e))?;
+
+                    let pack = PackObject::new(&mut pack_reader)?; // PackObject::new can return arq::error::Error
+
+                    // Decrypt returns Result<Vec<u8>, arq::error::Error>, so directly use ? or match
+                    match pack.data.decrypt(&keyset.encryption_key) { // Use keyset.encryption_key
+                        Ok(data) => return Ok(Some(data)),
+                        Err(e) => return Err(e), // Return the decryption error
+                    }
+                }
+            }
+        }
+    }
+    Ok(None) // SHA not found in any index file in the given path
+}
+
 /// Tree
 ///
 /// A tree contains the following bytes:
