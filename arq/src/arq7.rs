@@ -920,19 +920,7 @@ impl Node {
     }
 }
 
-/// BackupRecord represents a backup record file containing backup metadata and the root node
-#[derive(Debug, Clone, Deserialize, Serialize)]
-pub struct Arq5TreeBlobKey {
-    #[serde(rename = "storageType")]
-    pub storage_type: u32,
-    #[serde(rename = "archiveSize")]
-    pub archive_size: u64,
-    pub sha1: String,
-    #[serde(rename = "stretchEncryptionKey")]
-    pub stretch_encryption_key: bool,
-    #[serde(rename = "compressionType")]
-    pub compression_type: u32,
-}
+// Arq5TreeBlobKey struct definition removed.
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct BackupRecordError {
@@ -973,7 +961,7 @@ pub struct Arq5BackupRecord {
     #[serde(rename = "copiedFromCommit")]
     pub copied_from_commit: bool,
     #[serde(rename = "arq5TreeBlobKey")]
-    pub arq5_tree_blob_key: Option<Arq5TreeBlobKey>,
+    pub arq5_tree_blob_key: Option<crate::blob::BlobKey>, // Updated to use the new BlobKey
     pub archived: Option<bool>, // Matches example, though original top-level was not optional
     #[serde(rename = "relativePath")]
     pub relative_path: Option<String>,
@@ -2171,16 +2159,17 @@ impl BackupSet {
                     }
                     GenericBackupRecord::Arq5(record) => {
                         if let Some(key) = &record.arq5_tree_blob_key {
-                            // Convert Arq5TreeBlobKey to BlobLoc. This is an approximation.
+                            // Convert crate::blob::BlobKey (formerly Arq5TreeBlobKey) to BlobLoc.
+                            // The fields are now directly from the unified BlobKey.
                             blob_locations.push(BlobLoc {
                                 blob_identifier: key.sha1.clone(),
-                                compression_type: key.compression_type,
-                                is_packed: false, // Assumption for Arq5TreeBlobKey
-                                length: key.archive_size,
-                                offset: 0, // Assumption for Arq5TreeBlobKey
+                                compression_type: key.compression_type, // This now comes from the unified BlobKey
+                                is_packed: false, // Assumption for Arq5TreeBlobKey context
+                                length: key.archive_size, // From unified BlobKey
+                                offset: 0, // Assumption for Arq5TreeBlobKey context
                                 relative_path: format!("arq5_migrated_tree_blob/{}", key.sha1), // Placeholder path
-                                stretch_encryption_key: key.stretch_encryption_key,
-                                is_large_pack: None, // Arq5 might not have this concept
+                                stretch_encryption_key: key.stretch_encryption_key, // From unified BlobKey
+                                is_large_pack: None, // Arq5 context might not have this concept
                             });
                         }
                         // backupRecordErrors in Arq5 might list problematic files, but these are not primary data blobs.

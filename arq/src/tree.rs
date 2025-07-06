@@ -17,9 +17,11 @@ use std;
 use std::collections::HashMap;
 use std::io::{BufRead, BufReader};
 
+use chrono::{DateTime, Utc};
+
 use crate::blob;
 use crate::compression::CompressionType;
-use crate::date::Date;
+// use crate::date::Date; // Date is no longer used in this file
 use crate::error::Result;
 use crate::type_utils::ArqRead;
 
@@ -504,7 +506,7 @@ pub struct Commit {
     pub tree_encryption_key_stretched: bool,
     pub tree_compression_type: CompressionType,
     pub folder_path: String,
-    pub creation_date: Date,
+    pub creation_date: Option<DateTime<Utc>>, // Changed from Date to Option<DateTime<Utc>>
     pub failed_files: Vec<FailedFile>,
     pub has_missing_nodes: bool,
     pub is_complete: bool,
@@ -541,7 +543,25 @@ impl Commit {
         let tree_encryption_key_stretched = reader.read_arq_bool()?;
         let tree_compression_type = reader.read_arq_compression_type()?;
         let folder_path = reader.read_arq_string()?;
-        let creation_date = reader.read_arq_date()?;
+
+        // Read and convert creation_date
+        let parsed_creation_date: Option<DateTime<Utc>>;
+        let present_byte = reader.read_bytes(1)?;
+        if present_byte[0] == 0x01 {
+            let milliseconds_since_epoch = reader.read_arq_u64()?;
+            if milliseconds_since_epoch == 0 {
+                parsed_creation_date = None;
+            } else {
+                parsed_creation_date = DateTime::from_timestamp_millis(milliseconds_since_epoch as i64);
+                if parsed_creation_date.is_none() {
+                    return Err(crate::error::Error::InvalidFormat(format!(
+                        "Invalid timestamp for commit creation_date: {}ms", milliseconds_since_epoch
+                    )));
+                }
+            }
+        } else {
+            parsed_creation_date = None;
+        }
 
         let mut num_failed_files = reader.read_arq_u64()?;
         let mut failed_files = Vec::new();
@@ -567,7 +587,7 @@ impl Commit {
             tree_encryption_key_stretched,
             tree_compression_type,
             folder_path,
-            creation_date,
+            creation_date: parsed_creation_date, // Assign the parsed Option<DateTime<Utc>>
             failed_files,
             has_missing_nodes,
             is_complete,
