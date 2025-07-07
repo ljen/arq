@@ -14,7 +14,7 @@ fn test_blob_content_extraction() {
     let backup_set_path = Path::new(ARQ7_TEST_DATA_DIR);
 
     // Create BlobLoc for first file (content starts at offset 6, length 15)
-    let first_file_blob = crate::blob_location::BlobLoc { // Changed path
+    let first_file_blob = arq::blob_location::BlobLoc { // Changed path
         blob_identifier: "test_file_1".to_string(),
         compression_type: 0, // Raw content, not blob pack format
         is_packed: true,
@@ -26,7 +26,7 @@ fn test_blob_content_extraction() {
     };
 
     // Create BlobLoc for second file (content starts at offset 26, length 14)
-    let second_file_blob = crate::blob_location::BlobLoc { // Changed path
+    let second_file_blob = arq::blob_location::BlobLoc { // Changed path
         blob_identifier: "test_file_2".to_string(),
         compression_type: 0, // Raw content, not blob pack format
         is_packed: true,
@@ -38,8 +38,9 @@ fn test_blob_content_extraction() {
     };
 
     // Test first file extraction
-    match first_file_blob.extract_text_content(backup_set_path, None) {
-        Ok(content) => {
+    match first_file_blob.extract_content(backup_set_path, None) { // Changed to extract_content
+        Ok(content_bytes) => {
+            let content = String::from_utf8_lossy(&content_bytes);
             println!("First file content: '{}'", content);
             assert_eq!(
                 content.trim(),
@@ -55,8 +56,9 @@ fn test_blob_content_extraction() {
     }
 
     // Test second file extraction
-    match second_file_blob.extract_text_content(backup_set_path, None) {
-        Ok(content) => {
+    match second_file_blob.extract_content(backup_set_path, None) { // Changed to extract_content
+        Ok(content_bytes) => {
+            let content = String::from_utf8_lossy(&content_bytes);
             println!("Second file content: '{}'", content);
             assert_eq!(
                 content.trim(),
@@ -203,7 +205,7 @@ fn test_remove_hardcoded_paths() {
     ];
 
     for test_path in test_cases {
-        let blob_loc = crate::blob_location::BlobLoc { // Changed path
+        let blob_loc = arq::blob_location::BlobLoc { // Changed path
             blob_identifier: "test".to_string(),
             compression_type: 0,
             is_packed: true,

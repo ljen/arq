@@ -8,13 +8,13 @@ use arq::arq7::BackupSet;
 use arq::arq7::EncryptedKeySet;
 use arq::compression::CompressionType;
 use arq::tree;
-use arq::tree::Tree;
-use chrono::SubsecRound;
-use std::collections::TryReserveError;
-use std::fs::File;
-use std::io::Cursor;
-use std::io::{BufRead, BufReader, Read, Seek, SeekFrom};
-use std::path::{Path, PathBuf};
+// use arq::tree::Tree; // Redundant due to `use arq::tree;` and usage `tree::Tree`
+// use chrono::SubsecRound; // Unused
+// use std::collections::TryReserveError; // Unused
+// use std::fs::File; // Unused
+// use std::io::Cursor; // Unused
+// use std::io::{BufReader, Read, Seek, SeekFrom}; // All seem unused now
+use std::path::Path; // PathBuf was unused
 
 // Error enum will be removed as part of the refactoring.
 // Errors will be handled by arq::error::Error and Option types.
@@ -45,7 +45,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         // match BackupSet::from_directory(backup_set_path) {
         Ok(backup_set) => {
             let root_directory = backup_set.get_root_directory()?;
-            for subentry in root_directory.children {}
+            for _subentry in root_directory.children {}
             print_backup_config(&backup_set);
             print_backup_plan(&backup_set);
             print_backup_folders_config(&backup_set);
@@ -202,7 +202,7 @@ fn print_backup_records(backup_set: &BackupSet, backup_set_path: &str) -> Option
                     println!("    Root Node:");
                     println!("      Is Tree: {}", record.node.is_tree);
                     println!("      Item Size: {} bytes", record.node.item_size);
-                    println!("      OS Type: {}", record.node.computer_os_type); // This was computer_os_type on Node
+                    println!("      OS Type: {:?}", record.node.computer_os_type); // This was computer_os_type on Node
                     println!("      Deleted: {}", record.node.deleted);
                     if let Some(contained_files) = record.node.contained_files_count {
                         println!("      Contained Files: {}", contained_files);
@@ -283,7 +283,7 @@ fn print_backup_records(backup_set: &BackupSet, backup_set_path: &str) -> Option
                             // )
                             // .ok()?;
                             let tree =
-                                tree::Tree::new(&data, CompressionType::from(key.compression_type))
+                                tree::Tree::new_arq5(&data, CompressionType::from(key.compression_type))
                                     .ok()?;
 
                             // Print node information
@@ -629,7 +629,7 @@ fn extract_backup_record(
 }
 
 fn extract_tree_node(
-    node: &arq::arq7::Node,
+    node: &arq::node::Node,
     backup_set_path: &Path,
     current_output_dir: &Path,
     relative_path: &str,
@@ -662,13 +662,16 @@ fn extract_tree_node(
     //     EncryptedKeySet::from_file(backup_set_path.join("encryptedkeyset.dat"), "asdfasdf1234")
     //         .unwrap();
     // let keyset = Some(&tmp); // keyset is passed in, no need to reload here
-    match node.load_tree_with_encryption(backup_set_path, keyset) {
-        // Pass original keyset
+    let tree_load_result = match node.tree_blob_loc.as_ref() {
+        Some(loc) => loc.load_tree_with_encryption(backup_set_path, keyset),
+        None => Ok(None), // Node is not a tree or has no tree blob loc
+    };
+
+    match tree_load_result {
         Ok(Some(tree)) => {
-            // ... (rest of the function is mostly okay, but nested loop was an error)
-            for (child_name, child_node_ref) in &tree.child_nodes {
-                // Iterate over tree.child_nodes
-                let child_path = if relative_path.is_empty() {
+            // The unified arq::tree::Tree uses `nodes` (a HashMap) instead of `child_nodes`
+            for (child_name, child_node_ref) in &tree.nodes {
+                let _child_path = if relative_path.is_empty() { // Prefixed with _
                     child_name.clone()
                 } else {
                     format!("{}/{}", relative_path, child_name)
@@ -713,7 +716,7 @@ fn extract_tree_node(
 }
 
 fn extract_file_node(
-    node: &arq::arq7::Node,
+    node: &arq::node::Node,
     backup_set_path: &Path,
     output_dir: &Path,
     filename: &str,
@@ -731,26 +734,37 @@ fn extract_file_node(
         .any(|blob| !blob.relative_path.contains("unknown") && !blob.relative_path.is_empty());
 
     if has_real_blobs || !node.data_blob_locs.is_empty() {
-        // Try even if paths seem like placeholders
-        match node.reconstruct_file_data_with_encryption(backup_set_path, keyset) {
-            Ok(content) => {
-                if let Err(_e) = std::fs::write(&output_file_path, &content) {
-                    stats.errors += 1;
-                } else {
-                    total_size = content.len() as u64;
-                    content_extracted = true;
+        let mut reconstructed_content = Vec::new();
+        let mut reconstruction_error = false;
+        if node.data_blob_locs.is_empty() && node.item_size > 0 {
+            reconstruction_error = true;
+        } else {
+            for blob_loc in &node.data_blob_locs {
+                match blob_loc.extract_content(backup_set_path, keyset) {
+                    Ok(data) => reconstructed_content.extend(data),
+                    Err(_e) => {
+                        reconstruction_error = true;
+                        break;
+                    }
                 }
             }
-            Err(_e) => {
+        }
+
+        if reconstruction_error {
+            stats.errors += 1;
+        } else {
+            if let Err(_e) = std::fs::write(&output_file_path, &reconstructed_content) {
                 stats.errors += 1;
+            } else {
+                total_size = reconstructed_content.len() as u64;
+                content_extracted = true;
             }
         }
     } else if node.item_size == 0 {
-        // item_size is a u64
         if let Err(_e) = std::fs::write(&output_file_path, b"") {
             stats.errors += 1;
         } else {
-            content_extracted = true;
+            content_extracted = true; // total_size is already 0
         }
     } else {
         stats.errors += 1;
@@ -764,7 +778,7 @@ fn extract_file_node(
 }
 
 fn extract_using_json_fallback(
-    node: &arq::arq7::Node,
+    node: &arq::node::Node,
     backup_set_path: &Path,
     output_dir: &Path,    // Changed to &Path
     _relative_path: &str, // relative_path is not used here.
@@ -783,9 +797,9 @@ fn extract_using_json_fallback(
     }
 }
 
-fn set_file_metadata(file_path: &Path, node: &arq::arq7::Node) {
+fn set_file_metadata(file_path: &Path, node: &arq::node::Node) {
     // Changed to &Path
-    if node.modification_time_sec > 0 {
+    if node.modification_time_sec > 0 { // This field exists on arq::node::Node
         use std::time::UNIX_EPOCH;
         if let Some(mtime) = UNIX_EPOCH.checked_add(std::time::Duration::from_secs(
             node.modification_time_sec as u64,
@@ -796,7 +810,7 @@ fn set_file_metadata(file_path: &Path, node: &arq::arq7::Node) {
     }
 }
 
-fn try_extract_test_file_content(
+fn _try_extract_test_file_content( // Prefixed with _
     _filename: &str, // Mark as unused if not used
     _backup_set_path: &Path,
     _keyset: Option<&EncryptedKeySet>,
@@ -805,7 +819,7 @@ fn try_extract_test_file_content(
 }
 
 fn list_files_recursive(
-    node: &arq::arq7::Node,
+    node: &arq::node::Node,
     backup_set_path: &Path,
     current_path: String,
     depth: usize,
@@ -828,11 +842,15 @@ fn list_files_recursive(
         println!("{}📁 {}/", indent, path_display);
         stats.total_directories += 1;
 
-        match node.load_tree_with_encryption(backup_set_path, None) {
-            // Assuming global keyset if used by load_tree
+        let tree_load_result = match node.tree_blob_loc.as_ref() {
+            Some(loc) => loc.load_tree_with_encryption(backup_set_path, None), // Assuming no specific keyset needed here based on original call
+            None => Ok(None),
+        };
+
+        match tree_load_result {
             Ok(Some(tree)) => {
-                // ... (rest of the function)
-                for (child_name, child_node_ref) in &tree.child_nodes {
+                // The unified arq::tree::Tree uses `nodes` (a HashMap)
+                for (child_name, child_node_ref) in &tree.nodes {
                     let child_path = if current_path.is_empty() {
                         format!("/{}/{}", folder_name, child_name)
                     } else {
@@ -868,13 +886,13 @@ fn list_files_recursive(
     }
 }
 
-fn show_node_metadata(node: &arq::arq7::Node, indent: &str) {
-    println!("{}   Size: {} bytes", indent, node.item_size);
+fn _show_node_metadata(node: &arq::node::Node, indent: &str) { // Prefixed with _
+    println!("{}   Size: {} bytes", indent, node.item_size); // item_size exists on arq::node::Node
     // ...
 }
 
-fn show_file_details(node: &arq::arq7::Node, indent: &str) {
-    println!("{}   📊 {} bytes", indent, node.item_size);
+fn show_file_details(node: &arq::node::Node, indent: &str) {
+    println!("{}   📊 {} bytes", indent, node.item_size); // item_size exists on arq::node::Node
     // ...
 }
 
