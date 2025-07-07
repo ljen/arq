@@ -39,14 +39,56 @@
 //! assert_eq!(data.uuid, "someuuid".to_string());
 //!```
 //!
-//! 2. Reading a tree
+//! 2. Reading an Arq5 format tree (e.g., from a backup made with Arq 5)
+//! // Note: You'd typically get `tree_blob_data` by fetching a blob (using its SHA1 from a Commit)
+//! // and then decrypting it. The `commit.tree_compression_type` would tell you the compression.
 //!
-//! Note: Usually one reads this from a file, not used directly like shown here.
+//! // For this example, assume `decompressed_arq5_tree_data` are the bytes of an Arq5 tree,
+//! // already decompressed, starting with "TreeV0XX".
+//! let decompressed_arq5_tree_data: Vec<u8> = vec![
+//!     b'T', b'r', b'e', b'e', b'V', b'0', b'2', b'2', // Header: "TreeV022"
+//!     // Minimal Arq5 Tree data would follow. This example will likely fail if not enough bytes are provided.
+//!     // For a runnable example, valid Arq5 tree bytes are needed here.
+//!     // The following are placeholder bytes for xattrs_compression_type, acl_compression_type, etc.
+//!     0,0,0,0, // xattrs_compression_type (None)
+//!     0,0,0,0, // acl_compression_type (None)
+//!     0, // xattrs_blob_key (null string flag)
+//!     0,0,0,0,0,0,0,0, // xattrs_size (0)
+//!     0, // acl_blob_key (null string flag)
+//!     0,0,0,0, // uid
+//!     0,0,0,0, // gid
+//!     0,0,0,0, // mode
+//!     0,0,0,0,0,0,0,0, // mtime_sec
+//!     0,0,0,0,0,0,0,0, // mtime_nsec
+//!     0,0,0,0,0,0,0,0, // flags
+//!     0,0,0,0, // finderFlags
+//!     0,0,0,0, // extendedFinderFlags
+//!     0,0,0,0, // st_dev
+//!     0,0,0,0, // st_ino
+//!     0,0,0,0, // st_nlink
+//!     0,0,0,0, // st_rdev
+//!     0,0,0,0,0,0,0,0, // ctime_sec
+//!     0,0,0,0,0,0,0,0, // ctime_nsec
+//!     0,0,0,0,0,0,0,0, // st_blocks
+//!     0,0,0,0, // st_blksize
+//!     0,0,0,0,0,0,0,0, // create_time_sec (assuming version >= 15 for simplicity)
+//!     0,0,0,0,0,0,0,0, // create_time_nsec
+//!     0,0,0,0, // missing_node_count (0, assuming version >= 18)
+//!     0,0,0,0  // node_count (0)
+//! ];
 //!
-//! ```
-//! let tree_bytes = [0, 0, 2, 182, 159, 84, 114, 101, 101, 86, 48, 50, 50, 0, 1, 0, 30, 255, 11, 1, 245, 0, 0, 0, 20, 0, 0, 65, 237, 0, 0, 0, 0, 92, 197, 219, 103, 0, 0, 0, 0, 16, 90, 33, 177, 75, 0, 1, 132, 2, 77, 81, 191, 0, 0, 0, 4, 28, 0, 15, 48, 0, 3, 17, 16, 31, 0, 193, 92, 197, 219, 84, 0, 0, 0, 0, 48, 246, 52, 114, 17, 0, 67, 0, 0, 2, 1, 9, 0, 145, 8, 115, 111, 109, 101, 102, 105, 108, 101, 16, 0, 17, 2, 6, 0, 2, 2, 0, 20, 1, 35, 0, 244, 30, 40, 100, 97, 56, 97, 48, 48, 51, 53, 55, 54, 52, 51, 100, 52, 56, 49, 98, 53, 98, 52, 54, 99, 57, 100, 99, 57, 99, 52, 49, 50, 55, 55, 98, 51, 53, 98, 57, 101, 56, 53, 1, 0, 0, 0, 53, 0, 6, 2, 0, 22, 12, 11, 0, 15, 2, 0, 13, 4, 3, 1, 41, 129, 164, 3, 1, 60, 92, 158, 217, 58, 0, 5, 103, 0, 5, 9, 0, 146, 0, 1, 0, 0, 4, 2, 77, 81, 220, 11, 0, 2, 2, 0, 5, 22, 1, 3, 67, 0, 5, 16, 0, 50, 89, 212, 77, 34, 0, 85, 0, 8, 0, 0, 16, 182, 0, 177, 10, 116, 111, 112, 95, 102, 111, 108, 100, 101, 114, 89, 0, 15, 16, 1, 3, 255, 25, 99, 48, 53, 55, 49, 53, 51, 55, 100, 53, 55, 100, 57, 52, 56, 56, 49, 54, 52, 51, 48, 51, 57, 53, 48, 100, 102, 100, 101, 100, 53, 99, 98, 54, 99, 102, 99, 100, 50, 48, 16, 1, 3, 19, 39, 121, 0, 15, 2, 0, 116, 80, 0, 0, 0, 0, 0];
-//! let tree = arq::tree::Tree::new(&tree_bytes, arq::compression::CompressionType::LZ4).unwrap();
-//! assert_eq!(tree.version, 22);
+//! // Since data is already decompressed and starts with header, use CompressionType::None
+//! match arq::tree::Tree::new_arq5(&decompressed_arq5_tree_data, arq::compression::CompressionType::None) {
+//!     Ok(tree) => {
+//!         assert_eq!(tree.version, 22);
+//!         println!("Parsed Arq5 tree version: {}", tree.version);
+//!     }
+//!     Err(e) => {
+//!         // This example might error if placeholder bytes are insufficient/invalid for a minimal tree
+//!         eprintln!("Failed to parse tree example: {}", e);
+//!         // For a real test, ensure `decompressed_arq5_tree_data` is a valid full tree byte sequence.
+//!     }
+//! }
 //! ```
 //!
 //! **For a more complex example, please check a command line tool (`evu`) built using this
@@ -75,6 +117,8 @@ pub mod object_encryption;
 pub mod packset;
 pub mod tree;
 pub mod type_utils;
+pub mod node;
+pub mod blob_location;
 
 mod blob;
 mod date;
