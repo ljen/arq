@@ -50,7 +50,7 @@ pub fn restore_file(
 
     let arq_folder = utils::read_arq_folder(path, computer, folder, master_keys.clone())?;
     let tree_blob = restore_blob_with_sha(&trees_path, &commit.tree_sha1, &master_keys[0])?;
-    let tree = tree::Tree::new(&tree_blob, commit.tree_compression_type)?;
+    let tree = tree::Tree::new_arq5(&tree_blob, commit.tree_compression_type)?;
     restore_file_in_tree(
         Path::new(&arq_folder.local_path),
         &trees_path,
@@ -73,11 +73,11 @@ fn restore_file_in_tree(
         if !node.is_tree {
             let inner = prefix.join(name);
             if inner.as_os_str().to_str().unwrap() == absolute_filepath {
-                restore_object(path, folder, node, absolute_filepath, master_key)?;
+                restore_object(path, folder, &node, absolute_filepath, master_key)?; // Passed node as reference
             }
         } else {
-            let data = restore_blob_with_sha(path, &node.data_blob_keys[0].sha1, master_key)?;
-            let inner_tree = tree::Tree::new(&data, node.data_compression_type)?;
+            let data = restore_blob_with_sha(path, &node.data_blob_locs[0].blob_identifier, master_key)?; // Changed to data_blob_locs and blob_identifier
+            let inner_tree = tree::Tree::new_arq5(&data, node.arq5_data_compression_type.unwrap_or(arq::compression::CompressionType::None))?; // Changed to arq5_data_compression_type
             restore_file_in_tree(
                 prefix.join(name).as_path(),
                 path,
@@ -94,7 +94,7 @@ fn restore_file_in_tree(
 fn restore_object(
     path: &Path,
     folder: &str,
-    node: arq::tree::Node,
+    node: &arq::node::Node, // Changed to &arq::node::Node
     absolute_filepath: &str,
     master_key: &[u8],
 ) -> Result<()> {
@@ -108,9 +108,9 @@ fn restore_object(
         .file_name()
         .ok_or_else(|| Error::OsError(std::ffi::OsString::from("not a valid restore path")))?;
 
-    let compression = node.data_compression_type;
+    let compression = node.arq5_data_compression_type.unwrap_or(arq::compression::CompressionType::None); // Changed to arq5_data_compression_type
 
-    for blob in node.data_blob_keys {
+    for blob in &node.data_blob_locs { // Iterate over a reference to avoid moving
         for entry in std::fs::read_dir(&path)? {
             let fname = entry?.file_name().to_str().unwrap().to_string();
             if fname.ends_with(".index") {
@@ -118,7 +118,7 @@ fn restore_object(
                 let mut reader = utils::get_file_reader(index_path);
                 let index = packset::PackIndex::new(&mut reader)?;
                 for obj in index.objects {
-                    if obj.sha1 == blob.sha1 {
+                    if obj.sha1 == blob.blob_identifier { // Changed blob.sha1 to blob.blob_identifier
                         let pack_path = path.join(&fname.replace(".index", ".pack"));
                         let mut reader = utils::get_file_reader(pack_path);
                         reader.seek(SeekFrom::Start(obj.offset as u64))?;

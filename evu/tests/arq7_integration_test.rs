@@ -1,6 +1,6 @@
 use assert_cmd::prelude::*; // Add methods on commands
 use predicates::prelude::*;
-use std::path::Path;
+// use std::path::Path; // Unused
 use std::process::Command; // Used for writing assertions
 
 // Paths to Arq 7 test data (relative to CARGO_MANIFEST_DIR, which is the root of the `evu` crate here)
