@@ -17,7 +17,12 @@ fn show_commit(commit: &tree::Commit) {
     println!("   - is complete: {}", &commit.is_complete);
     println!("   - arq version: {}", &commit.arq_version);
     println!("   - tree sha1: {}", &commit.tree_sha1);
-    println!("   - date: {}", &commit.creation_date);
+    println!(
+        "   - date: {}",
+        &commit
+            .creation_date
+            .map_or("N/A".to_string(), |d| d.to_rfc3339())
+    );
     println!("   - tree compression: {:?}", &commit.tree_compression_type);
     if !commit.parent_commits.is_empty() {
         println!("   ::Parent commits::");
