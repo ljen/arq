@@ -692,7 +692,7 @@ fn test_binary_tree_loading_comprehensive() {
                 assert_eq!(tree_blob_loc.compression_type, 2); // LZ4
 
                 // Try to load the actual binary tree data
-                match record.node.load_tree(backup_set_dir) {
+                match record.node.load_tree_with_encryption(backup_set_dir, None) { // Pass None for keyset for unencrypted
                     Ok(Some(tree)) => {
                         println!(
                             "Successfully loaded binary tree with version: {}",
@@ -1100,6 +1100,7 @@ fn test_encryption_backward_compatibility() {
 use std::fs;
 
 // Helper structs and functions from arq7_example.rs, adapted for test environment
+// Use fully qualified paths for arq types since this is an external test.
 
 #[derive(Debug, Default, Clone, Copy)]
 struct ExtractionStats {
@@ -1147,7 +1148,7 @@ fn extract_backup_record(
 }
 
 fn extract_tree_node(
-    node: &crate::node::Node, // Changed to crate::node::Node
+    node: &arq::node::Node, // Changed to arq::node::Node
     backup_set_path: &Path,
     current_output_dir: &Path,
     relative_path: &str, // Relative path *within* the current_output_dir for this node
@@ -1238,7 +1239,7 @@ fn extract_tree_node(
 }
 
 fn extract_file_node(
-    node: &crate::node::Node, // Changed to crate::node::Node
+    node: &arq::node::Node, // Changed to arq::node::Node
     backup_set_path: &Path,
     output_dir_for_file: &Path, // This is the directory where the file should be created
     filename: &str,
@@ -1355,7 +1356,7 @@ fn extract_file_node(
     }
 }
 
-fn set_file_metadata(file_path: &str, node: &crate::node::Node) { // Changed to crate::node::Node
+fn set_file_metadata(file_path: &str, node: &arq::node::Node) { // Changed to arq::node::Node
     if node.modification_time_sec > 0 {
         use std::time::UNIX_EPOCH;
         if let Some(mtime) = UNIX_EPOCH.checked_add(std::time::Duration::from_secs(
@@ -1378,7 +1379,7 @@ fn try_extract_test_file_content(
     // e.g., tests/arq_storage_location/D1154AC6-01EB-41FE-B115-114464350B92
     match filename {
         "file 1.txt" => {
-            let blob_loc = crate::blob_location::BlobLoc { // Changed path
+            let blob_loc = arq::blob_location::BlobLoc { // Changed path
                 // These paths are relative to the *root* of the storage location,
                 // but extract_content expects backup_set_path to be the specific backup set folder.
                 // So, the relative_path here should be relative to that backup_set_path.
@@ -1413,7 +1414,7 @@ fn try_extract_test_file_content(
             blob_loc.extract_content(backup_set_path, keyset).ok()
         }
         "file 2.txt" => {
-            let blob_loc = crate::blob_location::BlobLoc { // Changed path
+            let blob_loc = arq::blob_location::BlobLoc { // Changed path
                 blob_identifier: "test_file_2_encrypted".to_string(), // Placeholder
                 compression_type: 0,
                 is_packed: true,
@@ -1591,7 +1592,7 @@ struct FileReadStats {
 }
 
 fn read_all_nodes_recursive(
-    generic_record_node: &crate::node::Node, // Changed to crate::node::Node
+    generic_record_node: &arq::node::Node, // Changed to arq::node::Node
     backup_set_path: &Path,
     keyset: Option<&EncryptedKeySet>,
     stats: &mut FileReadStats,
