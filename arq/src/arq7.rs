@@ -1505,32 +1505,27 @@ impl BackupSet {
     }
 
     /// Converts a Node into a DirectoryEntry (File or Directory).
-    fn node_to_directory_entry(&self, node: &crate::node::Node, name: String) -> Result<DirectoryEntry> { // Changed to crate::node::Node
-        let backup_set_dir = &self.root_path;
+    fn node_to_directory_entry(&self, node: &crate::node::Node, name: String) -> Result<DirectoryEntry> {
         if node.is_tree {
-            let mut children = Vec::new();
-            // TODO: This method needs to be implemented on crate::node::Node
-            // For now, assume it returns Ok(None) to allow compilation.
-            // if let Some(tree) =
-            //     node.load_tree_with_encryption(backup_set_dir, self.encryption_keyset.as_ref())?
-            // {
-            //     for (child_name, child_node) in &tree.child_nodes {
-            //         children.push(self.node_to_directory_entry(child_node, child_name.clone())?);
-            //     }
-            // }
-            if let Some(tree) = node.load_tree_with_encryption(backup_set_dir, self.encryption_keyset.as_ref())? {
-                for (child_name, child_node_entry) in &tree.nodes { // Use tree.nodes
-                    children.push(self.node_to_directory_entry(child_node_entry, child_name.clone())?);
-                }
-            }
+            // For directories, create a DirectoryEntryNode without loading children.
+            // Children will be loaded on demand.
             Ok(DirectoryEntry::Directory(DirectoryEntryNode {
                 name,
-                children,
+                children: None, // Children are not loaded initially
+                tree_blob_loc: node.tree_blob_loc.clone(), // Store BlobLoc for on-demand loading
+                modification_time_sec: node.modification_time_sec,
+                creation_time_sec: node.creation_time_sec,
+                mode: node.st_mode, // Using st_mode from crate::node::Node
             }))
         } else {
+            // For files, create a FileEntry with all necessary details for later content loading.
             Ok(DirectoryEntry::File(FileEntry {
                 name,
                 size: node.item_size,
+                data_blob_locs: node.data_blob_locs.clone(), // Store BlobLocs for on-demand loading
+                modification_time_sec: node.modification_time_sec,
+                creation_time_sec: node.creation_time_sec,
+                mode: node.st_mode, // Using st_mode from crate::node::Node
             }))
         }
     }
@@ -1539,63 +1534,49 @@ impl BackupSet {
     /// The root directory contains subdirectories for each backup record (named by creation date).
     /// Each subdirectory contains the files and folders from that backup.
     pub fn get_root_directory(&self) -> Result<DirectoryEntryNode> {
-        let mut root_children = Vec::new();
+        let mut root_children_entries = Vec::new();
 
         for (folder_uuid, records) in &self.backup_records {
             for record in records {
                 match record {
                     GenericBackupRecord::Arq7(arq7_record) => {
-                        let dir_name = arq7_record
+                        let record_dir_name = arq7_record
                             .creation_date
                             .map(|ts| {
-                                // Convert f64 timestamp to DateTime<Utc>
                                 let secs = ts as i64;
-                                let nanos = ((ts - secs as f64) * 1_000_000_000.0) as u32;
-                                // Updated to use DateTime::from_timestamp
+                                let nanos = ((ts.fract()) * 1_000_000_000.0) as u32;
                                 match DateTime::from_timestamp(secs, nanos) {
                                     Some(datetime_utc) => {
                                         datetime_utc.format("%Y-%m-%dT%H-%M-%S").to_string()
                                     }
-                                    None => format!("unknown_date_{}", folder_uuid), // Fallback for invalid timestamp
+                                    None => format!("unknown_date_{}", folder_uuid),
                                 }
                             })
-                            .unwrap_or_else(|| format!("no_date_{}", folder_uuid)); // Fallback if no creation_date
+                            .unwrap_or_else(|| format!("no_date_{}", folder_uuid));
 
-                        // The root of this specific backup record
-                        match self.node_to_directory_entry(
+                        // Convert the root node of the backup record into a DirectoryEntry.
+                        // This will be a shallow entry due to the modified node_to_directory_entry.
+                        let backup_root_entry = self.node_to_directory_entry(
                             &arq7_record.node,
                             arq7_record
                                 .local_path
                                 .clone()
                                 .unwrap_or_else(|| "backup_root".to_string()),
-                        )? {
-                            DirectoryEntry::Directory(mut record_root_dir) => {
-                                // The top-level entry for this backup record should be a directory named by date
-                                record_root_dir.name = dir_name;
-                                root_children.push(DirectoryEntry::Directory(record_root_dir));
-                            }
-                            DirectoryEntry::File(_) => {
-                                // This case should ideally not happen if arq7_record.node is the root of a backup.
-                                // If it does, we'll wrap it in a directory.
-                                eprintln!(
-                                    "Warning: Root node for record {} is a file. Wrapping in directory {}.",
-                                    folder_uuid, dir_name
-                                );
-                                root_children.push(DirectoryEntry::Directory(DirectoryEntryNode {
-                                    name: dir_name,
-                                    children: vec![self.node_to_directory_entry(
-                                        &arq7_record.node,
-                                        arq7_record
-                                            .local_path
-                                            .clone()
-                                            .unwrap_or_else(|| "file_root".to_string()),
-                                    )?],
-                                }));
-                            }
-                        }
+                        )?;
+
+                        // Create a directory entry for this specific backup record session (e.g., named by date).
+                        // This directory will contain the actual root of the backed-up folder/file.
+                        let record_session_dir = DirectoryEntry::Directory(DirectoryEntryNode {
+                            name: record_dir_name,
+                            children: Some(vec![backup_root_entry]), // Contains the single root of the backup
+                            tree_blob_loc: None, // This directory is virtual, not from a blob
+                            modification_time_sec: arq7_record.node.modification_time_sec, // Or use record's creation time
+                            creation_time_sec: arq7_record.node.creation_time_sec, // Or use record's creation time
+                            mode: 0o040755, // Typical directory mode
+                        });
+                        root_children_entries.push(record_session_dir);
                     }
                     GenericBackupRecord::Arq5(_arq5_record) => {
-                        // For now, skip Arq5 records
                         println!(
                             "Skipping Arq5 record for folder UUID: {} in get_root_directory",
                             folder_uuid
@@ -1607,8 +1588,88 @@ impl BackupSet {
 
         Ok(DirectoryEntryNode {
             name: "/".to_string(),
-            children: root_children,
+            children: Some(root_children_entries), // Ensure children is Some Vec
+            tree_blob_loc: None, // Root is virtual
+            modification_time_sec: 0, // Or some other sensible default/current time
+            creation_time_sec: 0,
+            mode: 0o040755, // Typical directory mode
         })
+    }
+
+    /// Loads the children of a DirectoryEntryNode on demand.
+    pub fn load_directory_children(&self, dir_entry_node: &mut DirectoryEntryNode) -> Result<()> {
+        // If children are already loaded, or if it's a virtual directory without a tree_blob_loc
+        if dir_entry_node.children.is_some() {
+            return Ok(());
+        }
+
+        let blob_loc = match &dir_entry_node.tree_blob_loc {
+            Some(loc) => loc,
+            None => {
+                // No blob loc, so it's an empty or virtual directory.
+                dir_entry_node.children = Some(Vec::new());
+                return Ok(());
+            }
+        };
+
+        // Load the tree data using the blob_loc
+        match blob_loc.load_tree_with_encryption(&self.root_path, self.encryption_keyset.as_ref())? {
+            Some(tree) => {
+                let mut children_entries = Vec::new();
+                for (name, child_node) in tree.nodes {
+                    // Convert each child Node into a shallow DirectoryEntry
+                    let child_entry = self.node_to_directory_entry(&child_node, name)?;
+                    children_entries.push(child_entry);
+                }
+                dir_entry_node.children = Some(children_entries);
+            }
+            None => {
+                // Tree blob was empty or indicated no children
+                dir_entry_node.children = Some(Vec::new());
+            }
+        }
+        Ok(())
+    }
+
+    /// Reads the content of a file represented by a FileEntry.
+    pub fn read_file_content(&self, file_entry: &FileEntry) -> Result<Vec<u8>> {
+        let mut full_content = Vec::new();
+
+        if file_entry.data_blob_locs.is_empty() {
+            // Handle cases like zero-byte files that might not have blob locs.
+            // Depending on Arq's behavior, item_size might be 0 for these.
+            // If size is > 0 but no locs, it could be an error or an unsupported case.
+            if file_entry.size == 0 {
+                return Ok(full_content); // Empty file, return empty content
+            } else {
+                // This might indicate an issue or a file type not represented by dataBlobLocs here
+                return Err(Error::InvalidFormat(format!(
+                    "File '{}' has size {} but no data blob locations.",
+                    file_entry.name, file_entry.size
+                )));
+            }
+        }
+
+        for blob_loc in &file_entry.data_blob_locs {
+            let blob_data = blob_loc.load_data(&self.root_path, self.encryption_keyset.as_ref())?;
+            full_content.extend(blob_data);
+        }
+
+        // As a sanity check, compare the loaded content size with the expected size.
+        // This might not always be strictly necessary if Arq guarantees consistency,
+        // but can catch issues during development or with corrupted data.
+        if full_content.len() as u64 != file_entry.size {
+            eprintln!( // Using eprintln for warnings, not returning an error yet unless it's critical
+                "Warning: Loaded content size {} for file '{}' does not match expected size {}.",
+                full_content.len(),
+                file_entry.name,
+                file_entry.size
+            );
+            // Depending on strictness, one might choose to return an error here:
+            // return Err(Error::InvalidFormat(format!("Content size mismatch for file '{}'", file_entry.name)));
+        }
+
+        Ok(full_content)
     }
 }
 
@@ -2090,6 +2151,10 @@ pub enum DirectoryEntry {
 pub struct FileEntry {
     pub name: String,
     pub size: u64,
+    pub data_blob_locs: Vec<crate::blob_location::BlobLoc>,
+    pub modification_time_sec: i64,
+    pub creation_time_sec: i64,
+    pub mode: u32,
     // We can add more metadata from Node if needed, e.g., modification_time
     // For now, keeping it simple.
     // pub node_data: Node, // Or specific fields from Node
@@ -2099,7 +2164,11 @@ pub struct FileEntry {
 #[derive(Debug, Clone)]
 pub struct DirectoryEntryNode {
     pub name: String,
-    pub children: Vec<DirectoryEntry>,
+    pub children: Option<Vec<DirectoryEntry>>, // Changed to Option for on-demand loading
+    pub tree_blob_loc: Option<crate::blob_location::BlobLoc>, // For loading children on demand
+    pub modification_time_sec: i64,
+    pub creation_time_sec: i64,
+    pub mode: u32,
     // pub node_data: Node, // Or specific fields from Node for the directory itself
 }
 
@@ -2264,429 +2333,225 @@ mod tests {
 }
 
 #[test]
-fn test_get_root_directory() {
+fn test_get_root_directory() { // Modified for new on-demand behavior
     // Mock BackupSet components
     let backup_config = BackupConfig {
-        blob_identifier_type: 2,
-        max_packed_item_length: 256000,
-        backup_name: "Test Backup".to_string(),
-        is_worm: false,
-        contains_glacier_archives: false,
-        additional_unpacked_blob_dirs: vec![],
-        chunker_version: 3,
-        computer_name: "Test PC".to_string(),
-        computer_serial: "unused".to_string(),
-        blob_storage_class: "STANDARD".to_string(),
+        blob_identifier_type: 2, max_packed_item_length: 256000,
+        backup_name: "Test Backup".to_string(), is_worm: false,
+        contains_glacier_archives: false, additional_unpacked_blob_dirs: vec![],
+        chunker_version: 3, computer_name: "Test PC".to_string(),
+        computer_serial: "unused".to_string(), blob_storage_class: "STANDARD".to_string(),
         is_encrypted: false,
     };
-
     let backup_folders = BackupFolders {
-        standard_object_dirs: vec![],
-        standard_ia_object_dirs: vec![],
-        onezone_ia_object_dirs: vec![],
-        s3_glacier_object_dirs: vec![],
-        s3_deep_archive_object_dirs: vec![],
-        s3_glacier_ir_object_dirs: None,
+        standard_object_dirs: vec![], standard_ia_object_dirs: vec![],
+        onezone_ia_object_dirs: vec![], s3_glacier_object_dirs: vec![],
+        s3_deep_archive_object_dirs: vec![], s3_glacier_ir_object_dirs: None,
         imported_from: None,
     };
-
     let transfer_rate = TransferRate {
-        enabled: false,
-        start_time_of_day: "00:00".to_string(),
-        days_of_week: vec![],
-        schedule_type: "manual".to_string(),
-        end_time_of_day: "23:59".to_string(),
-        max_kbps: None,
+        enabled: false, start_time_of_day: "00:00".to_string(), days_of_week: vec![],
+        schedule_type: "manual".to_string(), end_time_of_day: "23:59".to_string(), max_kbps: None,
     };
-
     let schedule = Schedule {
-        backup_and_validate: false,
-        start_when_volume_is_connected: false,
-        pause_during_window: false,
-        schedule_type: "manual".to_string(),
-        days_of_week: None,
-        every_hours: None,
-        minutes_after_hour: None,
-        pause_from: None,
-        pause_to: None,
+        backup_and_validate: false, start_when_volume_is_connected: false,
+        pause_during_window: false, schedule_type: "manual".to_string(), days_of_week: None,
+        every_hours: None, minutes_after_hour: None, pause_from: None, pause_to: None,
     };
-
     let email_report = EmailReport {
-        port: 25,
-        start_tls: false,
-        authentication_type: "none".to_string(),
-        report_helo_use_ip: None,
-        when: "never".to_string(),
-        report_type: "none".to_string(),
-        hostname: None,
-        username: None,
-        from_address: None,
-        to_address: None,
-        subject: None,
+        port: 25, start_tls: false, authentication_type: "none".to_string(),
+        report_helo_use_ip: None, when: "never".to_string(), report_type: "none".to_string(),
+        hostname: None, username: None, from_address: None, to_address: None, subject: None,
     };
-
     let backup_plan = BackupPlan {
-        transfer_rate_json: transfer_rate,
-        cpu_usage: 50,
-        id: 1,
-        storage_location_id: 1,
-        excluded_network_interfaces: vec![],
-        needs_arq5_buckets: false,
-        use_buzhash: true,
-        arq5_use_s3_ia: false,
-        object_lock_update_interval_days: 0,
-        plan_uuid: "test-plan-uuid".to_string(),
-        schedule_json: schedule,
-        keep_deleted_files: false,
-        version: 1,
-        created_at_pro_console: None,
-        backup_folder_plan_mount_points_are_initialized: None,
-        include_new_volumes: false,
-        retain_months: 1,
-        use_apfs_snapshots: false,
-        backup_set_is_initialized: None,
-        backup_folder_plans_by_uuid: HashMap::new(),
-        notify_on_error: false,
-        retain_days: 7,
-        update_time: 0.0,
-        excluded_wi_fi_network_names: vec![],
-        object_lock_available: None,
-        managed: None,
-        name: "Test Plan".to_string(),
-        wake_for_backup: false,
-        include_network_interfaces: None,
-        dataless_files_option: None,
-        retain_all: false,
-        is_encrypted: false,
-        active: true,
-        notify_on_success: false,
-        prevent_sleep: false,
-        creation_time: 1678886400, // Example timestamp
-        pause_on_battery: false,
-        retain_weeks: 4,
-        retain_hours: 24,
-        prevent_backup_on_constrained_networks: None,
-        include_wi_fi_networks: false,
-        thread_count: 1,
-        prevent_backup_on_expensive_networks: None,
-        email_report_json: email_report,
-        include_file_list_in_activity_log: false,
+        transfer_rate_json: transfer_rate, cpu_usage: 50, id: 1, storage_location_id: 1,
+        excluded_network_interfaces: vec![], needs_arq5_buckets: false, use_buzhash: true,
+        arq5_use_s3_ia: false, object_lock_update_interval_days: 0,
+        plan_uuid: "test-plan-uuid".to_string(), schedule_json: schedule,
+        keep_deleted_files: false, version: 1, created_at_pro_console: None,
+        backup_folder_plan_mount_points_are_initialized: None, include_new_volumes: false,
+        retain_months: 1, use_apfs_snapshots: false, backup_set_is_initialized: None,
+        backup_folder_plans_by_uuid: HashMap::new(), notify_on_error: false, retain_days: 7,
+        update_time: 0.0, excluded_wi_fi_network_names: vec![], object_lock_available: None,
+        managed: None, name: "Test Plan".to_string(), wake_for_backup: false,
+        include_network_interfaces: None, dataless_files_option: None, retain_all: false,
+        is_encrypted: false, active: true, notify_on_success: false, prevent_sleep: false,
+        creation_time: 1678886400, pause_on_battery: false, retain_weeks: 4, retain_hours: 24,
+        prevent_backup_on_constrained_networks: None, include_wi_fi_networks: false,
+        thread_count: 1, prevent_backup_on_expensive_networks: None,
+        email_report_json: email_report, include_file_list_in_activity_log: false,
         no_backups_alert_days: 0,
     };
 
-    // Mock Node structure using crate::node::Node
-    let _file_node = crate::node::Node {
-        is_tree: false,
-        item_size: 1024,
-        deleted: false,
-        computer_os_type: Some(1),
-        modification_time_sec: 1678886400,
-        modification_time_nsec: 0,
-        change_time_sec: 1678886400,
-        change_time_nsec: 0,
-        creation_time_sec: 1678886400,
-        creation_time_nsec: 0,
-        st_mode: 0o100644,
-        st_ino: 1,
-        st_nlink: 1,
-        st_gid: 0,
-        st_uid: Some(0),
-        username: Some("testuser".to_string()),
-        group_name: Some("testgroup".to_string()),
-        st_dev: 0,
-        st_rdev: 0,
-        st_flags: 0,
-        win_attrs: Some(0),
-        reparse_tag: None,
-        reparse_point_is_directory: None,
-        contained_files_count: None,
-        data_blob_locs: vec![],
-        tree_blob_loc: None,
-        xattrs_blob_locs: None,
-        acl_blob_loc: None,
-        // Arq5 specific fields (initialize to None or default for an Arq7 context node)
-        arq5_tree_contains_missing_items: None,
-        arq5_data_compression_type: None,
-        arq5_xattrs_compression_type: None,
-        arq5_acl_compression_type: None,
-        arq5_xattrs_blob_key: None,
-        arq5_xattrs_size: None,
-        arq5_acl_blob_key: None,
-        arq5_finder_flags: None,
-        arq5_extended_finder_flags: None,
-        arq5_finder_file_type: None,
-        arq5_finder_file_creator: None,
-        arq5_is_file_extension_hidden: None,
-        arq5_st_blocks: None,
-        arq5_st_blksize: None,
+    // Mock root_backup_node (as a directory)
+    let root_backup_node_content_blob_loc = crate::blob_location::BlobLoc {
+        blob_identifier: "dummy_root_content_tree_blob".to_string(), compression_type: 0,
+        is_packed: false, length: 0, offset: 0,
+        relative_path: "dummy/path/root_content_tree_blob".to_string(),
+        stretch_encryption_key: false, is_large_pack: Some(false),
     };
-
-    let _dir_node = crate::node::Node {
-        is_tree: true,
-        item_size: 0,
-        deleted: false,
-        computer_os_type: Some(1),
-        modification_time_sec: 1678886400,
-        modification_time_nsec: 0,
-        change_time_sec: 1678886400,
-        change_time_nsec: 0,
-        creation_time_sec: 1678886400,
-        creation_time_nsec: 0,
-        st_mode: 0o040755,
-        st_ino: 2,
-        st_nlink: 2,
-        st_gid: 0,
-        st_uid: Some(0),
-        username: Some("testuser".to_string()),
-        group_name: Some("testgroup".to_string()),
-        st_dev: 0,
-        st_rdev: 0,
-        st_flags: 0,
-        win_attrs: Some(0),
-        reparse_tag: None,
-        reparse_point_is_directory: None,
-        contained_files_count: Some(1),
-        data_blob_locs: vec![],
-        tree_blob_loc: Some(crate::blob_location::BlobLoc {
-            blob_identifier: "dummy_tree_blob".to_string(),
-            compression_type: 0,
-            is_packed: false,
-            length: 0,
-            offset: 0,
-            relative_path: "dummy/path/tree_blob".to_string(),
-            stretch_encryption_key: false,
-            is_large_pack: Some(false),
-        }),
-        xattrs_blob_locs: None,
-        acl_blob_loc: None,
-        arq5_tree_contains_missing_items: None,
-        arq5_data_compression_type: None,
-        arq5_xattrs_compression_type: None,
-        arq5_acl_compression_type: None,
-        arq5_xattrs_blob_key: None,
-        arq5_xattrs_size: None,
-        arq5_acl_blob_key: None,
-        arq5_finder_flags: None,
-        arq5_extended_finder_flags: None,
-        arq5_finder_file_type: None,
-        arq5_finder_file_creator: None,
-        arq5_is_file_extension_hidden: None,
-        arq5_st_blocks: None,
-        arq5_st_blksize: None,
-    };
-
-    // Root node for the backup record
     let root_backup_node = crate::node::Node {
-        is_tree: true,
-        item_size: 0,
-        deleted: false,
-        computer_os_type: Some(1),
-        modification_time_sec: 1678886400,
-        modification_time_nsec: 0,
-        change_time_sec: 1678886400,
-        change_time_nsec: 0,
-        creation_time_sec: 1678886400,
-        creation_time_nsec: 0,
-        st_mode: 0o040755,
-        st_ino: 3,
-        st_nlink: 2,
-        st_gid: 0,
-        st_uid: Some(0),
-        username: Some("testuser".to_string()),
-        group_name: Some("testgroup".to_string()),
-        st_dev: 0,
-        st_rdev: 0,
-        st_flags: 0,
-        win_attrs: Some(0),
-        reparse_tag: None,
-        reparse_point_is_directory: None,
-        contained_files_count: Some(1),
+        is_tree: true, item_size: 0, deleted: false, computer_os_type: Some(1),
+        modification_time_sec: 1678886400, modification_time_nsec: 0,
+        change_time_sec: 1678886400, change_time_nsec: 0,
+        creation_time_sec: 1678886400, creation_time_nsec: 0,
+        st_mode: 0o040755, st_ino: 3, st_nlink: 2, st_gid: 0, st_uid: Some(0),
+        username: Some("testuser".to_string()), group_name: Some("testgroup".to_string()),
+        st_dev: 0, st_rdev: 0, st_flags: 0, win_attrs: Some(0),
+        reparse_tag: None, reparse_point_is_directory: None, contained_files_count: Some(0),
         data_blob_locs: vec![],
-        tree_blob_loc: Some(crate::blob_location::BlobLoc {
-            blob_identifier: "dummy_root_tree_blob".to_string(),
-            compression_type: 0,
-            is_packed: false,
-            length: 0,
-            offset: 0,
-            relative_path: "dummy/path/root_tree_blob".to_string(),
-            stretch_encryption_key: false,
-            is_large_pack: Some(false),
-        }),
-        xattrs_blob_locs: None,
-        acl_blob_loc: None,
-        arq5_tree_contains_missing_items: None,
-        arq5_data_compression_type: None,
-        arq5_xattrs_compression_type: None,
-        arq5_acl_compression_type: None,
-        arq5_xattrs_blob_key: None,
-        arq5_xattrs_size: None,
-        arq5_acl_blob_key: None,
-        arq5_finder_flags: None,
-        arq5_extended_finder_flags: None,
-        arq5_finder_file_type: None,
-        arq5_finder_file_creator: None,
-        arq5_is_file_extension_hidden: None,
-        arq5_st_blocks: None,
-        arq5_st_blksize: None,
+        tree_blob_loc: Some(root_backup_node_content_blob_loc.clone()),
+        xattrs_blob_locs: None, acl_blob_loc: None,
+        arq5_tree_contains_missing_items: None, arq5_data_compression_type: None,
+        arq5_xattrs_compression_type: None, arq5_acl_compression_type: None,
+        arq5_xattrs_blob_key: None, arq5_xattrs_size: None, arq5_acl_blob_key: None,
+        arq5_finder_flags: None, arq5_extended_finder_flags: None,
+        arq5_finder_file_type: None, arq5_finder_file_creator: None,
+        arq5_is_file_extension_hidden: None, arq5_st_blocks: None, arq5_st_blksize: None,
     };
 
     let arq7_record = Arq7BackupRecord {
         backup_folder_uuid: "test-folder-uuid".to_string(),
-        disk_identifier: "test-disk".to_string(),
-        storage_class: "STANDARD".to_string(),
-        version: 100,
-        backup_plan_uuid: "test-plan-uuid".to_string(),
-        backup_record_errors: None,
-        copied_from_snapshot: false,
-        copied_from_commit: false,
-        node: root_backup_node.clone(), // The root of this backup
-        arq_version: Some("7.0.0".to_string()),
-        archived: Some(false),
-        backup_plan_json: None, // Not needed for this test's focus
-        relative_path: Some("/".to_string()),
-        computer_os_type: Some(1),
-        local_path: Some("/test/backup/source".to_string()),
-        local_mount_point: Some("/".to_string()),
-        is_complete: Some(true),
-        creation_date: Some(1678886400.0), // March 15, 2023
+        disk_identifier: "test-disk".to_string(), storage_class: "STANDARD".to_string(),
+        version: 100, backup_plan_uuid: "test-plan-uuid".to_string(),
+        backup_record_errors: None, copied_from_snapshot: false, copied_from_commit: false,
+        node: root_backup_node.clone(),
+        arq_version: Some("7.0.0".to_string()), archived: Some(false),
+        backup_plan_json: None, relative_path: Some("/".to_string()),
+        computer_os_type: Some(1), local_path: Some("/test/backup/source".to_string()),
+        local_mount_point: Some("/".to_string()), is_complete: Some(true),
+        creation_date: Some(1678886400.0), // March 15, 2023 12:00:00 UTC
         volume_name: Some("TestVolume".to_string()),
     };
 
     let mut backup_records = HashMap::new();
-    backup_records.insert(
-        "test-folder-uuid".to_string(),
-        vec![GenericBackupRecord::Arq7(arq7_record)],
-    );
+    backup_records.insert("test-folder-uuid".to_string(), vec![GenericBackupRecord::Arq7(arq7_record)]);
 
-    // Create a dummy backup_set_dir for the test. It doesn't need to exist.
-    let dummy_backup_set_dir = std::path::PathBuf::from("dummy_backup_set_dir_for_test");
+    let dummy_backup_set_dir = std::path::PathBuf::from("dummy_get_root_dir_test");
 
     let backup_set = BackupSet {
-        backup_config,
-        backup_folders,
-        backup_plan,
-        backup_folder_configs: HashMap::new(),
-        backup_records,
-        encryption_keyset: None,
-        root_path: dummy_backup_set_dir.clone(),
+        backup_config, backup_folders, backup_plan,
+        backup_folder_configs: HashMap::new(), backup_records,
+        encryption_keyset: None, root_path: dummy_backup_set_dir.clone(),
     };
 
-    // --- Mocking the load_tree_with_encryption behavior ---
-    // This is tricky because the actual method involves file system access.
-    // For an isolated unit test, we'd ideally mock the `Node::load_tree_with_encryption` method.
-    // Rust's struct methods don't allow direct mocking like in some other languages without specific patterns (e.g., traits).
-    //
-    // Workaround for this test:
-    // `node_to_directory_entry` calls `node.load_tree_with_encryption`.
-    // If `tree_blob_loc` is None, it returns Ok(None) for the tree, leading to an empty children list.
-    // If `tree_blob_loc` is Some, it tries to load.
-    //
-    // For this test, we'll ensure tree_blob_loc is Some for directories we want to have children,
-    // but the actual `load_data` within `load_tree_with_encryption` will likely fail if it tries to read
-    // from "dummy/path/...". This is okay if `binary::BinaryTree::from_decompressed_data` can handle empty data or
-    // if the test setup ensures that the specific paths aren't hit in a way that causes a panic.
-    //
-    // A more robust solution would be to refactor `load_tree_with_encryption` to take a trait
-    // that provides file system access, which can then be mocked.
-    // For now, we rely on the fact that if `load_data` in `BlobLoc` returns an error (e.g. file not found),
-    // `load_tree_with_encryption` will propagate that error.
-    //
-    // Let's assume for this test that we're primarily checking the directory structure creation logic
-    // and not the deep file loading part. We can simulate children by directly constructing the
-    // expected `DirectoryEntryNode` if mocking `load_tree_with_encryption` is too complex here.
-    //
-    // Given the current structure, the test will call the real `load_tree_with_encryption`.
-    // If `dummy_backup_set_dir` and the `relative_path` in `BlobLoc` don't point to real files,
-    // `load_data` will fail, and `load_tree_with_encryption` will return an error,
-    // which `node_to_directory_entry` will propagate.
-    //
-    // To make this test pass without actual file loading, we can adjust `node_to_directory_entry`
-    // or how it's called. However, the request is to add tests for the *current* code.
-    //
-    // Let's try to make the test pass by expecting an error if file loading fails,
-    // or by ensuring the dummy paths are such that loading returns empty/default trees.
-    //
-    // The simplest way to test the logic without file system interaction is to have `load_tree_with_encryption`
-    // return a predefined tree for specific nodes. This isn't possible without code changes.
-    //
-    // The current implementation of `node_to_directory_entry` will try to load trees.
-    // If `tree_blob_loc` is None, it works fine (empty children).
-    // If `tree_blob_loc` is Some(...), it will attempt to load.
-    // Since `dummy_backup_set_dir` is fake, `File::open` in `BlobLoc::load_from_pack_file_with_encryption` or `load_standalone_file_with_encryption`
-    // will fail. This error will propagate up.
-    //
-    // So, the test as written will likely fail with a file not found error from `get_root_directory`
-    // because `node_to_directory_entry` will try to load trees from non-existent paths.
-
-    // We expect `get_root_directory` to fail because the dummy paths in BlobLocs won't be found.
-    // This tests that the error propagates correctly.
-    // To test the successful generation of the tree structure, we would need to mock the file system
-    // or provide actual (minimal) pack files.
-    // For this exercise, let's verify the error case first.
-
     let root_dir_result = backup_set.get_root_directory();
+    assert!(root_dir_result.is_ok(), "get_root_directory should now succeed with on-demand loading. Error: {:?}", root_dir_result.err());
 
-    // Assert that the result is an error, because the dummy tree files don't exist.
-    assert!(
-        root_dir_result.is_err(),
-        "Expected get_root_directory to fail due to missing dummy tree files, but it succeeded."
-    );
-    if let Err(e) = root_dir_result {
-        println!("Got expected error from get_root_directory: {}", e);
-        // We can be more specific about the error type if needed, e.g., checking if it's an std::io::Error kind::NotFound.
-    }
+    if let Ok(root_dir) = root_dir_result {
+        assert_eq!(root_dir.name, "/");
+        assert!(root_dir.children.is_some());
+        let root_children = root_dir.children.unwrap();
+        assert_eq!(root_children.len(), 1, "Expected one backup session directory");
 
-    // --- Test for successful case (requires more involved mocking or setup) ---
-    // To test the successful case, we'd need `node.load_tree_with_encryption` to return mocked `BinaryTree` data.
-    // This is not straightforward with the current code structure without more significant refactoring
-    // or using a mocking library that can handle struct methods (which can be complex in Rust).
-    //
-    // For the purpose of this exercise, demonstrating the error propagation is a valid test.
-    // A more complete test suite would involve:
-    // 1. Tests with an empty backup set.
-    // 2. Tests with records that have no creation date.
-    // 3. Tests with Arq5 records (verifying they are skipped).
-    // 4. A test that successfully builds a simple tree, which would require either:
-    //    a. Actual minimal pack files in a temporary directory.
-    //    b. Refactoring `BackupSet` or `Node` to allow injecting a mock tree loading mechanism.
+        match &root_children[0] {
+            DirectoryEntry::Directory(session_dir) => {
+                assert_eq!(session_dir.name, "2023-03-15T12-00-00", "Session directory name mismatch");
+                assert!(session_dir.children.is_some());
+                let session_children = session_dir.children.as_ref().unwrap();
+                assert_eq!(session_children.len(), 1, "Session directory should contain one entry (the backup's root)");
 
-    // Example of what a success-case assertion might look like if mocking was easy:
-    // (This part is commented out because it won't work with current code without heavy mocking)
-    /*
-    // --- This is a conceptual success test, assuming `load_tree_with_encryption` could be mocked ---
-    // Assume we have a way to make `load_tree_with_encryption` for `root_backup_node` return a tree
-    // that has one child directory "subdir", which in turn has one child file "file.txt".
-
-    let successful_root_dir = backup_set.get_root_directory(&dummy_backup_set_dir).unwrap();
-    assert_eq!(successful_root_dir.name, "/");
-    assert_eq!(successful_root_dir.children.len(), 1);
-
-    if let DirectoryEntry::Directory(record_dir) = &successful_root_dir.children[0] {
-        assert_eq!(record_dir.name, "2023-03-15T12-00-00"); // Or whatever the formatted date is
-        assert_eq!(record_dir.children.len(), 1); // Expecting the root of the backup itself
-
-        if let DirectoryEntry::Directory(backup_content_root) = &record_dir.children[0] {
-            assert_eq!(backup_content_root.name, "/test/backup/source");
-            assert_eq!(backup_content_root.children.len(), 1); // "subdir"
-
-            if let DirectoryEntry::Directory(subdir_entry) = &backup_content_root.children[0] {
-                assert_eq!(subdir_entry.name, "subdir"); // This name comes from the mocked BinaryTree
-                assert_eq!(subdir_entry.children.len(), 1); // "file.txt"
-
-                if let DirectoryEntry::File(file_entry) = &subdir_entry.children[0] {
-                    assert_eq!(file_entry.name, "file.txt");
-                    assert_eq!(file_entry.size, 1024);
-                } else {
-                    panic!("Expected file 'file.txt'");
+                match &session_children[0] {
+                    DirectoryEntry::Directory(backup_actual_root) => {
+                        assert_eq!(backup_actual_root.name, "/test/backup/source");
+                        assert!(backup_actual_root.children.is_none(), "Children of actual backup root should be None (not loaded yet)");
+                        assert_eq!(backup_actual_root.tree_blob_loc, Some(root_backup_node_content_blob_loc));
+                    }
+                    DirectoryEntry::File(_) => panic!("Expected backup actual root to be a directory, got a file."),
                 }
-            } else {
-                panic!("Expected directory 'subdir'");
             }
-        } else {
-            panic!("Expected directory '/test/backup/source'");
+            _ => panic!("Expected session entry to be a directory."),
         }
-    } else {
-        panic!("Expected a directory for the backup record");
     }
-    */
+}
+
+#[test]
+fn test_load_directory_children_empty() {
+    let backup_config = BackupConfig { blob_identifier_type: 0, max_packed_item_length: 0, backup_name: String::new(), is_worm: false, contains_glacier_archives: false, additional_unpacked_blob_dirs: vec![], chunker_version: 0, computer_name: String::new(), computer_serial: String::new(), blob_storage_class: String::new(), is_encrypted: false };
+    let backup_folders = BackupFolders { standard_object_dirs: vec![], standard_ia_object_dirs: vec![], onezone_ia_object_dirs: vec![], s3_glacier_object_dirs: vec![], s3_deep_archive_object_dirs: vec![], s3_glacier_ir_object_dirs: None, imported_from: None };
+    let backup_plan = BackupPlan { transfer_rate_json: TransferRate { enabled: false, start_time_of_day: "".to_string(), days_of_week: vec![], schedule_type: "".to_string(), end_time_of_day: "".to_string(), max_kbps: None }, cpu_usage: 0, id: 0, storage_location_id: 0, excluded_network_interfaces: vec![], needs_arq5_buckets: false, use_buzhash: false, arq5_use_s3_ia: false, object_lock_update_interval_days: 0, plan_uuid: String::new(), schedule_json: Schedule { backup_and_validate: false, start_when_volume_is_connected: false, pause_during_window: false, schedule_type: "".to_string(), days_of_week: None, every_hours: None, minutes_after_hour: None, pause_from: None, pause_to: None }, keep_deleted_files: false, version: 0, created_at_pro_console: None, backup_folder_plan_mount_points_are_initialized: None, include_new_volumes: false, retain_months: 0, use_apfs_snapshots: false, backup_set_is_initialized: None, backup_folder_plans_by_uuid: HashMap::new(), notify_on_error: false, retain_days: 0, update_time: 0.0, excluded_wi_fi_network_names: vec![], object_lock_available: None, managed: None, name: String::new(), wake_for_backup: false, include_network_interfaces: None, dataless_files_option: None, retain_all: false, is_encrypted: false, active: false, notify_on_success: false, prevent_sleep: false, creation_time: 0, pause_on_battery: false, retain_weeks: 0, retain_hours: 0, prevent_backup_on_constrained_networks: None, include_wi_fi_networks: false, thread_count: 0, prevent_backup_on_expensive_networks: None, email_report_json: EmailReport { port: 0, start_tls: false, authentication_type: "".to_string(), report_helo_use_ip: None, when: "".to_string(), report_type: "".to_string(), hostname: None, username: None, from_address: None, to_address: None, subject: None }, include_file_list_in_activity_log: false, no_backups_alert_days: 0 };
+
+    let backup_set = BackupSet {
+        backup_config, backup_folders, backup_plan,
+        backup_folder_configs: HashMap::new(), backup_records: HashMap::new(),
+        encryption_keyset: None, root_path: PathBuf::from("dummy_path_children_empty"),
+    };
+    let mut dir_node = DirectoryEntryNode {
+        name: "empty_dir".to_string(),
+        children: None,
+        tree_blob_loc: None,
+        modification_time_sec: 0, creation_time_sec: 0, mode: 0o040755,
+    };
+    let result = backup_set.load_directory_children(&mut dir_node);
+    assert!(result.is_ok());
+    assert!(dir_node.children.is_some());
+    assert!(dir_node.children.unwrap().is_empty());
+}
+
+#[test]
+fn test_load_directory_children_non_existent_blob() {
+    let backup_config = BackupConfig { blob_identifier_type: 0, max_packed_item_length: 0, backup_name: String::new(), is_worm: false, contains_glacier_archives: false, additional_unpacked_blob_dirs: vec![], chunker_version: 0, computer_name: String::new(), computer_serial: String::new(), blob_storage_class: String::new(), is_encrypted: false };
+    let backup_folders = BackupFolders { standard_object_dirs: vec![], standard_ia_object_dirs: vec![], onezone_ia_object_dirs: vec![], s3_glacier_object_dirs: vec![], s3_deep_archive_object_dirs: vec![], s3_glacier_ir_object_dirs: None, imported_from: None };
+    let backup_plan = BackupPlan { transfer_rate_json: TransferRate { enabled: false, start_time_of_day: "".to_string(), days_of_week: vec![], schedule_type: "".to_string(), end_time_of_day: "".to_string(), max_kbps: None }, cpu_usage: 0, id: 0, storage_location_id: 0, excluded_network_interfaces: vec![], needs_arq5_buckets: false, use_buzhash: false, arq5_use_s3_ia: false, object_lock_update_interval_days: 0, plan_uuid: String::new(), schedule_json: Schedule { backup_and_validate: false, start_when_volume_is_connected: false, pause_during_window: false, schedule_type: "".to_string(), days_of_week: None, every_hours: None, minutes_after_hour: None, pause_from: None, pause_to: None }, keep_deleted_files: false, version: 0, created_at_pro_console: None, backup_folder_plan_mount_points_are_initialized: None, include_new_volumes: false, retain_months: 0, use_apfs_snapshots: false, backup_set_is_initialized: None, backup_folder_plans_by_uuid: HashMap::new(), notify_on_error: false, retain_days: 0, update_time: 0.0, excluded_wi_fi_network_names: vec![], object_lock_available: None, managed: None, name: String::new(), wake_for_backup: false, include_network_interfaces: None, dataless_files_option: None, retain_all: false, is_encrypted: false, active: false, notify_on_success: false, prevent_sleep: false, creation_time: 0, pause_on_battery: false, retain_weeks: 0, retain_hours: 0, prevent_backup_on_constrained_networks: None, include_wi_fi_networks: false, thread_count: 0, prevent_backup_on_expensive_networks: None, email_report_json: EmailReport { port: 0, start_tls: false, authentication_type: "".to_string(), report_helo_use_ip: None, when: "".to_string(), report_type: "".to_string(), hostname: None, username: None, from_address: None, to_address: None, subject: None }, include_file_list_in_activity_log: false, no_backups_alert_days: 0 };
+
+    let backup_set = BackupSet {
+        backup_config, backup_folders, backup_plan,
+        backup_folder_configs: HashMap::new(), backup_records: HashMap::new(),
+        encryption_keyset: None, root_path: PathBuf::from("dummy_path_children_err"),
+    };
+    let mut dir_node = DirectoryEntryNode {
+        name: "err_dir".to_string(),
+        children: None,
+        tree_blob_loc: Some(crate::blob_location::BlobLoc {
+            blob_identifier: "non_existent_blob".to_string(), compression_type: 0, is_packed: false,
+            length: 0, offset: 0, relative_path: "non_existent_pack/non_existent_blob".to_string(),
+            stretch_encryption_key: false, is_large_pack: Some(false),
+        }),
+        modification_time_sec: 0, creation_time_sec: 0, mode: 0o040755,
+    };
+    let result = backup_set.load_directory_children(&mut dir_node);
+    assert!(result.is_err());
+}
+
+#[test]
+fn test_read_file_content_empty() {
+    let backup_config = BackupConfig { blob_identifier_type: 0, max_packed_item_length: 0, backup_name: String::new(), is_worm: false, contains_glacier_archives: false, additional_unpacked_blob_dirs: vec![], chunker_version: 0, computer_name: String::new(), computer_serial: String::new(), blob_storage_class: String::new(), is_encrypted: false };
+    let backup_folders = BackupFolders { standard_object_dirs: vec![], standard_ia_object_dirs: vec![], onezone_ia_object_dirs: vec![], s3_glacier_object_dirs: vec![], s3_deep_archive_object_dirs: vec![], s3_glacier_ir_object_dirs: None, imported_from: None };
+    let backup_plan = BackupPlan { transfer_rate_json: TransferRate { enabled: false, start_time_of_day: "".to_string(), days_of_week: vec![], schedule_type: "".to_string(), end_time_of_day: "".to_string(), max_kbps: None }, cpu_usage: 0, id: 0, storage_location_id: 0, excluded_network_interfaces: vec![], needs_arq5_buckets: false, use_buzhash: false, arq5_use_s3_ia: false, object_lock_update_interval_days: 0, plan_uuid: String::new(), schedule_json: Schedule { backup_and_validate: false, start_when_volume_is_connected: false, pause_during_window: false, schedule_type: "".to_string(), days_of_week: None, every_hours: None, minutes_after_hour: None, pause_from: None, pause_to: None }, keep_deleted_files: false, version: 0, created_at_pro_console: None, backup_folder_plan_mount_points_are_initialized: None, include_new_volumes: false, retain_months: 0, use_apfs_snapshots: false, backup_set_is_initialized: None, backup_folder_plans_by_uuid: HashMap::new(), notify_on_error: false, retain_days: 0, update_time: 0.0, excluded_wi_fi_network_names: vec![], object_lock_available: None, managed: None, name: String::new(), wake_for_backup: false, include_network_interfaces: None, dataless_files_option: None, retain_all: false, is_encrypted: false, active: false, notify_on_success: false, prevent_sleep: false, creation_time: 0, pause_on_battery: false, retain_weeks: 0, retain_hours: 0, prevent_backup_on_constrained_networks: None, include_wi_fi_networks: false, thread_count: 0, prevent_backup_on_expensive_networks: None, email_report_json: EmailReport { port: 0, start_tls: false, authentication_type: "".to_string(), report_helo_use_ip: None, when: "".to_string(), report_type: "".to_string(), hostname: None, username: None, from_address: None, to_address: None, subject: None }, include_file_list_in_activity_log: false, no_backups_alert_days: 0 };
+    let backup_set = BackupSet {
+        backup_config, backup_folders, backup_plan,
+        backup_folder_configs: HashMap::new(), backup_records: HashMap::new(),
+        encryption_keyset: None, root_path: PathBuf::from("dummy_path_file_empty"),
+    };
+    let file_entry = FileEntry {
+        name: "empty_file.txt".to_string(), size: 0, data_blob_locs: vec![],
+        modification_time_sec: 0, creation_time_sec: 0, mode: 0o100644,
+    };
+    let result = backup_set.read_file_content(&file_entry);
+    assert!(result.is_ok());
+    assert!(result.unwrap().is_empty());
+}
+
+#[test]
+fn test_read_file_content_non_existent_blob() {
+    let backup_config = BackupConfig { blob_identifier_type: 0, max_packed_item_length: 0, backup_name: String::new(), is_worm: false, contains_glacier_archives: false, additional_unpacked_blob_dirs: vec![], chunker_version: 0, computer_name: String::new(), computer_serial: String::new(), blob_storage_class: String::new(), is_encrypted: false };
+    let backup_folders = BackupFolders { standard_object_dirs: vec![], standard_ia_object_dirs: vec![], onezone_ia_object_dirs: vec![], s3_glacier_object_dirs: vec![], s3_deep_archive_object_dirs: vec![], s3_glacier_ir_object_dirs: None, imported_from: None };
+    let backup_plan = BackupPlan { transfer_rate_json: TransferRate { enabled: false, start_time_of_day: "".to_string(), days_of_week: vec![], schedule_type: "".to_string(), end_time_of_day: "".to_string(), max_kbps: None }, cpu_usage: 0, id: 0, storage_location_id: 0, excluded_network_interfaces: vec![], needs_arq5_buckets: false, use_buzhash: false, arq5_use_s3_ia: false, object_lock_update_interval_days: 0, plan_uuid: String::new(), schedule_json: Schedule { backup_and_validate: false, start_when_volume_is_connected: false, pause_during_window: false, schedule_type: "".to_string(), days_of_week: None, every_hours: None, minutes_after_hour: None, pause_from: None, pause_to: None }, keep_deleted_files: false, version: 0, created_at_pro_console: None, backup_folder_plan_mount_points_are_initialized: None, include_new_volumes: false, retain_months: 0, use_apfs_snapshots: false, backup_set_is_initialized: None, backup_folder_plans_by_uuid: HashMap::new(), notify_on_error: false, retain_days: 0, update_time: 0.0, excluded_wi_fi_network_names: vec![], object_lock_available: None, managed: None, name: String::new(), wake_for_backup: false, include_network_interfaces: None, dataless_files_option: None, retain_all: false, is_encrypted: false, active: false, notify_on_success: false, prevent_sleep: false, creation_time: 0, pause_on_battery: false, retain_weeks: 0, retain_hours: 0, prevent_backup_on_constrained_networks: None, include_wi_fi_networks: false, thread_count: 0, prevent_backup_on_expensive_networks: None, email_report_json: EmailReport { port: 0, start_tls: false, authentication_type: "".to_string(), report_helo_use_ip: None, when: "".to_string(), report_type: "".to_string(), hostname: None, username: None, from_address: None, to_address: None, subject: None }, include_file_list_in_activity_log: false, no_backups_alert_days: 0 };
+
+    let backup_set = BackupSet {
+        backup_config, backup_folders, backup_plan,
+        backup_folder_configs: HashMap::new(), backup_records: HashMap::new(),
+        encryption_keyset: None, root_path: PathBuf::from("dummy_path_file_err"),
+    };
+    let file_entry = FileEntry {
+        name: "err_file.txt".to_string(), size: 100,
+        data_blob_locs: vec![crate::blob_location::BlobLoc {
+            blob_identifier: "non_existent_data_blob".to_string(), compression_type: 0, is_packed: false,
+            length: 100, offset: 0, relative_path: "non_existent_pack/non_existent_data_blob".to_string(),
+            stretch_encryption_key: false, is_large_pack: Some(false),
+        }],
+        modification_time_sec: 0, creation_time_sec: 0, mode: 0o100644,
+    };
+    let result = backup_set.read_file_content(&file_entry);
+    assert!(result.is_err());
 }
