@@ -10,7 +10,7 @@ use crate::error::{Error, Result};
 use crate::object_encryption::EncryptedObject; // For decryption logic
 
 /// BlobLoc describes the location of a blob
-#[derive(Debug, Clone, Deserialize, Serialize)]
+#[derive(Debug, Clone, Deserialize, Serialize, PartialEq)]
 pub struct BlobLoc {
     #[serde(rename = "blobIdentifier")]
     pub blob_identifier: String,
