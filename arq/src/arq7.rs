@@ -18,11 +18,12 @@
 //! - Recursive loading of backup records from all folders
 //! - Error handling with graceful degradation
 //!
-//! ### 🔄 Binary Format Support (Partial)
-//! - Binary format parsing utilities for Nodes and Trees
-//! - BlobLoc data loading from pack files
-//! - LZ4 decompression support
-//! - Foundation for full binary tree/node parsing
+//! ### 🔄 Binary Format Support
+//! - The `arq::arq7::binary` module provides `ArqBinaryReader` for low-level binary parsing.
+//! - Arq 7 binary nodes are parsed into the unified `crate::node::Node` using `crate::node::Node::from_binary_reader_arq7`.
+//! - Arq 7 binary trees are parsed into the unified `crate::tree::Tree` using `crate::tree::Tree::from_arq7_binary_data`.
+//! - `BlobLoc` (now `crate::blob_location::BlobLoc`) is used for referencing data in pack files or standalone objects,
+//!   with support for LZ4 decompression where applicable.
 //!
 //! ## Usage Examples
 //!
@@ -799,128 +800,7 @@ pub struct Node {
     pub acl_blob_loc: Option<BlobLoc>,
 }
 
-impl Node {
-    /// Parses a Node from binary data.
-    pub fn from_binary_reader<R: binary::ArqBinaryReader>(
-        reader: &mut R,
-        tree_version: Option<u32>,
-    ) -> Result<Self> {
-        let is_tree = reader.read_arq_bool()?;
-        let tree_blob_loc = if is_tree {
-            BlobLoc::from_binary_reader(reader).ok()
-        } else {
-            None
-        };
-        let computer_os_type = reader.read_arq_u32()?;
-        let data_blob_locs_count = reader.read_arq_u64()?;
-        let mut data_blob_locs = Vec::new();
-        for _i in 0..data_blob_locs_count {
-            match BlobLoc::from_binary_reader(reader) {
-                Ok(blob_loc) => data_blob_locs.push(blob_loc),
-                Err(_) => {
-                    panic!();
-                }
-            }
-        }
-
-        let acl_blob_loc = match reader.read_arq_bool() {
-            Ok(acl_not_nil) if acl_not_nil => BlobLoc::from_binary_reader(reader).ok(),
-            _ => None,
-        };
-
-        let xattrs_blob_locs_count = reader.read_arq_u64().unwrap_or(0);
-        let mut parsed_xattrs_blob_locs = Vec::new();
-
-        for _ in 0..xattrs_blob_locs_count {
-            if let Ok(blob_loc) = BlobLoc::from_binary_reader(reader) {
-                parsed_xattrs_blob_locs.push(blob_loc);
-            } else {
-                panic!();
-            }
-        }
-        let xattrs_blob_locs = if parsed_xattrs_blob_locs.is_empty() && xattrs_blob_locs_count == 0
-        {
-            None
-        } else {
-            Some(parsed_xattrs_blob_locs)
-        };
-
-        // Fallback values are from original BinaryNode::from_reader
-        let item_size = reader
-            .read_arq_u64()
-            .unwrap_or(if is_tree { 0 } else { 15 });
-        let contained_files_count =
-            Some(reader.read_arq_u64().unwrap_or(if is_tree { 0 } else { 1 })); // Wrap in Some()
-
-        let modification_time_sec = reader.read_arq_i64().unwrap_or(0);
-        let modification_time_nsec = reader.read_arq_i64().unwrap_or(0);
-        let change_time_sec = reader.read_arq_i64().unwrap_or(0);
-        let change_time_nsec = reader.read_arq_i64().unwrap_or(0);
-        let creation_time_sec = reader.read_arq_i64().unwrap_or(0);
-        let creation_time_nsec = reader.read_arq_i64().unwrap_or(0);
-
-        let username = reader.read_arq_string().ok().flatten();
-        let group_name = reader.read_arq_string().ok().flatten();
-        let deleted = reader.read_arq_bool().unwrap_or(false);
-
-        let mac_st_dev = reader.read_arq_i32().unwrap_or(0);
-        let mac_st_ino = reader.read_arq_u64().unwrap_or(0);
-        let mac_st_mode =
-            reader
-                .read_arq_u32()
-                .unwrap_or(if is_tree { 0o040755 } else { 0o100644 }); // Typical modes
-        let mac_st_nlink = reader.read_arq_u32().unwrap_or(1);
-        let mac_st_uid = Some(reader.read_arq_u32().unwrap_or(0)); // Wrap in Some()
-        let mac_st_gid = reader.read_arq_u32().unwrap_or(0);
-        let mac_st_rdev = reader.read_arq_i32().unwrap_or(0);
-        let mac_st_flags = reader.read_arq_i32().unwrap_or(0);
-
-        let win_attrs = reader.read_arq_u32().unwrap_or(0);
-
-        let reparse_tag = if tree_version.unwrap_or(1) >= 2 {
-            reader.read_arq_u32().ok()
-        } else {
-            None
-        };
-        let reparse_point_is_directory = if tree_version.unwrap_or(1) >= 2 {
-            reader.read_arq_bool().ok()
-        } else {
-            None
-        };
-
-        Ok(Node {
-            is_tree,
-            item_size,
-            deleted,
-            computer_os_type,
-            modification_time_sec,
-            modification_time_nsec,
-            change_time_sec,
-            change_time_nsec,
-            creation_time_sec,
-            creation_time_nsec,
-            mac_st_mode,
-            mac_st_ino,
-            mac_st_nlink,
-            mac_st_gid,
-            win_attrs,
-            contained_files_count,
-            mac_st_uid,
-            mac_st_dev,
-            mac_st_rdev,
-            mac_st_flags,
-            data_blob_locs,
-            tree_blob_loc,
-            xattrs_blob_locs,
-            username,
-            group_name,
-            reparse_tag,
-            reparse_point_is_directory,
-            acl_blob_loc,
-        })
-    }
-}
-
+// The Node struct and its impl block have been moved to crate::node.
 // Arq5TreeBlobKey struct definition removed.
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -986,7 +866,7 @@ pub struct Arq7BackupRecord {
     pub copied_from_snapshot: bool,
     #[serde(rename = "copiedFromCommit")]
     pub copied_from_commit: bool,
-    pub node: Node,
+    pub node: crate::node::Node, // Changed to use unified Node
     #[serde(rename = "arqVersion")]
     pub arq_version: Option<String>,
     pub archived: Option<bool>,
@@ -1156,77 +1036,6 @@ impl BackupFolder {
     ) -> Result<BackupFolder> {
         load_json_with_encryption(path, keyset)
     }
-}
-
-impl Node {
-    /// Load the tree data if this node is a tree
-    pub fn load_tree(
-        &self,
-        backup_set_path: &std::path::Path,
-    ) -> Result<Option<binary::BinaryTree>> {
-        self.load_tree_with_encryption(backup_set_path, None)
-    }
-
-    /// Load tree data with encryption support
-    pub fn load_tree_with_encryption<P: AsRef<Path>>(
-        &self,
-        backup_set_dir: P,
-        keyset: Option<&EncryptedKeySet>,
-    ) -> Result<Option<binary::BinaryTree>> {
-        if let Some(tree_blob_loc) = &self.tree_blob_loc {
-            tree_blob_loc.load_tree_with_encryption(backup_set_dir.as_ref(), keyset)
-        } else {
-            Ok(None)
-        }
-    }
-
-    /// Load data blob locations with encryption support
-    pub fn load_data_blobs_with_encryption<P: AsRef<Path>>(
-        &self,
-        backup_set_dir: P,
-        keyset: Option<&EncryptedKeySet>,
-    ) -> Result<Vec<Vec<u8>>> {
-        let mut data_chunks = Vec::new();
-        let backup_set_dir = backup_set_dir.as_ref();
-
-        for blob_loc in &self.data_blob_locs {
-            let data = blob_loc.load_data(backup_set_dir, keyset)?;
-            data_chunks.push(data);
-        }
-
-        Ok(data_chunks)
-    }
-
-    /// Reconstruct complete file data with encryption support
-    pub fn reconstruct_file_data_with_encryption<P: AsRef<Path>>(
-        &self,
-        backup_set_dir: P,
-        keyset: Option<&EncryptedKeySet>,
-    ) -> Result<Vec<u8>> {
-        let data_chunks = self.load_data_blobs_with_encryption(backup_set_dir.as_ref(), keyset)?;
-        Ok(data_chunks.into_iter().flatten().collect())
-    }
-
-    /// Extract complete file to path with encryption support
-    pub fn extract_file_with_encryption<P1: AsRef<Path>, P2: AsRef<Path>>(
-        &self,
-        backup_set_dir: P1,
-        output_path: P2,
-        keyset: Option<&EncryptedKeySet>,
-    ) -> Result<()> {
-        if self.is_tree {
-            return Err(Error::InvalidFormat(
-                "Cannot extract directory as file".to_string(),
-            ));
-        }
-
-        let file_data = self.reconstruct_file_data_with_encryption(backup_set_dir, keyset)?;
-        std::fs::write(output_path, file_data)?;
-        Ok(())
-    }
-
-    // The from_binary_node method that was here has been removed as it's obsolete.
-    // BinaryTree's from_reader now uses Node::from_binary_reader directly.
 }
 
 impl BackupSet {
@@ -1488,8 +1297,8 @@ impl BackupSet {
                         self.find_node_by_path(&record.node, file_path)?
                     {
                         if !node.is_tree {
-                            return node.extract_file_with_encryption(
-                                backup_set_dir.as_ref(), // Ensure P1 is AsRef<Path>
+                            return node.extract_file_with_encryption( // Use the method on crate::node::Node
+                                backup_set_dir.as_ref(),
                                 output_path,
                                 self.encryption_keyset.as_ref(),
                             );
@@ -1508,9 +1317,9 @@ impl BackupSet {
     /// Recursively find a node by path (operates on a given Node, typically from an Arq7 record)
     fn find_node_by_path(
         &self,
-        node: &Node, // This function is now more general, called with a specific node
+        node: &crate::node::Node, // This function is now more general, called with a specific node
         target_path: &str,
-    ) -> Result<Option<Node>> {
+    ) -> Result<Option<crate::node::Node>> {
         let path_parts: Vec<&str> = target_path.trim_start_matches('/').split('/').collect();
         self.find_node_recursive(node, &path_parts, 0)
     }
@@ -1519,11 +1328,11 @@ impl BackupSet {
     // but its callers need to ensure they provide a valid Node.
     fn find_node_recursive(
         &self,
-        node: &Node,
+        node: &crate::node::Node,
         path_parts: &[&str],
         depth: usize,
         
-    ) -> Result<Option<Node>> {
+    ) -> Result<Option<crate::node::Node>> {
         let backup_set_dir_ref: &Path = self.root_path.as_ref();
 
         if depth >= path_parts.len() {
@@ -1533,13 +1342,23 @@ impl BackupSet {
         if !node.is_tree {
             return Ok(None);
         }
-
-        if let Some(tree) =
-            node.load_tree_with_encryption(backup_set_dir_ref, self.encryption_keyset.as_ref())?
-        {
+        // TODO: This method needs to be implemented on crate::node::Node
+        // For now, assume it returns Ok(None) to allow compilation.
+        // This will affect functionality until `crate::node::Node::load_tree_with_encryption` is implemented.
+        // if let Some(tree) =
+        //     node.load_tree_with_encryption(backup_set_dir_ref, self.encryption_keyset.as_ref())?
+        // {
+        //     let target_name = path_parts[depth];
+        //     if let Some(child_node) = tree.child_nodes.get(target_name) {
+        //         return self.find_node_recursive(child_node, path_parts, depth + 1);
+        //     }
+        // }
+        // Use the Node's own method now
+        if let Some(tree) = node.load_tree_with_encryption(backup_set_dir_ref, self.encryption_keyset.as_ref())? {
             let target_name = path_parts[depth];
-            if let Some(child_node) = tree.child_nodes.get(target_name) {
-                return self.find_node_recursive(child_node, path_parts, depth + 1);
+            // The unified Tree uses `nodes` for its HashMap
+            if let Some(child_node_entry) = tree.nodes.get(target_name) {
+                return self.find_node_recursive(child_node_entry, path_parts, depth + 1);
             }
         }
         Ok(None)
@@ -1554,7 +1373,7 @@ impl BackupSet {
             for generic_record in records {
                 if let GenericBackupRecord::Arq7(record) = generic_record {
                     self.collect_files_recursive(
-                        &record.node,
+                        &record.node, // This is now crate::node::Node
                         String::new(),
                         &mut files,
                         backup_set_dir_ref,
@@ -1569,7 +1388,7 @@ impl BackupSet {
     // collect_files_recursive remains largely the same.
     fn collect_files_recursive(
         &self,
-        node: &Node,
+        node: &crate::node::Node, // Changed to crate::node::Node
         current_path: String,
         files: &mut Vec<String>,
         backup_set_dir: &Path,
@@ -1581,16 +1400,29 @@ impl BackupSet {
             return Ok(());
         }
 
-        if let Some(tree) =
-            node.load_tree_with_encryption(backup_set_dir, self.encryption_keyset.as_ref())?
-        {
-            for (name, child_node) in &tree.child_nodes {
+        // TODO: This method needs to be implemented on crate::node::Node
+        // For now, assume it returns Ok(None) to allow compilation.
+        // This will affect functionality until `crate::node::Node::load_tree_with_encryption` is implemented.
+        // if let Some(tree) =
+        //     node.load_tree_with_encryption(backup_set_dir, self.encryption_keyset.as_ref())?
+        // {
+        //     for (name, child_node) in &tree.child_nodes {
+        //         let child_path = if current_path.is_empty() {
+        //             name.clone()
+        //         } else {
+        //             format!("{}/{}", current_path, name)
+        //         };
+        //         self.collect_files_recursive(child_node, child_path, files, backup_set_dir)?;
+        //     }
+        // }
+        if let Some(tree) = node.load_tree_with_encryption(backup_set_dir, self.encryption_keyset.as_ref())? {
+            for (name, child_node_entry) in &tree.nodes { // Use tree.nodes
                 let child_path = if current_path.is_empty() {
                     name.clone()
                 } else {
                     format!("{}/{}", current_path, name)
                 };
-                self.collect_files_recursive(child_node, child_path, files, backup_set_dir)?;
+                self.collect_files_recursive(child_node_entry, child_path, files, backup_set_dir)?;
             }
         }
         Ok(())
@@ -1610,7 +1442,7 @@ impl BackupSet {
                 match generic_record {
                     GenericBackupRecord::Arq7(record) => {
                         let (file_count, total_size) = count_files_in_node(
-                            &record.node,
+                            &record.node, // This is now crate::node::Node
                             backup_set_dir_ref,
                             self.encryption_keyset.as_ref(),
                         )?;
@@ -1673,15 +1505,22 @@ impl BackupSet {
     }
 
     /// Converts a Node into a DirectoryEntry (File or Directory).
-    fn node_to_directory_entry(&self, node: &Node, name: String) -> Result<DirectoryEntry> {
+    fn node_to_directory_entry(&self, node: &crate::node::Node, name: String) -> Result<DirectoryEntry> { // Changed to crate::node::Node
         let backup_set_dir = &self.root_path;
         if node.is_tree {
             let mut children = Vec::new();
-            if let Some(tree) =
-                node.load_tree_with_encryption(backup_set_dir, self.encryption_keyset.as_ref())?
-            {
-                for (child_name, child_node) in &tree.child_nodes {
-                    children.push(self.node_to_directory_entry(child_node, child_name.clone())?);
+            // TODO: This method needs to be implemented on crate::node::Node
+            // For now, assume it returns Ok(None) to allow compilation.
+            // if let Some(tree) =
+            //     node.load_tree_with_encryption(backup_set_dir, self.encryption_keyset.as_ref())?
+            // {
+            //     for (child_name, child_node) in &tree.child_nodes {
+            //         children.push(self.node_to_directory_entry(child_node, child_name.clone())?);
+            //     }
+            // }
+            if let Some(tree) = node.load_tree_with_encryption(backup_set_dir, self.encryption_keyset.as_ref())? {
+                for (child_name, child_node_entry) in &tree.nodes { // Use tree.nodes
+                    children.push(self.node_to_directory_entry(child_node_entry, child_name.clone())?);
                 }
             }
             Ok(DirectoryEntry::Directory(DirectoryEntryNode {
@@ -2030,7 +1869,7 @@ impl BlobLoc {
     }
 
     /// Load and parse a tree from this blob location
-    pub fn load_tree(&self, backup_set_path: &std::path::Path) -> Result<binary::BinaryTree> {
+    pub fn load_tree(&self, backup_set_path: &std::path::Path) -> Result<crate::tree::Tree> { // Changed to crate::tree::Tree
         match self.load_tree_with_encryption(backup_set_path, None)? {
             Some(tree) => Ok(tree),
             None => Err(Error::InvalidFormat("No tree data found".to_string())),
@@ -2042,19 +1881,20 @@ impl BlobLoc {
         &self,
         backup_set_dir: &Path,
         keyset: Option<&EncryptedKeySet>,
-    ) -> Result<Option<binary::BinaryTree>> {
+    ) -> Result<Option<crate::tree::Tree>> { // Changed to crate::tree::Tree
         let data = self.load_data(backup_set_dir, keyset)?;
 
         if data.is_empty() {
             return Ok(None);
         }
 
-        let tree = binary::BinaryTree::from_decompressed_data(&data)?;
+        // Use the unified Tree's method for parsing Arq7 binary data
+        let tree = crate::tree::Tree::from_arq7_binary_data(&data)?;
         Ok(Some(tree))
     }
 
     /// Load and parse a node from this blob location
-    pub fn load_node(&self, backup_set_path: &std::path::Path) -> Result<Option<Node>> {
+    pub fn load_node(&self, backup_set_path: &std::path::Path) -> Result<Option<crate::node::Node>> { // Changed to crate::node::Node
         // Changed return type to unified Node
         self.load_node_with_encryption(backup_set_path, None)
     }
@@ -2064,7 +1904,7 @@ impl BlobLoc {
         &self,
         backup_set_dir: &Path,
         keyset: Option<&EncryptedKeySet>,
-    ) -> Result<Option<Node>> {
+    ) -> Result<Option<crate::node::Node>> { // Changed to crate::node::Node
         // Changed return type to unified Node
         let data = self.load_data(backup_set_dir, keyset)?;
 
@@ -2074,7 +1914,9 @@ impl BlobLoc {
 
         let mut cursor = std::io::Cursor::new(&data);
         // Call the new from_binary_reader on the unified Node struct
-        let node = Node::from_binary_reader(&mut cursor, None)?;
+        // Pass None for tree_version as BlobLoc itself doesn't know the tree version.
+        // The from_binary_reader_arq7 method in crate::node::Node handles Option<u32> for tree_version.
+        let node = crate::node::Node::from_binary_reader_arq7(&mut cursor, None)?;
         Ok(Some(node))
     }
 
@@ -2142,8 +1984,7 @@ impl Node {
 impl BackupSet {
     /// Find real blob locations for files in the backup records
     /// This can be used when binary parsing produces fake blob paths
-    pub fn find_all_blob_locations(&self) -> Vec<BlobLoc> {
-        // Changed to return owned BlobLocs
+    pub fn find_all_blob_locations(&self) -> Vec<crate::blob_location::BlobLoc> { // Updated return type
         let mut blob_locations = Vec::new();
 
         for (_, records_vec) in &self.backup_records {
@@ -2154,12 +1995,11 @@ impl BackupSet {
                     }
                     GenericBackupRecord::Arq5(record) => {
                         if let Some(key) = &record.arq5_tree_blob_key {
-                            // Convert crate::blob::BlobKey (formerly Arq5TreeBlobKey) to BlobLoc.
-                            // The fields are now directly from the unified BlobKey.
-                            blob_locations.push(BlobLoc {
+                            // Convert crate::blob::BlobKey to crate::blob_location::BlobLoc.
+                            blob_locations.push(crate::blob_location::BlobLoc { // Updated type
                                 blob_identifier: key.sha1.clone(),
-                                compression_type: key.compression_type, // This now comes from the unified BlobKey
-                                is_packed: false, // Assumption for Arq5TreeBlobKey context
+                                compression_type: key.compression_type,
+                                is_packed: false,
                                 length: key.archive_size, // From unified BlobKey
                                 offset: 0,        // Assumption for Arq5TreeBlobKey context
                                 relative_path: format!("arq5_migrated_tree_blob/{}", key.sha1), // Placeholder path
@@ -2178,29 +2018,32 @@ impl BackupSet {
 }
 
 /// Recursively collect blob locations from a node tree (used for Arq7 records)
-fn collect_blob_locations_from_node(node: &Node, blob_locations: &mut Vec<BlobLoc>) {
-    // Changed to Vec<BlobLoc>
+fn collect_blob_locations_from_node(node: &crate::node::Node, blob_locations: &mut Vec<crate::blob_location::BlobLoc>) { // Updated Vec type
     // Add data blob locations from this node
-    for blob_loc in &node.data_blob_locs {
-        blob_locations.push(blob_loc.clone()); // Clone to own
+    for blob_loc in &node.data_blob_locs { // node.data_blob_locs are already crate::blob_location::BlobLoc
+        blob_locations.push(blob_loc.clone());
     }
 
     // Add tree blob location if present
     if let Some(tree_blob_loc) = &node.tree_blob_loc {
-        blob_locations.push(tree_blob_loc.clone()); // Clone to own
+        blob_locations.push(tree_blob_loc.clone());
     }
 
     // Add xattrs blob locations if present
     if let Some(xattrs_blob_locs) = &node.xattrs_blob_locs {
         for blob_loc in xattrs_blob_locs {
-            blob_locations.push(blob_loc.clone()); // Clone to own
+            blob_locations.push(blob_loc.clone());
         }
+    }
+    // Add acl blob location if present
+    if let Some(acl_blob_loc) = &node.acl_blob_loc {
+        blob_locations.push(acl_blob_loc.clone());
     }
 }
 
 /// Helper function for metadata extraction
 fn count_files_in_node(
-    node: &Node,
+    node: &crate::node::Node, // Changed to crate::node::Node
     backup_set_dir: &Path,
     keyset: Option<&EncryptedKeySet>,
 ) -> Result<(u32, u64)> {
@@ -2214,17 +2057,24 @@ fn count_files_in_node(
     let mut file_count = 0u32;
     let mut total_size = 0u64;
 
+    // TODO: This method needs to be implemented on crate::node::Node
+    // For now, assume it returns Ok(None) to allow compilation.
+    // if let Some(tree) = node.load_tree_with_encryption(backup_set_dir, keyset)? {
+    //     for (_, child_node) in &tree.child_nodes {
+    //         let (child_files, child_size) =
+    //             count_files_in_node(child_node, backup_set_dir, keyset)?;
+    //         file_count += child_files;
+    //         total_size += child_size;
+    //     }
+    // }
     if let Some(tree) = node.load_tree_with_encryption(backup_set_dir, keyset)? {
-        for (_, child_node) in &tree.child_nodes {
-            // child_node is already &Node
-            // let child = Node::from_binary_node(child_node); // No longer needed
+        for (_, child_node_entry) in &tree.nodes { // Use tree.nodes
             let (child_files, child_size) =
-                count_files_in_node(child_node, backup_set_dir, keyset)?; // Pass child_node directly
+                count_files_in_node(child_node_entry, backup_set_dir, keyset)?;
             file_count += child_files;
             total_size += child_size;
         }
     }
-
     Ok((file_count, total_size))
 }
 

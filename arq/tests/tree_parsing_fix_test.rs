@@ -61,22 +61,21 @@ fn test_misaligned_relative_path_parsing() {
 fn test_tree_parsing_with_misaligned_data() {
     // Test the complete tree parsing with the specific misaligned data pattern
     let tree_data = create_test_tree_with_misaligned_blob();
-    let mut cursor = Cursor::new(tree_data);
-
-    let result = BinaryTree::from_reader(&mut cursor);
+    // from_arq7_binary_data expects decompressed data, the helper already provides this.
+    let result = crate::tree::Tree::from_arq7_binary_data(&tree_data);
     assert!(
         result.is_ok(),
-        "Tree parsing should succeed with misaligned blob data"
+        "Tree parsing should succeed with misaligned blob data. Error: {:?}", result.err()
     );
 
     let tree = result.unwrap();
 
     // Verify tree structure
-    assert_eq!(tree.version, 3, "Tree version should be 3");
-    assert!(!tree.child_nodes.is_empty(), "Tree should have child nodes");
+    assert_eq!(tree.version, 3, "Tree version should be 3"); // Arq7 binary tree version
+    assert!(!tree.nodes.is_empty(), "Tree should have child nodes"); // Unified Tree uses 'nodes'
 
     // Check that we can access child nodes
-    for (name, node) in &tree.child_nodes {
+    for (name, node) in &tree.nodes { // Iterate over tree.nodes
         println!("Child: {} (is_tree: {})", name, node.is_tree);
 
         if !node.data_blob_locs.is_empty() {
