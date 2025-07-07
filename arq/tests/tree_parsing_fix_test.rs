@@ -4,7 +4,7 @@
 //! characteristic encountered in real Arq 7 backup data where dataBlobLocs[0].relativePath.isNotNull
 //! is false (0x00) but the subsequent bytes contain path data instead of offset/length values.
 
-use arq::arq7::binary::{ArqBinaryReader, BinaryTree};
+use arq::arq7::binary::ArqBinaryReader;
 use arq::arq7::BlobLoc;
 use std::io::Cursor;
 
@@ -62,7 +62,7 @@ fn test_tree_parsing_with_misaligned_data() {
     // Test the complete tree parsing with the specific misaligned data pattern
     let tree_data = create_test_tree_with_misaligned_blob();
     // from_arq7_binary_data expects decompressed data, the helper already provides this.
-    let result = crate::tree::Tree::from_arq7_binary_data(&tree_data);
+    let result = arq::tree::Tree::from_arq7_binary_data(&tree_data);
     assert!(
         result.is_ok(),
         "Tree parsing should succeed with misaligned blob data. Error: {:?}", result.err()

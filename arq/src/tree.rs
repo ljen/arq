@@ -22,7 +22,7 @@ use std::collections::HashMap;
 use std::io::BufReader; // Removed unused BufRead
 
 use chrono::{DateTime, Utc};
-use byteorder::{BigEndian, ReadBytesExt}; // Added ReadBytesExt
+use byteorder::{ReadBytesExt}; // Added ReadBytesExt, Removed BigEndian
 
 use crate::blob;
 use crate::compression::CompressionType;
@@ -227,79 +227,6 @@ pub struct Node {
 // The parsing logic from the old Node::new is incorporated into
 // crate::node::Node::from_binary_reader_arq5.
 
-use std::fs::{self, File};
-use std::io::{Seek, SeekFrom}; // Removed BufReader from here
-use std::path::Path;
-use crate::packset::{PackIndex, PackObject};
-use crate::arq7::EncryptedKeySet; // Added import for EncryptedKeySet
-
-// Helper function to get a BufReader for a file, returning std::io::Error on failure.
-// Uses std::io::BufReader which is already imported at the top of the file.
-fn get_file_reader_for_restore(path: &Path) -> std::io::Result<BufReader<File>> {
-    let file = File::open(path)?;
-    Ok(BufReader::new(file))
-}
-
-// TODO: Do this better - don't read all files multiple times
-pub fn restore_blob_with_sha(
-    path: &Path,
-    sha: &str,
-    keyset: &crate::arq7::EncryptedKeySet, // Changed master_key to keyset and ensure correct path
-) -> Result<Option<Vec<u8>>> { // Changed to use the crate's Result alias correctly
-    for entry_result in fs::read_dir(path)? { // fs::read_dir error converted by From trait
-        let entry = entry_result?; // Individual DirEntry error converted by From trait
-
-        let fname = entry.file_name();
-        let fname_str = match fname.to_str() {
-            Some(s) => s,
-            None => {
-                // Log or handle non-UTF8 filenames if necessary, for now, skip.
-                // eprintln!("Skipping non-UTF8 filename: {:?}", fname);
-                continue;
-            }
-        };
-
-        if fname_str.ends_with(".index") {
-            let index_path = entry.path();
-            // Map IO errors specifically for file operations within the loop
-            let mut reader = get_file_reader_for_restore(&index_path)
-                .map_err(|e| crate::error::Error::IoError(e))?;
-
-            let index = PackIndex::new(&mut reader)?; // PackIndex::new can return arq::error::Error
-
-            for obj in index.objects {
-                if obj.sha1 == sha {
-                    let pack_path = index_path.with_extension("pack");
-                    if !pack_path.exists() {
-                        // If the .pack file doesn't exist, we can't proceed for this object.
-                        // This could be an error condition or just data missing.
-                        // Depending on strictness, could return an error or log and continue.
-                        // For now, let's treat as a potential issue for this specific index.
-                        // Consider returning a more specific error if this case is critical.
-                        // Or, if it's expected pack files might be missing, log and continue.
-                        // eprintln!("Pack file not found: {:?}", pack_path);
-                        continue; // Or return Err(crate::error::Error::InvalidFormat("Pack file missing".to_string()));
-                    }
-                    let mut pack_reader = get_file_reader_for_restore(&pack_path)
-                        .map_err(|e| crate::error::Error::IoError(e))?;
-
-                    pack_reader.seek(SeekFrom::Start(obj.offset as u64))
-                        .map_err(|e| crate::error::Error::IoError(e))?;
-
-                    let pack = PackObject::new(&mut pack_reader)?; // PackObject::new can return arq::error::Error
-
-                    // Decrypt returns Result<Vec<u8>, arq::error::Error>, so directly use ? or match
-                    match pack.data.decrypt(&keyset.encryption_key) { // Use keyset.encryption_key
-                        Ok(data) => return Ok(Some(data)),
-                        Err(e) => return Err(e), // Return the decryption error
-                    }
-                }
-            }
-        }
-    }
-    Ok(None) // SHA not found in any index file in the given path
-}
-
 /// Tree
 ///
 /// A tree contains the following bytes:
@@ -406,55 +333,67 @@ impl Tree {
     pub fn new_arq5(compressed_content: &[u8], compression_type: CompressionType) -> Result<Tree> {
         let content = CompressionType::decompress(compressed_content, compression_type)?;
         let mut reader = BufReader::new(std::io::Cursor::new(content));
-        let tree_header = reader.read_bytes(8)?; // Reads "TreeV0XX"
+        let tree_header = reader.read_bytes(8)?; // Reads "TreeV0XX" - ArqRead::read_bytes is unambiguous
         if &tree_header[..5] != b"TreeV" {
             return Err(crate::error::Error::InvalidFormat("Invalid Arq5 tree header".to_string()));
         }
         let version = std::str::from_utf8(&tree_header[5..])?.parse::<u32>()?;
 
         // These fields are specific to the Tree object itself in Arq5 format
-        let xattrs_compression_type = reader.read_arq_compression_type()?;
-        let acl_compression_type = reader.read_arq_compression_type()?;
+        let xattrs_compression_type = reader.read_arq_compression_type()?; // Only in ArqRead, unambiguous
+        let acl_compression_type = reader.read_arq_compression_type()?; // Only in ArqRead, unambiguous
         let xattrs_blob_key = blob::BlobKey::new(&mut reader)?;
-        let xattrs_size = reader.read_arq_u64()?;
+        let xattrs_size = ArqBinaryReader::read_arq_u64(&mut reader)?;
         let acl_blob_key = blob::BlobKey::new(&mut reader)?;
-        let uid = reader.read_arq_i32()?;
-        let gid = reader.read_arq_i32()?;
-        let mode = reader.read_arq_i32()?;
-        let mtime_sec = reader.read_arq_i64()?;
-        let mtime_nsec = reader.read_arq_i64()?;
-        let flags = reader.read_arq_i64()?;
-        let finder_flags = reader.read_arq_i32()?;
-        let extended_finder_flags = reader.read_arq_i32()?;
-        let st_dev = reader.read_arq_i32()?;
-        let st_ino = reader.read_arq_i32()?;
-        let st_nlink = reader.read_arq_u32()?;
-        let st_rdev = reader.read_arq_i32()?;
-        let ctime_sec = reader.read_arq_i64()?;
-        let ctime_nsec = reader.read_arq_i64()?;
-        let st_blocks = reader.read_arq_i64()?;
-        let st_blksize = reader.read_arq_u32()?;
+        let uid = ArqBinaryReader::read_arq_i32(&mut reader)?;
+        let gid = ArqBinaryReader::read_arq_i32(&mut reader)?;
+        let mode = ArqBinaryReader::read_arq_i32(&mut reader)?;
+        let mtime_sec = ArqBinaryReader::read_arq_i64(&mut reader)?;
+        let mtime_nsec = ArqBinaryReader::read_arq_i64(&mut reader)?;
+        let flags = ArqBinaryReader::read_arq_i64(&mut reader)?;
+        let finder_flags = ArqBinaryReader::read_arq_i32(&mut reader)?;
+        let extended_finder_flags = ArqBinaryReader::read_arq_i32(&mut reader)?;
+        let st_dev = ArqBinaryReader::read_arq_i32(&mut reader)?;
+        let st_ino = ArqBinaryReader::read_arq_i32(&mut reader)?;
+        let st_nlink = ArqBinaryReader::read_arq_u32(&mut reader)?;
+        let st_rdev = ArqBinaryReader::read_arq_i32(&mut reader)?;
+        let ctime_sec = ArqBinaryReader::read_arq_i64(&mut reader)?;
+        let ctime_nsec = ArqBinaryReader::read_arq_i64(&mut reader)?;
+        let st_blocks = ArqBinaryReader::read_arq_i64(&mut reader)?;
+        let st_blksize = ArqBinaryReader::read_arq_u32(&mut reader)?;
 
-        let create_time_sec = if version >= 15 { reader.read_arq_i64()? } else { mtime_sec }; // Fallback for older trees
-        let create_time_nsec = if version >= 15 { reader.read_arq_i64()? } else { mtime_nsec };
+        let create_time_sec = if version >= 15 { ArqBinaryReader::read_arq_i64(&mut reader)? } else { mtime_sec }; // Fallback for older trees
+        let create_time_nsec = if version >= 15 { ArqBinaryReader::read_arq_i64(&mut reader)? } else { mtime_nsec };
 
-        let mut missing_node_count = if version >= 18 { reader.read_arq_u32()? } else { 0 };
+        let mut missing_node_count = if version >= 18 { ArqBinaryReader::read_arq_u32(&mut reader)? } else { 0 };
         let mut missing_nodes = Vec::new();
         while missing_node_count > 0 {
-            missing_nodes.push(reader.read_arq_string()?);
+            if let Some(missing_node_name) = ArqBinaryReader::read_arq_string(&mut reader)? {
+                missing_nodes.push(missing_node_name);
+            } else {
+                // Or handle error: return Err(crate::error::Error::InvalidFormat("Missing node name was null".to_string()));
+                // For now, pushing an empty string if it's None, though Arq spec might imply it's always Some(String)
+                missing_nodes.push(String::new());
+            }
             missing_node_count -= 1;
         }
 
-        let mut node_count = reader.read_arq_u32()?;
+        let mut node_count = ArqBinaryReader::read_arq_u32(&mut reader)?;
         let mut nodes = HashMap::new();
         while node_count > 0 {
-            let node_name = reader.read_arq_string()?;
-            if node_name.is_empty() {
-                // Arq documentation states file name can't be null, but handle defensively
-                return Err(crate::error::Error::InvalidFormat("Empty node name in Arq5 tree".to_string()));
-            }
+            let node_name = match ArqBinaryReader::read_arq_string(&mut reader)? {
+                Some(name) if !name.is_empty() => name,
+                Some(_) => { // Name is Some("")
+                    // Arq documentation states file name can't be null, but handle defensively
+                    return Err(crate::error::Error::InvalidFormat("Empty node name in Arq5 tree".to_string()));
+                }
+                None => { // Name is None
+                     // Arq documentation states file name can't be null
+                    return Err(crate::error::Error::InvalidFormat("Null node name in Arq5 tree".to_string()));
+                }
+            };
             // Pass the tree's version to the node parser, as some node fields are version-dependent
-            let node = crate::node::Node::from_binary_reader_arq5(&mut reader, version)?;
+            let node = crate::node::Node::from_binary_reader_arq5(&mut reader, version)?; // This method likely uses ArqRead internally or needs similar disambiguation if it uses a generic reader.
             nodes.insert(node_name, node);
             node_count -= 1;
         }
@@ -511,16 +450,17 @@ impl Tree {
         // The Arq7 binary tree format starts with its own version, then childNodesByNameCount, then nodes.
         // It does not have the same extensive header as the Arq5 tree.
 
-        let version = cursor.read_u32::<byteorder::BigEndian>()?; // Arq7 BinaryTree version
+        let version = cursor.read_u32::<byteorder::BigEndian>()?; // Arq7 BinaryTree version - from ReadBytesExt, unambiguous
 
-        let child_nodes_count = cursor.read_u64::<byteorder::BigEndian>()?;
+        let child_nodes_count = cursor.read_u64::<byteorder::BigEndian>()?; // from ReadBytesExt, unambiguous
         let mut child_nodes_map = HashMap::new();
 
         for i in 0..child_nodes_count {
-            let child_name = cursor.read_arq_string()?; // ArqBinaryReader is available via type_utils
-            let name = match child_name {
+            let child_name_opt = ArqBinaryReader::read_arq_string(&mut cursor)?; // Disambiguated to ArqBinaryReader
+            let name = match child_name_opt {
                 Some(name) if !name.is_empty() => name,
-                _ => format!("unnamed_child_{}", i),
+                Some(_) => format!("empty_child_name_{}", i), // Handle Some("") case
+                None => format!("unnamed_child_{}", i), // Handle None case
             };
             // Use the unified Node's Arq7 binary parser
             // The `tree_version` here is the version of the BinaryTree structure itself.

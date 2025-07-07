@@ -2121,14 +2121,18 @@ mod tests {
                 if let Some(GenericBackupRecord::Arq7(record)) = records.first() {
                     // Match on Arq7 variant
                     // Try to load the tree referenced by the root node
-                    match record.node.load_tree(backup_set_dir) {
+                    // record.node is crate::node::Node, which has load_tree_with_encryption
+                    match record.node.load_tree_with_encryption(backup_set_dir, backup_set.encryption_keyset()) {
                         Ok(Some(_tree)) => {
                             // Successfully loaded binary tree data
                             println!("Successfully loaded binary tree data");
                         }
-                        _ => {
+                        Ok(None) => {
+                            println!("Tree loading returned no tree (e.g. empty or not a tree).");
+                        }
+                        Err(_e) => {
                             // Tree loading failed, which is expected if pack files don't exist
-                            println!("Tree loading failed (expected if pack files don't exist)");
+                            println!("Tree loading failed (expected if pack files don't exist or error: {})", _e);
                         }
                     }
                 } else if let Some(GenericBackupRecord::Arq5(_record)) = records.first() {
@@ -2231,7 +2235,7 @@ mod tests {
 
                     // Verify node structure
                     assert!(record.node.is_tree);
-                    assert_eq!(record.node.computer_os_type, 1);
+                    assert_eq!(record.node.computer_os_type, Some(1));
                     assert!(!record.node.deleted);
                     assert!(record.node.tree_blob_loc.is_some());
 
@@ -2370,109 +2374,135 @@ fn test_get_root_directory() {
         no_backups_alert_days: 0,
     };
 
-    // Mock Node structure
-    let file_node = Node {
+    // Mock Node structure using crate::node::Node
+    let _file_node = crate::node::Node {
         is_tree: false,
         item_size: 1024,
         deleted: false,
-        computer_os_type: 1,
+        computer_os_type: Some(1),
         modification_time_sec: 1678886400,
         modification_time_nsec: 0,
         change_time_sec: 1678886400,
         change_time_nsec: 0,
         creation_time_sec: 1678886400,
         creation_time_nsec: 0,
-        mac_st_mode: 0o100644,
-        mac_st_ino: 1,
-        mac_st_nlink: 1,
-        mac_st_gid: 0,
-        win_attrs: 0,
+        st_mode: 0o100644,
+        st_ino: 1,
+        st_nlink: 1,
+        st_gid: 0,
+        st_uid: Some(0),
+        username: Some("testuser".to_string()),
+        group_name: Some("testgroup".to_string()),
+        st_dev: 0,
+        st_rdev: 0,
+        st_flags: 0,
+        win_attrs: Some(0),
+        reparse_tag: None,
+        reparse_point_is_directory: None,
         contained_files_count: None,
-        mac_st_uid: Some(0),
-        mac_st_dev: 0,
-        mac_st_rdev: 0,
-        mac_st_flags: 0,
         data_blob_locs: vec![],
         tree_blob_loc: None,
         xattrs_blob_locs: None,
-        username: Some("testuser".to_string()),
-        group_name: Some("testgroup".to_string()),
-        reparse_tag: None,
-        reparse_point_is_directory: None,
         acl_blob_loc: None,
+        // Arq5 specific fields (initialize to None or default for an Arq7 context node)
+        arq5_tree_contains_missing_items: None,
+        arq5_data_compression_type: None,
+        arq5_xattrs_compression_type: None,
+        arq5_acl_compression_type: None,
+        arq5_xattrs_blob_key: None,
+        arq5_xattrs_size: None,
+        arq5_acl_blob_key: None,
+        arq5_finder_flags: None,
+        arq5_extended_finder_flags: None,
+        arq5_finder_file_type: None,
+        arq5_finder_file_creator: None,
+        arq5_is_file_extension_hidden: None,
+        arq5_st_blocks: None,
+        arq5_st_blksize: None,
     };
 
-    let dir_node = Node {
+    let _dir_node = crate::node::Node {
         is_tree: true,
-        item_size: 0, // Directories typically have 0 item_size in this context
+        item_size: 0,
         deleted: false,
-        computer_os_type: 1,
+        computer_os_type: Some(1),
         modification_time_sec: 1678886400,
         modification_time_nsec: 0,
         change_time_sec: 1678886400,
         change_time_nsec: 0,
         creation_time_sec: 1678886400,
         creation_time_nsec: 0,
-        mac_st_mode: 0o040755,
-        mac_st_ino: 2,
-        mac_st_nlink: 2,
-        mac_st_gid: 0,
-        win_attrs: 0,
+        st_mode: 0o040755,
+        st_ino: 2,
+        st_nlink: 2,
+        st_gid: 0,
+        st_uid: Some(0),
+        username: Some("testuser".to_string()),
+        group_name: Some("testgroup".to_string()),
+        st_dev: 0,
+        st_rdev: 0,
+        st_flags: 0,
+        win_attrs: Some(0),
+        reparse_tag: None,
+        reparse_point_is_directory: None,
         contained_files_count: Some(1),
-        mac_st_uid: Some(0),
-        mac_st_dev: 0,
-        mac_st_rdev: 0,
-        mac_st_flags: 0,
         data_blob_locs: vec![],
-        // Mocking a tree_blob_loc that would normally point to a BinaryTree
-        // For this test, we don't need to load the actual tree,
-        // as node_to_directory_entry will mock its children based on the test setup.
-        // However, if load_tree_with_encryption is called, it needs a valid BlobLoc path.
-        // We'll create a dummy BlobLoc for the tree.
-        tree_blob_loc: Some(BlobLoc {
-            // This is needed for node.load_tree_with_encryption to not panic immediately
+        tree_blob_loc: Some(crate::blob_location::BlobLoc {
             blob_identifier: "dummy_tree_blob".to_string(),
             compression_type: 0,
             is_packed: false,
             length: 0,
             offset: 0,
-            relative_path: "dummy/path/tree_blob".to_string(), // Dummy path
+            relative_path: "dummy/path/tree_blob".to_string(),
             stretch_encryption_key: false,
             is_large_pack: Some(false),
         }),
         xattrs_blob_locs: None,
-        username: Some("testuser".to_string()),
-        group_name: Some("testgroup".to_string()),
-        reparse_tag: None,
-        reparse_point_is_directory: None,
         acl_blob_loc: None,
+        arq5_tree_contains_missing_items: None,
+        arq5_data_compression_type: None,
+        arq5_xattrs_compression_type: None,
+        arq5_acl_compression_type: None,
+        arq5_xattrs_blob_key: None,
+        arq5_xattrs_size: None,
+        arq5_acl_blob_key: None,
+        arq5_finder_flags: None,
+        arq5_extended_finder_flags: None,
+        arq5_finder_file_type: None,
+        arq5_finder_file_creator: None,
+        arq5_is_file_extension_hidden: None,
+        arq5_st_blocks: None,
+        arq5_st_blksize: None,
     };
 
     // Root node for the backup record
-    let root_backup_node = Node {
-        is_tree: true, // The root of a backup is a directory
+    let root_backup_node = crate::node::Node {
+        is_tree: true,
         item_size: 0,
         deleted: false,
-        computer_os_type: 1,
+        computer_os_type: Some(1),
         modification_time_sec: 1678886400,
         modification_time_nsec: 0,
         change_time_sec: 1678886400,
         change_time_nsec: 0,
         creation_time_sec: 1678886400,
         creation_time_nsec: 0,
-        mac_st_mode: 0o040755,
-        mac_st_ino: 3,
-        mac_st_nlink: 2,
-        mac_st_gid: 0,
-        win_attrs: 0,
-        contained_files_count: Some(1), // Contains one directory 'subdir'
-        mac_st_uid: Some(0),
-        mac_st_dev: 0,
-        mac_st_rdev: 0,
-        mac_st_flags: 0,
+        st_mode: 0o040755,
+        st_ino: 3,
+        st_nlink: 2,
+        st_gid: 0,
+        st_uid: Some(0),
+        username: Some("testuser".to_string()),
+        group_name: Some("testgroup".to_string()),
+        st_dev: 0,
+        st_rdev: 0,
+        st_flags: 0,
+        win_attrs: Some(0),
+        reparse_tag: None,
+        reparse_point_is_directory: None,
+        contained_files_count: Some(1),
         data_blob_locs: vec![],
-        tree_blob_loc: Some(BlobLoc {
-            // Dummy BlobLoc for the root node's tree
+        tree_blob_loc: Some(crate::blob_location::BlobLoc {
             blob_identifier: "dummy_root_tree_blob".to_string(),
             compression_type: 0,
             is_packed: false,
@@ -2483,11 +2513,21 @@ fn test_get_root_directory() {
             is_large_pack: Some(false),
         }),
         xattrs_blob_locs: None,
-        username: Some("testuser".to_string()),
-        group_name: Some("testgroup".to_string()),
-        reparse_tag: None,
-        reparse_point_is_directory: None,
         acl_blob_loc: None,
+        arq5_tree_contains_missing_items: None,
+        arq5_data_compression_type: None,
+        arq5_xattrs_compression_type: None,
+        arq5_acl_compression_type: None,
+        arq5_xattrs_blob_key: None,
+        arq5_xattrs_size: None,
+        arq5_acl_blob_key: None,
+        arq5_finder_flags: None,
+        arq5_extended_finder_flags: None,
+        arq5_finder_file_type: None,
+        arq5_finder_file_creator: None,
+        arq5_is_file_extension_hidden: None,
+        arq5_st_blocks: None,
+        arq5_st_blksize: None,
     };
 
     let arq7_record = Arq7BackupRecord {
