@@ -1147,7 +1147,7 @@ fn extract_backup_record(
 }
 
 fn extract_tree_node(
-    node: &arq::arq7::Node,
+    node: &crate::node::Node, // Changed to crate::node::Node
     backup_set_path: &Path,
     current_output_dir: &Path,
     relative_path: &str, // Relative path *within* the current_output_dir for this node
@@ -1177,14 +1177,16 @@ fn extract_tree_node(
         // eprintln!("[DEBUG extract_tree_node] Using existing root dir: {:?}, (current_output_dir: {:?}, relative_path: {:?})", full_node_output_path, current_output_dir, relative_path);
     }
 
+    // Adjust to use tree_blob_loc directly, as load_tree_with_encryption is not on crate::node::Node yet
+    // Now using the method on crate::node::Node
     match node.load_tree_with_encryption(backup_set_path, keyset) {
         Ok(Some(tree)) => {
-            // eprintln!("[DEBUG extract_tree_node] Loaded tree for {:?} with {} children", full_node_output_path, tree.child_nodes.len());
+            // tree is crate::tree::Tree, its child_nodes are crate::node::Node
+            // eprintln!("[DEBUG extract_tree_node] Loaded tree for {:?} with {} children", full_node_output_path, tree.nodes.len());
 
-            for (child_name, child_node) in &tree.child_nodes {
-                // child_node is already &arq::arq7::Node
+            for (child_name, child_node) in &tree.nodes { // tree.nodes in unified Tree
+                // child_node is &crate::node::Node
                 // eprintln!("[DEBUG extract_tree_node] Child: {}, in tree {:?}", child_name, full_node_output_path);
-                // let child_json_node = arq::arq7::Node::from_binary_node(child_binary_node); // No longer needed
                 let child_relative_path = if relative_path.is_empty() {
                     child_name.clone()
                 } else {
@@ -1236,7 +1238,7 @@ fn extract_tree_node(
 }
 
 fn extract_file_node(
-    node: &arq::arq7::Node,
+    node: &crate::node::Node, // Changed to crate::node::Node
     backup_set_path: &Path,
     output_dir_for_file: &Path, // This is the directory where the file should be created
     filename: &str,
@@ -1353,7 +1355,7 @@ fn extract_file_node(
     }
 }
 
-fn set_file_metadata(file_path: &str, node: &arq::arq7::Node) {
+fn set_file_metadata(file_path: &str, node: &crate::node::Node) { // Changed to crate::node::Node
     if node.modification_time_sec > 0 {
         use std::time::UNIX_EPOCH;
         if let Some(mtime) = UNIX_EPOCH.checked_add(std::time::Duration::from_secs(
@@ -1376,7 +1378,7 @@ fn try_extract_test_file_content(
     // e.g., tests/arq_storage_location/D1154AC6-01EB-41FE-B115-114464350B92
     match filename {
         "file 1.txt" => {
-            let blob_loc = arq::arq7::BlobLoc {
+            let blob_loc = crate::blob_location::BlobLoc { // Changed path
                 // These paths are relative to the *root* of the storage location,
                 // but extract_content expects backup_set_path to be the specific backup set folder.
                 // So, the relative_path here should be relative to that backup_set_path.
@@ -1411,7 +1413,7 @@ fn try_extract_test_file_content(
             blob_loc.extract_content(backup_set_path, keyset).ok()
         }
         "file 2.txt" => {
-            let blob_loc = arq::arq7::BlobLoc {
+            let blob_loc = crate::blob_location::BlobLoc { // Changed path
                 blob_identifier: "test_file_2_encrypted".to_string(), // Placeholder
                 compression_type: 0,
                 is_packed: true,
@@ -1589,47 +1591,46 @@ struct FileReadStats {
 }
 
 fn read_all_nodes_recursive(
-    generic_record_node: &arq::arq7::Node, // Parameter renamed for clarity, it's a node from a GenericRecord::Arq7
+    generic_record_node: &crate::node::Node, // Changed to crate::node::Node
     backup_set_path: &Path,
     keyset: Option<&EncryptedKeySet>,
     stats: &mut FileReadStats,
     current_path_for_debug: String, // For logging/debugging
 ) {
     if generic_record_node.is_tree {
-        if let Some(tree_blob_loc) = &generic_record_node.tree_blob_loc {
-            match tree_blob_loc.load_tree_with_encryption(backup_set_path, keyset) {
-                Ok(Some(tree)) => {
-                    for (name, child_node) in &tree.child_nodes {
-                        let child_path_for_debug = if current_path_for_debug.is_empty() {
-                            name.clone()
-                        } else {
-                            format!("{}/{}", current_path_for_debug, name)
-                        };
-                        read_all_nodes_recursive( // Recursive call with child_node
-                            child_node,
-                            backup_set_path,
-                            keyset,
-                            stats,
-                            child_path_for_debug,
-                        );
-                    }
-                }
-                Ok(None) => {
-                    // eprintln!(
-                    //     "Warning: Tree node at '{}' has a blob location but no tree data could be loaded.",
-                    //     current_path_for_debug
-                    // );
-                }
-                Err(e) => {
-                    eprintln!(
-                        "Error loading tree for node '{}' (blob: {}): {}",
-                        current_path_for_debug, tree_blob_loc.blob_identifier, e
+        match generic_record_node.load_tree_with_encryption(backup_set_path, keyset) {
+            Ok(Some(tree)) => {
+                for (name, child_node) in &tree.nodes { // Use tree.nodes
+                    let child_path_for_debug = if current_path_for_debug.is_empty() {
+                        name.clone()
+                    } else {
+                        format!("{}/{}", current_path_for_debug, name)
+                    };
+                    read_all_nodes_recursive(
+                        child_node,
+                        backup_set_path,
+                        keyset,
+                        stats,
+                        child_path_for_debug,
                     );
-                    stats.errors += 1;
                 }
             }
-        } else {
-            // eprintln!("Info: Tree node at '{}' has no tree blob location (possibly an empty directory).", current_path_for_debug);
+            Ok(None) => {
+                // This case means it's a tree node but has no actual tree data (e.g. empty dir not storing a tree blob)
+                // Or it could be an Arq5 tree node that wasn't correctly identified by load_tree_with_encryption's heuristic.
+                // For stats, an empty directory doesn't add to files_read or bytes_read.
+                // eprintln!(
+                //     "Info: Tree node at '{}' resolved to no loadable tree data.",
+                //     current_path_for_debug
+                // );
+            }
+            Err(e) => {
+                eprintln!(
+                    "Error loading tree for node '{}': {}",
+                    current_path_for_debug, e
+                );
+                stats.errors += 1;
+            }
         }
     } else {
         // This is a file node
