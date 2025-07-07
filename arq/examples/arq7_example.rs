@@ -9,23 +9,15 @@ use arq::arq7::EncryptedKeySet;
 use arq::compression::CompressionType;
 use arq::tree;
 use arq::tree::Tree;
+use chrono::SubsecRound;
 use std::collections::TryReserveError;
 use std::fs::File;
 use std::io::Cursor;
 use std::io::{BufRead, BufReader, Read, Seek, SeekFrom};
 use std::path::{Path, PathBuf};
 
-pub enum Error {
-    ArqError(arq::error::Error),
-    OsError(std::ffi::OsString),
-    IoError(std::io::Error),
-    OptionError, // Consider removing if not used, or make more specific
-    NotFound(String),
-    Generic(String),       // Added for general errors
-    CliInputError(String), // Added for CLI argument errors
-    Error(String),         // Added for general errors
-    StdIoError(std::io::Error),
-}
+// Error enum will be removed as part of the refactoring.
+// Errors will be handled by arq::error::Error and Option types.
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Path to an Arq 7 backup set directory
@@ -52,6 +44,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     match BackupSet::from_directory_with_password(backup_set_path, Some(backup_passowrd)) {
         // match BackupSet::from_directory(backup_set_path) {
         Ok(backup_set) => {
+            let root_directory = backup_set.get_root_directory()?;
+            for subentry in root_directory.children {}
             print_backup_config(&backup_set);
             print_backup_plan(&backup_set);
             print_backup_folders_config(&backup_set);
@@ -159,54 +153,10 @@ fn print_backup_folder_configs(backup_set: &BackupSet) {
     }
 }
 
-fn get_file_reader(filename: PathBuf) -> BufReader<File> {
-    let file = match File::open(&filename) {
-        Ok(f) => f,
-        Err(err) => panic!(
-            "Could not open file {}: {}",
-            filename.as_path().to_str().unwrap(),
-            err
-        ),
-    };
-    BufReader::new(file)
-}
+// get_file_reader is no longer needed here as its functionality for restore_blob_with_sha
+// has been moved into a private helper within arq/src/tree.rs.
 
-// TODO: Do this better - don't read all files multiple times
-fn restore_blob_with_sha(path: &PathBuf, sha: &str, master_key: &[u8]) -> Result<Vec<u8>, Error> {
-    for entry in std::fs::read_dir(&path).map_err(Error::IoError)? {
-        let fname = entry
-            .map_err(Error::IoError)?
-            .file_name()
-            .to_str()
-            .unwrap()
-            .to_string();
-        if fname.ends_with(".index") {
-            let index_path = path.join(&fname);
-            let mut reader = get_file_reader(index_path.clone());
-            let index = arq::packset::PackIndex::new(&mut reader).map_err(Error::ArqError)?;
-            for obj in index.objects {
-                if obj.sha1 == sha {
-                    let pack_path = index_path.with_extension("pack");
-                    let mut reader = get_file_reader(pack_path.clone());
-                    let _seeked = reader.seek(SeekFrom::Start(obj.offset as u64));
-                    let pack = arq::packset::PackObject::new(&mut reader);
-                    match pack {
-                        Ok(pack) => {
-                            return Ok(match pack.data.decrypt(&master_key) {
-                                Ok(data) => data,
-                                Err(err) => return Err(Error::ArqError(err)),
-                            });
-                        }
-                        Err(err) => {
-                            return Err(Error::ArqError(err));
-                        }
-                    }
-                }
-            }
-        }
-    }
-    return Err(Error::NotFound("SHA not found".to_string()));
-}
+// restore_blob_with_sha will be moved to arq/src/tree.rs and modified.
 
 fn print_backup_records(backup_set: &BackupSet, backup_set_path: &str) -> Option<()> {
     println!("\n📝 Backup Records");
@@ -289,20 +239,39 @@ fn print_backup_records(backup_set: &BackupSet, backup_set_path: &str) -> Option
                     match record.arq5_tree_blob_key.clone() {
                         Some(key) => {
                             let sha = key.sha1.clone();
-                            let data = restore_blob_with_sha(
+                            let keyset_ref = match backup_set.encryption_keyset.as_ref() {
+                                Some(ks) => ks,
+                                None => {
+                                    println!("      ❌ Encryption keyset not available (backup not encrypted or keyset missing) for SHA {}", sha);
+                                    return None; // Exit print_backup_records for this record
+                                }
+                            };
+
+                            let data = match arq::tree::restore_blob_with_sha(
                                 &trees_path,
                                 &sha,
-                                &backup_set
-                                    .encryption_keyset
-                                    .as_ref()
-                                    .unwrap()
-                                    .encryption_key
-                                    .clone(),
-                            )
-                            .ok()?;
+                                keyset_ref, // Pass the reference to EncryptedKeySet
+                            ) {
+                                Ok(Some(d)) => d,
+                                Ok(None) => {
+                                    println!(
+                                        "      ⚠️ Blob data not found for SHA {} in {}",
+                                        sha,
+                                        trees_path.display()
+                                    );
+                                    return None;
+                                }
+                                Err(e) => {
+                                    println!(
+                                        "      ❌ Error restoring blob with SHA {}: {}",
+                                        sha, e
+                                    );
+                                    return None;
+                                }
+                            };
                             // let commit = tree::Commit::new(Cursor::new(data)).ok()?;
 
-                            // let tree_blob = restore_blob_with_sha(
+                            // let tree_blob = arq::tree::restore_blob_with_sha(
                             //     &trees_path,
                             //     &commit.tree_sha1,
                             //     &backup_set
