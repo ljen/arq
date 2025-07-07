@@ -1,8 +1,8 @@
 //! Defines the BlobLoc structure and its methods for representing blob locations.
 
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize as _, Serialize as _}; // Use _ to indicate derive is handling it
 use std::fs::File;
-use std::io::{BufRead, BufReader, Read, Seek, SeekFrom};
+use std::io::{BufReader, Read, Seek, SeekFrom}; // Removed unused BufRead
 use std::path::Path;
 
 use crate::arq7::binary::ArqBinaryReader; // For from_binary_reader

@@ -2,8 +2,9 @@ use crate::error::Result;
 use crate::lz4;
 use crate::type_utils::ArqRead;
 use std::convert::From;
+use serde::{Serialize, Deserialize}; // Added for derive
 
-#[derive(PartialEq, Eq, Debug, Clone)]
+#[derive(PartialEq, Eq, Debug, Clone, Copy, Serialize, Deserialize)] // Added Copy, Serialize, Deserialize
 pub enum CompressionType {
     None,
     Gzip,

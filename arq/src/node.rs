@@ -20,10 +20,10 @@
 //! and may not be part of the default JSON serialization if they are primarily for internal
 //! representation during parsing of those older formats.
 
-use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
-use crate::blob_location::BlobLoc; // Changed path
-use crate::blob::BlobKey; // For legacy fields if needed, though BlobLoc is preferred
+use serde::{Deserialize as _, Serialize as _}; // Use _ to indicate derive is handling it
+// HashMap is not used in this file directly.
+use crate::blob_location::BlobLoc;
+use crate::blob::BlobKey;
 use crate::compression::CompressionType; // For legacy fields
 use crate::error::Result;
 use crate::type_utils::ArqRead;
@@ -190,13 +190,13 @@ impl Node {
         let mut data_blob_locs = Vec::new();
         for _i in 0..data_blob_locs_count {
             data_blob_locs.push(BlobLoc::from_binary_reader(reader).map_err(|e| {
-                crate::error::Error::ParseErrorMsg(format!("Failed to parse data BlobLoc: {}", e))
+                crate::error::Error::InvalidFormat(format!("Failed to parse data BlobLoc: {}", e)) // Changed to InvalidFormat
             })?);
         }
 
         let acl_blob_loc = match reader.read_arq_bool()? {
             true => Some(BlobLoc::from_binary_reader(reader).map_err(|e| {
-                crate::error::Error::ParseErrorMsg(format!("Failed to parse acl BlobLoc: {}", e))
+                crate::error::Error::InvalidFormat(format!("Failed to parse acl BlobLoc: {}", e)) // Changed to InvalidFormat
             })?),
             false => None,
         };
@@ -205,7 +205,7 @@ impl Node {
         let mut parsed_xattrs_blob_locs = Vec::new();
         for _ in 0..xattrs_blob_locs_count {
             parsed_xattrs_blob_locs.push(BlobLoc::from_binary_reader(reader).map_err(|e| {
-                crate::error::Error::ParseErrorMsg(format!("Failed to parse xattrs BlobLoc: {}", e))
+                crate::error::Error::InvalidFormat(format!("Failed to parse xattrs BlobLoc: {}", e)) // Changed to InvalidFormat
             })?);
         }
         let xattrs_blob_locs = if parsed_xattrs_blob_locs.is_empty() {
@@ -572,7 +572,7 @@ impl Node {
         keyset: Option<&crate::arq7::EncryptedKeySet>,
     ) -> Result<Vec<u8>> {
         if self.is_tree {
-            return Err(crate::error::Error::InvalidOperation(
+            return Err(crate::error::Error::InvalidFormat( // Changed to InvalidFormat
                 "Cannot reconstruct file data from a tree node.".to_string(),
             ));
         }
@@ -610,7 +610,7 @@ impl Node {
         keyset: Option<&crate::arq7::EncryptedKeySet>,
     ) -> Result<()> {
         if self.is_tree {
-            return Err(crate::error::Error::InvalidOperation(
+            return Err(crate::error::Error::InvalidFormat( // Changed to InvalidFormat
                 "Cannot extract directory as a file.".to_string(),
             ));
         }
