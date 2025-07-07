@@ -1704,12 +1704,9 @@ impl BackupSet {
     /// Creates a virtual filesystem view of the backup set.
     /// The root directory contains subdirectories for each backup record (named by creation date).
     /// Each subdirectory contains the files and folders from that backup.
-    pub fn get_root_directory<P: AsRef<Path>>(
-        &self,
-        backup_set_dir: P,
-    ) -> Result<DirectoryEntryNode> {
+    pub fn get_root_directory(&self) -> Result<DirectoryEntryNode> {
         let mut root_children = Vec::new();
-        let backup_set_dir_ref = backup_set_dir.as_ref();
+        let backup_set_dir_ref = &self.root_path;
 
         for (folder_uuid, records) in &self.backup_records {
             for record in records {
@@ -2172,7 +2169,7 @@ impl BackupSet {
                                 compression_type: key.compression_type, // This now comes from the unified BlobKey
                                 is_packed: false, // Assumption for Arq5TreeBlobKey context
                                 length: key.archive_size, // From unified BlobKey
-                                offset: 0, // Assumption for Arq5TreeBlobKey context
+                                offset: 0,        // Assumption for Arq5TreeBlobKey context
                                 relative_path: format!("arq5_migrated_tree_blob/{}", key.sha1), // Placeholder path
                                 stretch_encryption_key: key.stretch_encryption_key, // From unified BlobKey
                                 is_large_pack: None, // Arq5 context might not have this concept
@@ -2745,7 +2742,7 @@ fn test_get_root_directory() {
     // or provide actual (minimal) pack files.
     // For this exercise, let's verify the error case first.
 
-    let root_dir_result = backup_set.get_root_directory(&dummy_backup_set_dir);
+    let root_dir_result = backup_set.get_root_directory();
 
     // Assert that the result is an error, because the dummy tree files don't exist.
     assert!(
