@@ -5,6 +5,7 @@
 //! binary tree data.
 
 use arq::arq7::BackupSet;
+use arq::arq7::DirectoryEntry;
 use arq::arq7::EncryptedKeySet;
 use arq::compression::CompressionType;
 use arq::tree;
@@ -45,7 +46,36 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         // match BackupSet::from_directory(backup_set_path) {
         Ok(backup_set) => {
             let root_directory = backup_set.get_root_directory()?;
-            for _subentry in root_directory.children {}
+            for _subentry in root_directory.children {
+                match _subentry {
+                    DirectoryEntry::File(file) => {
+                        println!("File: {}", file.name);
+                    }
+                    DirectoryEntry::Directory(directory) => {
+                        println!("Directory: {}", directory.name);
+                        for _subentry in directory.children {
+                            match _subentry {
+                                DirectoryEntry::File(file) => {
+                                    println!("   File: {}", file.name);
+                                }
+                                DirectoryEntry::Directory(directory) => {
+                                    println!("   Directory: {}", directory.name);
+                                    for _subentry in directory.children {
+                                        match _subentry {
+                                            DirectoryEntry::File(file) => {
+                                                println!("      File: {}", file.name);
+                                            }
+                                            DirectoryEntry::Directory(directory) => {
+                                                println!("      Directory: {}", directory.name);
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
             print_backup_config(&backup_set);
             print_backup_plan(&backup_set);
             print_backup_folders_config(&backup_set);
@@ -282,9 +312,11 @@ fn print_backup_records(backup_set: &BackupSet, backup_set_path: &str) -> Option
                             //         .clone(),
                             // )
                             // .ok()?;
-                            let tree =
-                                tree::Tree::new_arq5(&data, CompressionType::from(key.compression_type))
-                                    .ok()?;
+                            let tree = tree::Tree::new_arq5(
+                                &data,
+                                CompressionType::from(key.compression_type),
+                            )
+                            .ok()?;
 
                             // Print node information
                             println!("    Root Node:");
@@ -671,7 +703,8 @@ fn extract_tree_node(
         Ok(Some(tree)) => {
             // The unified arq::tree::Tree uses `nodes` (a HashMap) instead of `child_nodes`
             for (child_name, child_node_ref) in &tree.nodes {
-                let _child_path = if relative_path.is_empty() { // Prefixed with _
+                let _child_path = if relative_path.is_empty() {
+                    // Prefixed with _
                     child_name.clone()
                 } else {
                     format!("{}/{}", relative_path, child_name)
@@ -799,7 +832,8 @@ fn extract_using_json_fallback(
 
 fn set_file_metadata(file_path: &Path, node: &arq::node::Node) {
     // Changed to &Path
-    if node.modification_time_sec > 0 { // This field exists on arq::node::Node
+    if node.modification_time_sec > 0 {
+        // This field exists on arq::node::Node
         use std::time::UNIX_EPOCH;
         if let Some(mtime) = UNIX_EPOCH.checked_add(std::time::Duration::from_secs(
             node.modification_time_sec as u64,
@@ -810,7 +844,8 @@ fn set_file_metadata(file_path: &Path, node: &arq::node::Node) {
     }
 }
 
-fn _try_extract_test_file_content( // Prefixed with _
+fn _try_extract_test_file_content(
+    // Prefixed with _
     _filename: &str, // Mark as unused if not used
     _backup_set_path: &Path,
     _keyset: Option<&EncryptedKeySet>,
@@ -886,14 +921,15 @@ fn list_files_recursive(
     }
 }
 
-fn _show_node_metadata(node: &arq::node::Node, indent: &str) { // Prefixed with _
+fn _show_node_metadata(node: &arq::node::Node, indent: &str) {
+    // Prefixed with _
     println!("{}   Size: {} bytes", indent, node.item_size); // item_size exists on arq::node::Node
-    // ...
+                                                             // ...
 }
 
 fn show_file_details(node: &arq::node::Node, indent: &str) {
     println!("{}   📊 {} bytes", indent, node.item_size); // item_size exists on arq::node::Node
-    // ...
+                                                          // ...
 }
 
 fn get_file_icon(path: &str) -> &'static str {
