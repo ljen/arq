@@ -36,7 +36,7 @@ pub struct BlobKey {
 
 impl BlobKey {
     /// Creates a new BlobKey by reading from an ArqRead stream (binary format).
-    pub fn new<R: ArqRead>(mut reader: R) -> Result<Option<BlobKey>> {
+    pub fn new<R: ArqRead>(reader: &mut R) -> Result<Option<BlobKey>> { // Changed to &mut R
         // Read fields common to the old BlobKey binary format
         let sha1_val = reader.read_arq_string()?;
 
