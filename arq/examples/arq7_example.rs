@@ -9,6 +9,7 @@ use arq::arq7::EncryptedKeySet;
 use arq::compression::CompressionType;
 use arq::tree;
 use arq::tree::Tree;
+use chrono::SubsecRound;
 use std::collections::TryReserveError;
 use std::fs::File;
 use std::io::Cursor;
@@ -43,6 +44,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     match BackupSet::from_directory_with_password(backup_set_path, Some(backup_passowrd)) {
         // match BackupSet::from_directory(backup_set_path) {
         Ok(backup_set) => {
+            let root_directory = backup_set.get_root_directory()?;
+            for subentry in root_directory.children {}
             print_backup_config(&backup_set);
             print_backup_plan(&backup_set);
             print_backup_folders_config(&backup_set);
@@ -251,11 +254,18 @@ fn print_backup_records(backup_set: &BackupSet, backup_set_path: &str) -> Option
                             ) {
                                 Ok(Some(d)) => d,
                                 Ok(None) => {
-                                    println!("      ⚠️ Blob data not found for SHA {} in {}", sha, trees_path.display());
+                                    println!(
+                                        "      ⚠️ Blob data not found for SHA {} in {}",
+                                        sha,
+                                        trees_path.display()
+                                    );
                                     return None;
                                 }
                                 Err(e) => {
-                                    println!("      ❌ Error restoring blob with SHA {}: {}", sha, e);
+                                    println!(
+                                        "      ❌ Error restoring blob with SHA {}: {}",
+                                        sha, e
+                                    );
                                     return None;
                                 }
                             };
