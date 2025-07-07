@@ -328,7 +328,7 @@ pub fn list_file_versions(
     }
 
     if found_versions == 0 {
-        println!("No Arq7 versions found for this folder."); // Changed message
+        println!("No versions found for this file."); // Reverted to expect "file"
     }
     Ok(())
 }

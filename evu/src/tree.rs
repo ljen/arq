@@ -63,7 +63,7 @@ fn render_tree(
     //show_commit(&commit);
 
     let tree_blob = recovery::restore_blob_with_sha(path, &commit.tree_sha1, master_key)?;
-    let tree = tree::Tree::new(&tree_blob, commit.tree_compression_type)?;
+    let tree = tree::Tree::new_arq5(&tree_blob, commit.tree_compression_type)?;
     render_internal_tree(prefix, &path, tree, master_key)?;
     Ok(())
 }
@@ -76,12 +76,12 @@ fn render_internal_tree(
 ) -> Result<()> {
     for (k, v) in tr.nodes {
         if v.is_tree {
-            if v.data_blob_keys.is_empty() {
+            if v.data_blob_locs.is_empty() { // Changed data_blob_keys to data_blob_locs
                 continue;
             }
             let data =
-                recovery::restore_blob_with_sha(&path, &v.data_blob_keys[0].sha1, &master_key)?;
-            let tree = tree::Tree::new(&data, v.data_compression_type)?;
+                recovery::restore_blob_with_sha(&path, &v.data_blob_locs[0].blob_identifier, &master_key)?; // Changed to data_blob_locs and blob_identifier
+            let tree = tree::Tree::new_arq5(&data, v.arq5_data_compression_type.unwrap_or(arq::compression::CompressionType::None))?; // Changed to arq5_data_compression_type
             render_internal_tree(prefix.join(k).as_path(), &path, tree, &master_key)?;
         } else {
             println!("{}", prefix.join(k).as_os_str().to_str().unwrap());
