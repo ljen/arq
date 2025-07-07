@@ -1,5 +1,6 @@
 use crate::error::{Error, Result};
-use arq::arq7::{BackupSet, EncryptedKeySet, Node};
+use arq::arq7::{BackupSet, EncryptedKeySet};
+use arq::node::Node; // Updated to use arq::node::Node
 use chrono::DateTime;
 use std::path::Path;
 
@@ -66,9 +67,9 @@ fn find_node_in_record_tree(
                 "DEBUG: find_node_in_record_tree: Depth: {}, Target: '{}', Children: {:?}",
                 current_depth,
                 target_child_name,
-                tree.child_nodes.keys()
+                tree.nodes.keys() // Changed from child_nodes to nodes
             );
-            if let Some(child_node) = tree.child_nodes.get(target_child_name) {
+            if let Some(child_node) = tree.nodes.get(target_child_name) { // Changed from child_nodes to nodes
                 return find_node_in_record_tree(
                     child_node,
                     path_parts,
@@ -984,7 +985,7 @@ fn extract_node_to_destination_recursive(
 
         match node.load_tree_with_encryption(backup_set_path, keyset) {
             Ok(Some(tree)) => {
-                for (child_name, child_node) in &tree.child_nodes {
+                for (child_name, child_node) in &tree.nodes { // Changed from child_nodes to nodes
                     if let Err(e) = extract_node_to_destination_recursive(
                         child_node,
                         backup_set_path,
