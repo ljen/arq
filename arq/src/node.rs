@@ -20,14 +20,13 @@
 //! and may not be part of the default JSON serialization if they are primarily for internal
 //! representation during parsing of those older formats.
 
-use serde::{Deserialize as _, Serialize as _}; // Use _ to indicate derive is handling it
 // HashMap is not used in this file directly.
-use crate::blob_location::BlobLoc;
+use crate::arq7::binary::ArqBinaryReader;
 use crate::blob::BlobKey;
+use crate::blob_location::BlobLoc;
 use crate::compression::CompressionType; // For legacy fields
 use crate::error::Result;
-use crate::type_utils::ArqRead;
-use crate::arq7::binary::ArqBinaryReader; // For Arq7 binary parsing
+use crate::type_utils::ArqRead; // For Arq7 binary parsing
 
 /// Represents a file system node (a file or a directory) in a unified way,
 /// accommodating fields from different Arq backup formats (Arq 5/6 legacy and Arq 7).
@@ -59,7 +58,11 @@ pub struct Node {
     pub item_size: u64, // For files: data_size. For trees: often 0 or size of tree data itself.
     #[serde(default)] // Arq5 nodes are not explicitly "deleted" in the same way
     pub deleted: bool,
-    #[serde(rename = "computerOSType", skip_serializing_if = "Option::is_none", default)]
+    #[serde(
+        rename = "computerOSType",
+        skip_serializing_if = "Option::is_none",
+        default
+    )]
     pub computer_os_type: Option<u32>, // 1 for Mac, 2 for Windows, 3 for Linux (Arq7)
 
     // Timestamps (Arq7 names)
@@ -85,7 +88,11 @@ pub struct Node {
     pub st_nlink: u32,
     #[serde(rename = "mac_st_gid")] // Arq5 'gid' is i32
     pub st_gid: u32,
-    #[serde(rename = "mac_st_uid", skip_serializing_if = "Option::is_none", default)] // Arq5 'uid' is i32
+    #[serde(
+        rename = "mac_st_uid",
+        skip_serializing_if = "Option::is_none",
+        default
+    )] // Arq5 'uid' is i32
     pub st_uid: Option<u32>,
 
     #[serde(rename = "username", skip_serializing_if = "Option::is_none", default)]
@@ -106,23 +113,51 @@ pub struct Node {
     // Windows specific (Arq7)
     #[serde(rename = "winAttrs", skip_serializing_if = "Option::is_none", default)]
     pub win_attrs: Option<u32>,
-    #[serde(rename = "reparseTag", skip_serializing_if = "Option::is_none", default)]
+    #[serde(
+        rename = "reparseTag",
+        skip_serializing_if = "Option::is_none",
+        default
+    )]
     pub reparse_tag: Option<u32>,
-    #[serde(rename = "reparsePointIsDirectory", skip_serializing_if = "Option::is_none", default)]
+    #[serde(
+        rename = "reparsePointIsDirectory",
+        skip_serializing_if = "Option::is_none",
+        default
+    )]
     pub reparse_point_is_directory: Option<bool>,
 
     // Counts (Arq7)
-    #[serde(rename = "containedFilesCount", skip_serializing_if = "Option::is_none", default)]
+    #[serde(
+        rename = "containedFilesCount",
+        skip_serializing_if = "Option::is_none",
+        default
+    )]
     pub contained_files_count: Option<u64>, // For trees
 
     // BlobLocs - primary way to store data pointers (Arq7 style)
-    #[serde(rename = "dataBlobLocs", default, skip_serializing_if = "Vec::is_empty")]
+    #[serde(
+        rename = "dataBlobLocs",
+        default,
+        skip_serializing_if = "Vec::is_empty"
+    )]
     pub data_blob_locs: Vec<BlobLoc>,
-    #[serde(rename = "treeBlobLoc", skip_serializing_if = "Option::is_none", default)]
+    #[serde(
+        rename = "treeBlobLoc",
+        skip_serializing_if = "Option::is_none",
+        default
+    )]
     pub tree_blob_loc: Option<BlobLoc>, // For trees
-    #[serde(rename = "xattrsBlobLocs", skip_serializing_if = "Option::is_none", default)]
+    #[serde(
+        rename = "xattrsBlobLocs",
+        skip_serializing_if = "Option::is_none",
+        default
+    )]
     pub xattrs_blob_locs: Option<Vec<BlobLoc>>,
-    #[serde(rename = "aclBlobLoc", skip_serializing_if = "Option::is_none", default)]
+    #[serde(
+        rename = "aclBlobLoc",
+        skip_serializing_if = "Option::is_none",
+        default
+    )]
     pub acl_blob_loc: Option<BlobLoc>,
 
     // Arq5 specific fields (to be populated by from_binary_reader_arq5)
@@ -140,7 +175,6 @@ pub struct Node {
     // Arq5 uses Vec<BlobKey> for data_blob_keys. This will be transformed into Vec<BlobLoc>
     // by the arq5 parser. We don't store them directly as BlobKey here to keep unified structure.
     // pub arq5_data_blob_keys: Option<Vec<BlobKey>>,
-
     #[serde(skip_serializing_if = "Option::is_none")]
     pub arq5_xattrs_blob_key: Option<BlobKey>, // Stored if needed for direct Arq5 data access
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -190,13 +224,15 @@ impl Node {
         let mut data_blob_locs = Vec::new();
         for _i in 0..data_blob_locs_count {
             data_blob_locs.push(BlobLoc::from_binary_reader(reader).map_err(|e| {
-                crate::error::Error::InvalidFormat(format!("Failed to parse data BlobLoc: {}", e)) // Changed to InvalidFormat
+                crate::error::Error::InvalidFormat(format!("Failed to parse data BlobLoc: {}", e))
+                // Changed to InvalidFormat
             })?);
         }
 
         let acl_blob_loc = match reader.read_arq_bool()? {
             true => Some(BlobLoc::from_binary_reader(reader).map_err(|e| {
-                crate::error::Error::InvalidFormat(format!("Failed to parse acl BlobLoc: {}", e)) // Changed to InvalidFormat
+                crate::error::Error::InvalidFormat(format!("Failed to parse acl BlobLoc: {}", e))
+                // Changed to InvalidFormat
             })?),
             false => None,
         };
@@ -205,7 +241,8 @@ impl Node {
         let mut parsed_xattrs_blob_locs = Vec::new();
         for _ in 0..xattrs_blob_locs_count {
             parsed_xattrs_blob_locs.push(BlobLoc::from_binary_reader(reader).map_err(|e| {
-                crate::error::Error::InvalidFormat(format!("Failed to parse xattrs BlobLoc: {}", e)) // Changed to InvalidFormat
+                crate::error::Error::InvalidFormat(format!("Failed to parse xattrs BlobLoc: {}", e))
+                // Changed to InvalidFormat
             })?);
         }
         let xattrs_blob_locs = if parsed_xattrs_blob_locs.is_empty() {
@@ -215,7 +252,8 @@ impl Node {
         };
 
         let item_size = reader.read_arq_u64().unwrap_or(if is_tree { 0 } else { 0 }); // Default to 0 if missing
-        let contained_files_count = Some(reader.read_arq_u64().unwrap_or(if is_tree { 0 } else { 1 }));
+        let contained_files_count =
+            Some(reader.read_arq_u64().unwrap_or(if is_tree { 0 } else { 1 }));
 
         let modification_time_sec = reader.read_arq_i64().unwrap_or(0);
         let modification_time_nsec = reader.read_arq_i64().unwrap_or(0);
@@ -230,7 +268,9 @@ impl Node {
 
         let st_dev = reader.read_arq_i32().unwrap_or(0);
         let st_ino = reader.read_arq_u64().unwrap_or(0);
-        let st_mode = reader.read_arq_u32().unwrap_or(if is_tree { 0o040755 } else { 0o100644 });
+        let st_mode = reader
+            .read_arq_u32()
+            .unwrap_or(if is_tree { 0o040755 } else { 0o100644 });
         let st_nlink = reader.read_arq_u32().unwrap_or(1);
         let st_uid = Some(reader.read_arq_u32().unwrap_or(0));
         let st_gid = reader.read_arq_u32().unwrap_or(0);
@@ -246,7 +286,8 @@ impl Node {
         // but the provided `arq::arq7::Node::from_binary_reader` uses tree_version >= 2.
         // The `arq::arq7::binary::BinaryTree` itself has a version.
         // We assume `tree_version` passed here corresponds to the version of the containing tree.
-        if tree_version.unwrap_or(0) >= 2 { // Default to 0 if no tree_version, won't read these
+        if tree_version.unwrap_or(0) >= 2 {
+            // Default to 0 if no tree_version, won't read these
             reparse_tag = reader.read_arq_u32().ok();
             reparse_point_is_directory = reader.read_arq_bool().ok();
         }
@@ -307,7 +348,8 @@ impl Node {
     /// * `reader`: A reader implementing `ArqRead + std::io::BufRead` positioned at the start of the node data.
     /// * `tree_version`: The version of the Arq 5/6 tree containing this node (e.g., 12, 18, 22).
     ///   This is crucial for correctly parsing version-dependent fields.
-    pub fn from_binary_reader_arq5<R: ArqRead + std::io::BufRead>( // ArqRead for arq_primitives, BufRead for general use
+    pub fn from_binary_reader_arq5<R: ArqRead + std::io::BufRead>(
+        // ArqRead for arq_primitives, BufRead for general use
         reader: &mut R,
         tree_version: u32, // Arq5 tree versions (e.g., 12, 18, 19, 20, 22)
     ) -> Result<Self> {
@@ -327,10 +369,17 @@ impl Node {
             data_compression_type_arq5 = reader.read_arq_compression_type()?;
             xattrs_compression_type_arq5 = reader.read_arq_compression_type()?;
             acl_compression_type_arq5 = reader.read_arq_compression_type()?;
-        } else if tree_version >= 12 { // Versions 12-18 used simple booleans
-            if reader.read_arq_bool()? { data_compression_type_arq5 = CompressionType::Gzip; }
-            if reader.read_arq_bool()? { xattrs_compression_type_arq5 = CompressionType::Gzip; }
-            if reader.read_arq_bool()? { acl_compression_type_arq5 = CompressionType::Gzip; }
+        } else if tree_version >= 12 {
+            // Versions 12-18 used simple booleans
+            if reader.read_arq_bool()? {
+                data_compression_type_arq5 = CompressionType::Gzip;
+            }
+            if reader.read_arq_bool()? {
+                xattrs_compression_type_arq5 = CompressionType::Gzip;
+            }
+            if reader.read_arq_bool()? {
+                acl_compression_type_arq5 = CompressionType::Gzip;
+            }
         }
 
         let mut data_blob_keys_count = reader.read_arq_i32()?;
@@ -347,11 +396,13 @@ impl Node {
         if tree_version <= 18 {
             let _thumbnail_sha1 = reader.read_arq_string()?; // unused
             if tree_version >= 14 {
-                let _is_thumbnail_encryption_key_stretched = reader.read_arq_bool()?; // unused
+                let _is_thumbnail_encryption_key_stretched = reader.read_arq_bool()?;
+                // unused
             }
             let _preview_sha1 = reader.read_arq_string()?; // unused
             if tree_version >= 14 {
-                let _is_preview_encryption_key_stretched = reader.read_arq_bool()?; // unused
+                let _is_preview_encryption_key_stretched = reader.read_arq_bool()?;
+                // unused
             }
         }
 
@@ -377,8 +428,16 @@ impl Node {
         let ctime_sec_val = reader.read_arq_i64()?;
         let ctime_nsec_val = reader.read_arq_i64()?;
 
-        let create_time_sec_val = if tree_version >= 15 { reader.read_arq_i64()? } else { 0 };
-        let create_time_nsec_val = if tree_version >= 15 { reader.read_arq_i64()? } else { 0 };
+        let create_time_sec_val = if tree_version >= 15 {
+            reader.read_arq_i64()?
+        } else {
+            0
+        };
+        let create_time_nsec_val = if tree_version >= 15 {
+            reader.read_arq_i64()?
+        } else {
+            0
+        };
 
         let st_blocks_val = reader.read_arq_i64()?;
         let st_blksize_val = reader.read_arq_u32()?;
@@ -387,16 +446,19 @@ impl Node {
         // A proper transformation would require context about pack files if these blobs are packed.
         // For now, create "unpacked" BlobLocs using the SHA1 as identifier.
         // This assumes Arq5 blobs are standalone or their pack context is resolved elsewhere.
-        let data_blob_locs_transformed: Vec<BlobLoc> = arq5_data_blob_keys.iter().map(|bk| BlobLoc {
-            blob_identifier: bk.sha1.clone(),
-            compression_type: bk.compression_type, // BlobKey now has this
-            is_packed: false, // Assumption: Arq5 Node format doesn't specify packing for individual data keys here
-            length: bk.archive_size, // Approximation, actual length might differ post-decompression
-            offset: 0,
-            relative_path: format!("arq5_blob/{}", bk.sha1), // Placeholder path
-            stretch_encryption_key: bk.stretch_encryption_key,
-            is_large_pack: Some(false),
-        }).collect();
+        let data_blob_locs_transformed: Vec<BlobLoc> = arq5_data_blob_keys
+            .iter()
+            .map(|bk| BlobLoc {
+                blob_identifier: bk.sha1.clone(),
+                compression_type: bk.compression_type, // BlobKey now has this
+                is_packed: false, // Assumption: Arq5 Node format doesn't specify packing for individual data keys here
+                length: bk.archive_size, // Approximation, actual length might differ post-decompression
+                offset: 0,
+                relative_path: format!("arq5_blob/{}", bk.sha1), // Placeholder path
+                stretch_encryption_key: bk.stretch_encryption_key,
+                is_large_pack: Some(false),
+            })
+            .collect();
 
         let tree_blob_loc_transformed = if is_tree {
             // Arq5 Node format doesn't have a direct tree_blob_key/loc like Arq7.
@@ -437,7 +499,7 @@ impl Node {
         Ok(Node {
             is_tree,
             item_size: data_size, // Arq5 data_size is equivalent to item_size for files
-            deleted: false, // Arq5 nodes don't have this flag directly
+            deleted: false,       // Arq5 nodes don't have this flag directly
             computer_os_type: Some(1), // Assume Mac for Arq5 unless specified otherwise, Arq7 is more explicit
 
             modification_time_sec: mtime_sec_val,
@@ -450,7 +512,7 @@ impl Node {
             st_mode: mode_val as u32,
             st_ino: st_ino_val as u64, // Cast from i32
             st_nlink: st_nlink_val,
-            st_gid: gid_val as u32, // Cast from i32
+            st_gid: gid_val as u32,       // Cast from i32
             st_uid: Some(uid_val as u32), // Cast from i32
 
             username: None, // Arq5 format doesn't store username/groupname in Node
@@ -466,7 +528,11 @@ impl Node {
 
             contained_files_count: None, // Arq5 Node doesn't store this directly; Tree does.
 
-            data_blob_locs: if is_tree { vec![] } else { data_blob_locs_transformed } , // If it's a tree, tree_blob_loc_transformed holds its pointer
+            data_blob_locs: if is_tree {
+                vec![]
+            } else {
+                data_blob_locs_transformed
+            }, // If it's a tree, tree_blob_loc_transformed holds its pointer
             tree_blob_loc: tree_blob_loc_transformed,
             xattrs_blob_locs: xattrs_blob_loc_transformed.map(|loc| vec![loc]), // Arq7 allows multiple, Arq5 implies one
             acl_blob_loc: acl_blob_loc_transformed,
@@ -572,7 +638,8 @@ impl Node {
         keyset: Option<&crate::arq7::EncryptedKeySet>,
     ) -> Result<Vec<u8>> {
         if self.is_tree {
-            return Err(crate::error::Error::InvalidFormat( // Changed to InvalidFormat
+            return Err(crate::error::Error::InvalidFormat(
+                // Changed to InvalidFormat
                 "Cannot reconstruct file data from a tree node.".to_string(),
             ));
         }
@@ -610,11 +677,13 @@ impl Node {
         keyset: Option<&crate::arq7::EncryptedKeySet>,
     ) -> Result<()> {
         if self.is_tree {
-            return Err(crate::error::Error::InvalidFormat( // Changed to InvalidFormat
+            return Err(crate::error::Error::InvalidFormat(
+                // Changed to InvalidFormat
                 "Cannot extract directory as a file.".to_string(),
             ));
         }
-        let file_data = self.reconstruct_file_data_with_encryption(backup_set_dir.as_ref(), keyset)?;
+        let file_data =
+            self.reconstruct_file_data_with_encryption(backup_set_dir.as_ref(), keyset)?;
         std::fs::write(output_path.as_ref(), file_data)
             .map_err(|e| crate::error::Error::IoError(e))?; // Map std::io::Error to crate::error::Error
         Ok(())

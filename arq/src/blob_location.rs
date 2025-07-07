@@ -1,6 +1,5 @@
 //! Defines the BlobLoc structure and its methods for representing blob locations.
 
-use serde::{Deserialize as _, Serialize as _}; // Use _ to indicate derive is handling it
 use std::fs::File;
 use std::io::{BufReader, Read, Seek, SeekFrom}; // Removed unused BufRead
 use std::path::Path;
@@ -57,7 +56,7 @@ impl BlobLoc {
         let relative_path = match relative_path_opt {
             Ok(Some(path)) => path,
             Ok(None) => String::new(), // Default to empty if None
-            Err(e) => return Err(e), // Propagate error if string read failed
+            Err(e) => return Err(e),   // Propagate error if string read failed
         };
 
         let offset = reader.read_arq_u64()?;
@@ -94,13 +93,12 @@ impl BlobLoc {
         // Fallback: assume path is relative after the initial UUID component if present
         let parts: Vec<&str> = path_str.splitn(3, '/').collect();
         if parts.len() == 3 && parts[0].is_empty() && !parts[1].is_empty() {
-             // e.g. "/<UUID>/actual/path"
+            // e.g. "/<UUID>/actual/path"
             backup_set_dir.join(parts[2])
         } else if parts.len() == 2 && parts[0].is_empty() {
             // e.g. "/actual/path" (no UUID prefix)
-             backup_set_dir.join(parts[1])
-        }
-        else {
+            backup_set_dir.join(parts[1])
+        } else {
             // Default to joining directly if no clear UUID prefix pattern
             backup_set_dir.join(path_str.trim_start_matches('/'))
         }
@@ -157,14 +155,16 @@ impl BlobLoc {
         keyset: Option<&EncryptedKeySet>,
     ) -> Result<Vec<u8>> {
         let mut file = File::open(pack_file_path).map_err(Error::IoError)?;
-        file.seek(SeekFrom::Start(self.offset)).map_err(Error::IoError)?;
+        file.seek(SeekFrom::Start(self.offset))
+            .map_err(Error::IoError)?;
 
         let mut blob_data_in_pack = vec![0u8; self.length as usize];
-        file.read_exact(&mut blob_data_in_pack).map_err(Error::IoError)?;
+        file.read_exact(&mut blob_data_in_pack)
+            .map_err(Error::IoError)?;
 
         let decrypted_data = if let Some(ks) = keyset {
             // Arq7 encrypted blobs within packs also start with ARQO header
-            if blob_data_in_pack.len() >=4 && &blob_data_in_pack[0..4] == b"ARQO" {
+            if blob_data_in_pack.len() >= 4 && &blob_data_in_pack[0..4] == b"ARQO" {
                 let mut cursor = std::io::Cursor::new(&blob_data_in_pack);
                 let encrypted_obj = EncryptedObject::new(&mut cursor)?;
                 encrypted_obj.validate(&ks.hmac_key)?;
@@ -182,24 +182,37 @@ impl BlobLoc {
     fn decompress_data(&self, data: Vec<u8>) -> Result<Vec<u8>> {
         match self.compression_type {
             0 => Ok(data), // No compression
-            1 => { // Gzip compression (legacy)
+            1 => {
+                // Gzip compression (legacy)
                 use flate2::read::GzDecoder;
                 let mut decoder = GzDecoder::new(&data[..]);
                 let mut decompressed = Vec::new();
-                decoder.read_to_end(&mut decompressed).map_err(Error::IoError)?;
+                decoder
+                    .read_to_end(&mut decompressed)
+                    .map_err(Error::IoError)?;
                 Ok(decompressed)
             }
-            2 => { // LZ4 compression
-                if data.len() < 4 && !data.is_empty() { // Allow empty data to pass through if original was empty
-                    return Err(Error::InvalidFormat("LZ4 data too short for length prefix".to_string()));
+            2 => {
+                // LZ4 compression
+                if data.len() < 4 && !data.is_empty() {
+                    // Allow empty data to pass through if original was empty
+                    return Err(Error::InvalidFormat(
+                        "LZ4 data too short for length prefix".to_string(),
+                    ));
                 }
-                if data.is_empty() { return Ok(data); } // Empty data is valid
+                if data.is_empty() {
+                    return Ok(data);
+                } // Empty data is valid
 
                 let length_prefix = &data[0..4];
-                let actual_decompressed_length = u32::from_be_bytes(length_prefix.try_into().unwrap()) as usize;
+                let actual_decompressed_length =
+                    u32::from_be_bytes(length_prefix.try_into().unwrap()) as usize;
                 let compressed_data_body = &data[4..];
 
-                Ok(lz4_flex::block::decompress(compressed_data_body, actual_decompressed_length)?)
+                Ok(lz4_flex::block::decompress(
+                    compressed_data_body,
+                    actual_decompressed_length,
+                )?)
             }
             _ => Err(Error::InvalidFormat(format!(
                 "Unsupported compression type: {}",
