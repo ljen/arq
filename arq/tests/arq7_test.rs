@@ -1057,19 +1057,19 @@ fn test_encryption_backward_compatibility() {
 
     // All the new methods should work
     let stats = unencrypted_backup
-        .get_statistics(ARQ7_TEST_DATA_DIR_NOT_ENCRYPTED)
+        .get_statistics()
         .unwrap_or_else(|e| {
             println!("Warning: Failed to get statistics: {}", e);
             Default::default()
         });
     let files = unencrypted_backup
-        .list_all_files(ARQ7_TEST_DATA_DIR_NOT_ENCRYPTED)
+        .list_all_files()
         .unwrap_or_else(|e| {
             println!("Warning: Failed to list files: {}", e);
             Vec::new()
         });
     let integrity = unencrypted_backup
-        .verify_integrity(ARQ7_TEST_DATA_DIR_NOT_ENCRYPTED)
+        .verify_integrity()
         .unwrap_or_else(|e| {
             println!("Warning: Failed to verify integrity: {}", e);
             Default::default()

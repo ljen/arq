@@ -1485,7 +1485,7 @@ impl BackupSet {
                 if let GenericBackupRecord::Arq7(record) = generic_record {
                     // Only Arq7 records have a direct node
                     if let Some(node) =
-                        self.find_node_by_path(&record.node, file_path, backup_set_dir.as_ref())?
+                        self.find_node_by_path(&record.node, file_path)?
                     {
                         if !node.is_tree {
                             return node.extract_file_with_encryption(
@@ -1510,10 +1510,9 @@ impl BackupSet {
         &self,
         node: &Node, // This function is now more general, called with a specific node
         target_path: &str,
-        backup_set_dir: &Path,
     ) -> Result<Option<Node>> {
         let path_parts: Vec<&str> = target_path.trim_start_matches('/').split('/').collect();
-        self.find_node_recursive(node, &path_parts, 0, backup_set_dir)
+        self.find_node_recursive(node, &path_parts, 0)
     }
 
     // find_node_recursive remains largely the same as it operates on a Node,
@@ -1523,8 +1522,10 @@ impl BackupSet {
         node: &Node,
         path_parts: &[&str],
         depth: usize,
-        backup_set_dir: &Path,
+        
     ) -> Result<Option<Node>> {
+        let backup_set_dir_ref: &Path = self.root_path.as_ref();
+
         if depth >= path_parts.len() {
             return Ok(Some(node.clone()));
         }
@@ -1534,20 +1535,20 @@ impl BackupSet {
         }
 
         if let Some(tree) =
-            node.load_tree_with_encryption(backup_set_dir, self.encryption_keyset.as_ref())?
+            node.load_tree_with_encryption(backup_set_dir_ref, self.encryption_keyset.as_ref())?
         {
             let target_name = path_parts[depth];
             if let Some(child_node) = tree.child_nodes.get(target_name) {
-                return self.find_node_recursive(child_node, path_parts, depth + 1, backup_set_dir);
+                return self.find_node_recursive(child_node, path_parts, depth + 1);
             }
         }
         Ok(None)
     }
 
     /// List all files in the backup set (primarily from Arq7 records)
-    pub fn list_all_files<P: AsRef<Path>>(&self, backup_set_dir: P) -> Result<Vec<String>> {
+    pub fn list_all_files(&self) -> Result<Vec<String>> {
         let mut files = Vec::new();
-        let backup_set_dir_ref = backup_set_dir.as_ref();
+        let backup_set_dir_ref = self.root_path.as_ref();
 
         for (_, records) in &self.backup_records {
             for generic_record in records {
@@ -1596,9 +1597,9 @@ impl BackupSet {
     }
 
     /// Get backup statistics
-    pub fn get_statistics<P: AsRef<Path>>(&self, backup_set_dir: P) -> Result<BackupStatistics> {
-        let mut stats = BackupStatistics::default();
-        let backup_set_dir_ref = backup_set_dir.as_ref();
+    pub fn get_statistics(&self) -> Result<BackupStatistics> {
+        let mut stats: BackupStatistics = BackupStatistics::default();
+        let backup_set_dir_ref = self.root_path.as_ref();
 
         for (_, records_vec) in &self.backup_records {
             // Renamed records to records_vec to avoid conflict
@@ -1636,9 +1637,11 @@ impl BackupSet {
     }
 
     /// Verify backup integrity by checking all blob locations
-    pub fn verify_integrity<P: AsRef<Path>>(&self, backup_set_dir: P) -> Result<IntegrityReport> {
+    pub fn verify_integrity(&self) -> Result<IntegrityReport> {
         let mut report = IntegrityReport::default();
-        let backup_set_dir_ref = backup_set_dir.as_ref();
+        let backup_set_dir_ref: &Path = self.root_path.as_ref();
+
+        // let backup_set_dir_ref2: &Path = self.root_path.as_ref();
 
         let blob_locations = self.find_all_blob_locations(); // This method needs adjustment
         report.total_blobs = blob_locations.len() as u32;
@@ -1670,23 +1673,15 @@ impl BackupSet {
     }
 
     /// Converts a Node into a DirectoryEntry (File or Directory).
-    fn node_to_directory_entry(
-        &self,
-        node: &Node,
-        name: String,
-        backup_set_dir: &Path, // Added backup_set_dir
-    ) -> Result<DirectoryEntry> {
+    fn node_to_directory_entry(&self, node: &Node, name: String) -> Result<DirectoryEntry> {
+        let backup_set_dir = &self.root_path;
         if node.is_tree {
             let mut children = Vec::new();
             if let Some(tree) =
                 node.load_tree_with_encryption(backup_set_dir, self.encryption_keyset.as_ref())?
             {
                 for (child_name, child_node) in &tree.child_nodes {
-                    children.push(self.node_to_directory_entry(
-                        child_node,
-                        child_name.clone(),
-                        backup_set_dir, // Pass backup_set_dir recursively
-                    )?);
+                    children.push(self.node_to_directory_entry(child_node, child_name.clone())?);
                 }
             }
             Ok(DirectoryEntry::Directory(DirectoryEntryNode {
@@ -1706,7 +1701,6 @@ impl BackupSet {
     /// Each subdirectory contains the files and folders from that backup.
     pub fn get_root_directory(&self) -> Result<DirectoryEntryNode> {
         let mut root_children = Vec::new();
-        let backup_set_dir_ref = &self.root_path;
 
         for (folder_uuid, records) in &self.backup_records {
             for record in records {
@@ -1735,7 +1729,6 @@ impl BackupSet {
                                 .local_path
                                 .clone()
                                 .unwrap_or_else(|| "backup_root".to_string()),
-                            backup_set_dir_ref,
                         )? {
                             DirectoryEntry::Directory(mut record_root_dir) => {
                                 // The top-level entry for this backup record should be a directory named by date
@@ -1757,7 +1750,6 @@ impl BackupSet {
                                             .local_path
                                             .clone()
                                             .unwrap_or_else(|| "file_root".to_string()),
-                                        backup_set_dir_ref,
                                     )?],
                                 }));
                             }
