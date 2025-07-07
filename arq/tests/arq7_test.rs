@@ -698,10 +698,10 @@ fn test_binary_tree_loading_comprehensive() {
                             "Successfully loaded binary tree with version: {}",
                             tree.version
                         );
-                        println!("Tree has {} child nodes", tree.child_nodes.len());
+                        println!("Tree has {} child nodes", tree.nodes.len()); // Changed to tree.nodes
 
                         // Verify we can iterate over child nodes
-                        for (name, node) in &tree.child_nodes {
+                        for (name, node) in &tree.nodes { // Changed to tree.nodes
                             println!("Child node: {} (is_tree: {})", name, node.is_tree);
                         }
                     }
@@ -993,14 +993,14 @@ fn test_encrypted_tree_loading() {
                     "Successfully loaded encrypted tree with version: {}",
                     tree.version
                 );
-                println!("Tree has {} child nodes", tree.child_nodes.len());
+                println!("Tree has {} child nodes", tree.nodes.len()); // Changed to tree.nodes
 
                 // Verify we can iterate over child nodes
-                for (name, node) in &tree.child_nodes {
+                for (name, node) in &tree.nodes { // Changed to tree.nodes
                     println!("Child node: {} (is_tree: {})", name, node.is_tree);
                 }
 
-                assert!(!tree.child_nodes.is_empty());
+                assert!(!tree.nodes.is_empty()); // Changed to tree.nodes
             } else {
                 println!("No tree data found in test record");
             }
