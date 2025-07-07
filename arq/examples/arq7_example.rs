@@ -6,9 +6,11 @@
 
 use arq::arq7::BackupSet;
 use arq::arq7::DirectoryEntry;
+use arq::arq7::DirectoryEntryNode;
 use arq::arq7::EncryptedKeySet;
 use arq::compression::CompressionType;
 use arq::tree;
+use plist::Dictionary;
 // use arq::tree::Tree; // Redundant due to `use arq::tree;` and usage `tree::Tree`
 // use chrono::SubsecRound; // Unused
 // use std::collections::TryReserveError; // Unused
@@ -19,6 +21,30 @@ use std::path::Path; // PathBuf was unused
 
 // Error enum will be removed as part of the refactoring.
 // Errors will be handled by arq::error::Error and Option types.
+
+fn list_children(
+    bs: &mut BackupSet,
+    node: &mut DirectoryEntryNode,
+    depth: usize,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let indent = "  ".repeat(depth + 2);
+    if node.children.is_none() {
+        bs.load_directory_children(node)?;
+    }
+
+    for child in node.children.as_mut().unwrap() {
+        match child {
+            DirectoryEntry::File(file) => {
+                println!("{}{}", indent, file.name);
+            }
+            DirectoryEntry::Directory(dir) => {
+                println!("{}{}", indent, dir.name);
+                list_children(bs, dir, depth + 2)?;
+            }
+        }
+    }
+    return Ok(());
+}
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Path to an Arq 7 backup set directory
@@ -44,38 +70,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Load the complete backup set
     match BackupSet::from_directory_with_password(backup_set_path, Some(backup_passowrd)) {
         // match BackupSet::from_directory(backup_set_path) {
-        Ok(backup_set) => {
-            let root_directory = backup_set.get_root_directory()?;
-            for _subentry in root_directory.children {
-                match _subentry {
-                    DirectoryEntry::File(file) => {
-                        println!("File: {}", file.name);
-                    }
-                    DirectoryEntry::Directory(directory) => {
-                        println!("Directory: {}", directory.name);
-                        for _subentry in directory.children {
-                            match _subentry {
-                                DirectoryEntry::File(file) => {
-                                    println!("   File: {}", file.name);
-                                }
-                                DirectoryEntry::Directory(directory) => {
-                                    println!("   Directory: {}", directory.name);
-                                    for _subentry in directory.children {
-                                        match _subentry {
-                                            DirectoryEntry::File(file) => {
-                                                println!("      File: {}", file.name);
-                                            }
-                                            DirectoryEntry::Directory(directory) => {
-                                                println!("      Directory: {}", directory.name);
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-            }
+        Ok(mut backup_set) => {
+            let mut root_directory = backup_set.get_root_directory()?;
+            list_children(&mut backup_set, &mut root_directory, 2);
             print_backup_config(&backup_set);
             print_backup_plan(&backup_set);
             print_backup_folders_config(&backup_set);
