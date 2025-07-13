@@ -1,6 +1,7 @@
 #![recursion_limit = "256"]
 
 use arq::arq7::*;
+use std::io::Cursor;
 use std::path::Path;
 
 const ARQ7_TEST_DATA_DIR_NOT_ENCRYPTED: &str =
@@ -78,15 +79,24 @@ fn test_parse_arq5_migrated_backup_record() {
         GenericBackupRecord::Arq5(record) => {
             assert_eq!(record.version, 12);
             assert_eq!(record.arq_version.as_deref(), Some("5.16.0"));
-            assert_eq!(record.backup_folder_uuid, "EF287B91-7C53-4C9E-BC0F-C7DAFD3B097D");
-            assert_eq!(record.backup_plan_uuid, "37FA0482-9BE1-46DC-9644-334271E810AD");
+            assert_eq!(
+                record.backup_folder_uuid,
+                "EF287B91-7C53-4C9E-BC0F-C7DAFD3B097D"
+            );
+            assert_eq!(
+                record.backup_plan_uuid,
+                "37FA0482-9BE1-46DC-9644-334271E810AD"
+            );
             assert_eq!(record.computer_os_type, Some(1));
             assert_eq!(record.creation_date, Some(1582559134.293));
             assert_eq!(record.is_complete, Some(true));
             assert!(record.arq5_bucket_xml.is_some());
             assert_eq!(record.arq5_bucket_xml.as_deref().unwrap(), "<plist>\n<dict>\n    <key>Endpoint</key>\n    <string>googledrive://user%40domain.com@www.googleapis.com/Arq+Backup+Data</string>\n   </dict>\n</plist>");
 
-            let arq5_key = record.arq5_tree_blob_key.as_ref().expect("arq5TreeBlobKey should be present");
+            let arq5_key = record
+                .arq5_tree_blob_key
+                .as_ref()
+                .expect("arq5TreeBlobKey should be present");
             assert_eq!(arq5_key.storage_type, 1);
             assert_eq!(arq5_key.archive_size, 0);
             assert_eq!(arq5_key.sha1, "06f5547421444c64ed136756eaaa146bfde2ce64");
@@ -100,13 +110,22 @@ fn test_parse_arq5_migrated_backup_record() {
             assert!(record.copied_from_commit);
             assert_eq!(record.relative_path.as_deref(), Some("/37FA0482-9BE1-46DC-9644-334271E810AD/backupfolders/EF287B91-7C53-4C9E-BC0F-C7DAFD3B097D/backuprecords/00158/2559134.backuprecord"));
 
-            let errors = record.backup_record_errors.as_ref().expect("backupRecordErrors should be present");
+            let errors = record
+                .backup_record_errors
+                .as_ref()
+                .expect("backupRecordErrors should be present");
             assert_eq!(errors.len(), 2);
             assert_eq!(errors[0].error_message, "Error opening C:\\Users\\User1\\AppData\\Local\\Microsoft\\WindowsApps\\debian.exe: The file cannot be accessed by the system.\r\n");
-            assert_eq!(errors[0].local_path, "/C/Users/User1/AppData/Local/Microsoft/WindowsApps/debian.exe");
+            assert_eq!(
+                errors[0].local_path,
+                "/C/Users/User1/AppData/Local/Microsoft/WindowsApps/debian.exe"
+            );
             assert!(!errors[0].path_is_directory);
             assert_eq!(errors[1].error_message, "Error opening C:\\Users\\User1\\AppData\\Local\\Microsoft\\WindowsApps\\GameBarElevatedFT_Alias.exe: The file cannot be accessed by the system.\r\n");
-            assert_eq!(errors[1].local_path, "/C/Users/User1/AppData/Local/Microsoft/WindowsApps/GameBarElevatedFT_Alias.exe");
+            assert_eq!(
+                errors[1].local_path,
+                "/C/Users/User1/AppData/Local/Microsoft/WindowsApps/GameBarElevatedFT_Alias.exe"
+            );
             assert!(!errors[1].path_is_directory);
         }
         GenericBackupRecord::Arq7(_) => {
@@ -203,10 +222,16 @@ fn test_parse_arq7_native_backup_record() {
     match generic_record {
         GenericBackupRecord::Arq7(record) => {
             assert_eq!(record.version, 100);
-            assert_eq!(record.backup_folder_uuid, "CEAA7545-3174-4E7C-A580-3D10BAED153E");
+            assert_eq!(
+                record.backup_folder_uuid,
+                "CEAA7545-3174-4E7C-A580-3D10BAED153E"
+            );
             assert_eq!(record.disk_identifier, "ROOT");
             assert_eq!(record.storage_class, "STANDARD");
-            assert_eq!(record.backup_plan_uuid, "D1154AC6-01EB-41FE-B115-114464350B92");
+            assert_eq!(
+                record.backup_plan_uuid,
+                "D1154AC6-01EB-41FE-B115-114464350B92"
+            );
             assert!(record.backup_record_errors.is_some());
             assert!(record.backup_record_errors.as_ref().unwrap().is_empty());
             assert!(!record.copied_from_snapshot);
@@ -221,7 +246,10 @@ fn test_parse_arq7_native_backup_record() {
             assert_eq!(bpj.name, "Back up to arq_storage_location Encrypted");
             assert_eq!(record.relative_path.as_deref(), Some("/D1154AC6-01EB-41FE-B115-114464350B92/backupfolders/CEAA7545-3174-4E7C-A580-3D10BAED153E/backuprecords/00173/6712823.backuprecord"));
             assert_eq!(record.computer_os_type, Some(1));
-            assert_eq!(record.local_path.as_deref(), Some("/arq-decryption/arq_backup_source"));
+            assert_eq!(
+                record.local_path.as_deref(),
+                Some("/arq-decryption/arq_backup_source")
+            );
             assert_eq!(record.local_mount_point.as_deref(), Some("/"));
             assert_eq!(record.is_complete, Some(true));
             assert_eq!(record.creation_date, Some(1736712823.0)); // Ensure it's parsed as float
@@ -312,7 +340,6 @@ fn test_generic_backup_record_deserialization_priority_and_optional_fields() {
         }
     }
 }
-
 
 #[test]
 fn test_parse_backup_folder_plan_optional_disk_id() {
@@ -438,6 +465,17 @@ fn test_parse_backup_folders() {
 }
 
 #[test]
+fn test_parse_backup_plan_plaintext() {
+    let plan_json =  "{\"active\":true,\"version\":2,\"creationTime\":1645883309.753,\"updateTime\":1667135336.514,\"id\":1,\"storageLocationId\":2,\"isEncrypted\":true,\"scheduleJSON\":{\"type\":\"Weekly\",\"dayOfWeek\":\"Mon\",\"timeOfDay\":\"00:00\",\"everyWeeks\":1,\"startWhenVolumeIsConnected\":false,\"pauseDuringWindow\":false,\"pauseFrom\":\"09:00\",\"pauseTo\":\"17:00\",\"backUpAndValidate\":true},\"retainAll\":true,\"retainHours\":24,\"retainDays\":30,\"retainWeeks\":52,\"retainMonths\":60,\"useAPFSSnapshots\":true,\"keepDeletedFiles\":false,\"wakeForBackup\":false,\"preventSleep\":true,\"notifyOnError\":false,\"notifyOnSuccess\":true,\"transferRateJSON\":{\"enabled\":false,\"scheduleType\":\"Scheduled\",\"startTimeOfDay\":\"18:00\",\"endTimeOfDay\":\"18:00\",\"daysOfWeek\":[\"Mon\",\"Tue\",\"Wed\",\"Thu\",\"Fri\",\"Sat\",\"Sun\"],\"maxKBPS\":100},\"includeNetworkInterfaces\":false,\"excludedNetworkInterfaces\":[],\"includeWiFiNetworks\":false,\"excludedWiFiNetworkNames\":[],\"emailReportJSON\":{\"when\":\"never\",\"subject\":\"\",\"fromAddress\":\"\",\"toAddress\":\"\",\"type\":\"custom\",\"hostname\":\"\",\"port\":587,\"username\":\"\",\"startTLS\":false,\"authenticationType\":\"none\"},\"name\":\"Persons Laptop: Back up all drives to Google Drive\",\"planUUID\":\"97328753-3EEB-4532-B27F-D4814B82405F\",\"threadCount\":15,\"pauseOnBattery\":false,\"includeNewVolumes\":false,\"useBuzhash\":false,\"cpuUsage\":100,\"needsArq5Buckets\":false,\"arq5UseS3IA\":false,\"includeFileListInActivityLog\":false,\"objectLockAvailable\":false,\"objectLockUpdateIntervalDays\":0,\"backupFolderPlansByUUID\":{\"4E98EEDB-F674-48C0-9D4A-FDFFF8124108\":{\"backupFolderUUID\":\"4E98EEDB-F674-48C0-9D4A-FDFFF8124108\",\"name\":\"All Drives\",\"skipDuringBackup\":false,\"skipIfNotMounted\":false,\"ignoredRelativePaths\":[],\"wildcardExcludes\":[\"$RECYCLE.BIN\",\"System Volume Information\",\"temp\",\"LocalCache\",\"Cache\",\"Logs\",\"node_modules\",\"iTunes/iTunes Media/Downloads\",\"iTunes/iTunes Media/Podcasts\",\"iTunes/Album Artwork\",\"AppData/Local/Google/Chrome/User Data/Default/Code Cache\",\"AppData/Local/Microsoft/WindowsApps\",\"/C/Config.Msi\",\"/C/hiberfil.sys\",\"/C/Microsoft\",\"/C/OneDriveTemp\",\"/C/pagefile.sys\",\"/C/Program Files\",\"/C/Program Files (x86)\",\"/C/Recovery\",\"/C/swapfile.sys\",\"/C/Windows\",\"/C/ProgramData/Microsoft/Search/Data\",\"/C/ProgramData/Dropbox/Update\"],\"regexExcludes\":[],\"excludedDrives\":[{\"diskIdentifier\":\"64e15cf7-f3f3-4159-b852-ca5bca317b1a\",\"volumeName\":\"D:\",\"mountPoint\":\"/D\"}],\"blobStorageClass\":\"STANDARD\",\"allDrives\":true,\"useDiskIdentifier\":false}}}";
+    let  reader = Cursor::new(plan_json.as_bytes());
+
+    let plan =BackupPlan::from_reader(reader);
+
+
+
+}
+
+#[test]
 fn test_parse_backup_plan() {
     let plan_path = Path::new(ARQ7_TEST_DATA_DIR_NOT_ENCRYPTED).join("backupplan.json");
     let plan = BackupPlan::from_file(plan_path).unwrap();
@@ -454,7 +492,10 @@ fn test_parse_backup_plan() {
     assert!(!plan.keep_deleted_files);
     assert_eq!(plan.version, 2);
     assert_eq!(plan.created_at_pro_console, Some(false));
-    assert_eq!(plan.backup_folder_plan_mount_points_are_initialized, Some(true));
+    assert_eq!(
+        plan.backup_folder_plan_mount_points_are_initialized,
+        Some(true)
+    );
     assert!(!plan.include_new_volumes);
     assert_eq!(plan.retain_months, 60);
     assert!(plan.use_apfs_snapshots);
@@ -678,7 +719,8 @@ fn test_binary_tree_loading_comprehensive() {
             .backup_records
             .get("F71BB248-E3A0-45E3-B67C-FEE397C5BD71")
         {
-            if let Some(GenericBackupRecord::Arq7(record)) = records.first() { // Match on Arq7 variant
+            // Match on Arq7 variant
+            if let Some(GenericBackupRecord::Arq7(record)) = records.first() {
                 // Verify the node has a tree blob location
                 assert!(record.node.tree_blob_loc.is_some());
                 let tree_blob_loc = record.node.tree_blob_loc.as_ref().unwrap();
@@ -692,7 +734,8 @@ fn test_binary_tree_loading_comprehensive() {
                 assert_eq!(tree_blob_loc.compression_type, 2); // LZ4
 
                 // Try to load the actual binary tree data
-                match record.node.load_tree_with_encryption(backup_set_dir, None) { // Pass None for keyset for unencrypted
+                // Pass None for keyset for unencrypted
+                match record.node.load_tree_with_encryption(backup_set_dir, None) {
                     Ok(Some(tree)) => {
                         println!(
                             "Successfully loaded binary tree with version: {}",
@@ -701,7 +744,8 @@ fn test_binary_tree_loading_comprehensive() {
                         println!("Tree has {} child nodes", tree.nodes.len()); // Changed to tree.nodes
 
                         // Verify we can iterate over child nodes
-                        for (name, node) in &tree.nodes { // Changed to tree.nodes
+                        for (name, node) in &tree.nodes {
+                            
                             println!("Child node: {} (is_tree: {})", name, node.is_tree);
                         }
                     }
@@ -983,7 +1027,8 @@ fn test_encrypted_tree_loading() {
         .backup_records
         .get("CEAA7545-3174-4E7C-A580-3D10BAED153E")
     {
-        if let Some(GenericBackupRecord::Arq7(record)) = folder_records.first() { // Match on Arq7 variant
+        // Match on Arq7 variant
+        if let Some(GenericBackupRecord::Arq7(record)) = folder_records.first() {
             // Load the tree with encryption support
             if let Ok(Some(tree)) = record.node.load_tree_with_encryption(
                 ARQ7_TEST_DATA_DIR_ENCRYPTED,
@@ -996,7 +1041,7 @@ fn test_encrypted_tree_loading() {
                 println!("Tree has {} child nodes", tree.nodes.len()); // Changed to tree.nodes
 
                 // Verify we can iterate over child nodes
-                for (name, node) in &tree.nodes { // Changed to tree.nodes
+                for (name, node) in &tree.nodes {
                     println!("Child node: {} (is_tree: {})", name, node.is_tree);
                 }
 
@@ -1056,24 +1101,18 @@ fn test_encryption_backward_compatibility() {
         BackupSet::from_directory_with_password(ARQ7_TEST_DATA_DIR_NOT_ENCRYPTED, None).unwrap();
 
     // All the new methods should work
-    let stats = unencrypted_backup
-        .get_statistics()
-        .unwrap_or_else(|e| {
-            println!("Warning: Failed to get statistics: {}", e);
-            Default::default()
-        });
-    let files = unencrypted_backup
-        .list_all_files()
-        .unwrap_or_else(|e| {
-            println!("Warning: Failed to list files: {}", e);
-            Vec::new()
-        });
-    let integrity = unencrypted_backup
-        .verify_integrity()
-        .unwrap_or_else(|e| {
-            println!("Warning: Failed to verify integrity: {}", e);
-            Default::default()
-        });
+    let stats = unencrypted_backup.get_statistics().unwrap_or_else(|e| {
+        println!("Warning: Failed to get statistics: {}", e);
+        Default::default()
+    });
+    let files = unencrypted_backup.list_all_files().unwrap_or_else(|e| {
+        println!("Warning: Failed to list files: {}", e);
+        Vec::new()
+    });
+    let integrity = unencrypted_backup.verify_integrity().unwrap_or_else(|e| {
+        println!("Warning: Failed to verify integrity: {}", e);
+        Default::default()
+    });
 
     println!("Unencrypted backup compatibility:");
     println!(
@@ -1185,7 +1224,7 @@ fn extract_tree_node(
             // tree is crate::tree::Tree, its child_nodes are crate::node::Node
             // eprintln!("[DEBUG extract_tree_node] Loaded tree for {:?} with {} children", full_node_output_path, tree.nodes.len());
 
-            for (child_name, child_node) in &tree.nodes { // tree.nodes in unified Tree
+            for (child_name, child_node) in &tree.nodes {
                 // child_node is &crate::node::Node
                 // eprintln!("[DEBUG extract_tree_node] Child: {}, in tree {:?}", child_name, full_node_output_path);
                 let child_relative_path = if relative_path.is_empty() {
@@ -1356,7 +1395,7 @@ fn extract_file_node(
     }
 }
 
-fn set_file_metadata(file_path: &str, node: &arq::node::Node) { // Changed to arq::node::Node
+fn set_file_metadata(file_path: &str, node: &arq::node::Node) {
     if node.modification_time_sec > 0 {
         use std::time::UNIX_EPOCH;
         if let Some(mtime) = UNIX_EPOCH.checked_add(std::time::Duration::from_secs(
@@ -1379,7 +1418,7 @@ fn try_extract_test_file_content(
     // e.g., tests/arq_storage_location/D1154AC6-01EB-41FE-B115-114464350B92
     match filename {
         "file 1.txt" => {
-            let blob_loc = arq::blob_location::BlobLoc { // Changed path
+            let blob_loc = arq::blob_location::BlobLoc {
                 // These paths are relative to the *root* of the storage location,
                 // but extract_content expects backup_set_path to be the specific backup set folder.
                 // So, the relative_path here should be relative to that backup_set_path.
@@ -1414,7 +1453,7 @@ fn try_extract_test_file_content(
             blob_loc.extract_content(backup_set_path, keyset).ok()
         }
         "file 2.txt" => {
-            let blob_loc = arq::blob_location::BlobLoc { // Changed path
+            let blob_loc = arq::blob_location::BlobLoc {
                 blob_identifier: "test_file_2_encrypted".to_string(), // Placeholder
                 compression_type: 0,
                 is_packed: true,
@@ -1601,7 +1640,7 @@ fn read_all_nodes_recursive(
     if generic_record_node.is_tree {
         match generic_record_node.load_tree_with_encryption(backup_set_path, keyset) {
             Ok(Some(tree)) => {
-                for (name, child_node) in &tree.nodes { // Use tree.nodes
+                for (name, child_node) in &tree.nodes {
                     let child_path_for_debug = if current_path_for_debug.is_empty() {
                         name.clone()
                     } else {
@@ -1656,7 +1695,6 @@ fn read_all_nodes_recursive(
     }
 }
 
-
 // The calling site for read_all_nodes_recursive needs to be updated
 // in test_read_all_files_encrypted_backup
 #[test]
@@ -1664,8 +1702,8 @@ fn test_read_all_files_encrypted_backup() {
     let backup_set_dir = Path::new(ARQ7_TEST_DATA_DIR_ENCRYPTED);
     let password = ARQ7_TEST_ENCRYPTION_PASSWORD;
 
-    let backup_set =
-        BackupSet::from_directory_with_password(backup_set_dir, Some(password)).unwrap_or_else(|e| {
+    let backup_set = BackupSet::from_directory_with_password(backup_set_dir, Some(password))
+        .unwrap_or_else(|e| {
             panic!(
                 "Failed to load encrypted backup set at {:?}: {}",
                 backup_set_dir, e
@@ -1690,9 +1728,14 @@ fn test_read_all_files_encrypted_backup() {
             let record_root_path_for_debug = format!(
                 "record_{}_{}",
                 folder_uuid,
-                match record { // Access creation_date based on variant
-                    GenericBackupRecord::Arq7(r) => r.creation_date.map_or_else(|| i.to_string(), |cd| cd.to_string()),
-                    GenericBackupRecord::Arq5(r) => r.creation_date.map_or_else(|| i.to_string(), |cd| cd.to_string()),
+                match record {
+                    // Access creation_date based on variant
+                    GenericBackupRecord::Arq7(r) => r
+                        .creation_date
+                        .map_or_else(|| i.to_string(), |cd| cd.to_string()),
+                    GenericBackupRecord::Arq5(r) => r
+                        .creation_date
+                        .map_or_else(|| i.to_string(), |cd| cd.to_string()),
                 }
             );
             // Call read_all_nodes_recursive only for Arq7 records that have a node
@@ -1737,8 +1780,7 @@ fn test_read_all_files_encrypted_backup() {
         "Expected to read 18 files from the encrypted backup set records."
     );
     assert_eq!(
-        stats.bytes_read,
-        348,
+        stats.bytes_read, 348,
         "Total bytes read does not match expected for the encrypted backup."
     );
     assert_eq!(
