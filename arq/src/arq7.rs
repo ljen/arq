@@ -1293,11 +1293,9 @@ impl BackupSet {
             for generic_record in records {
                 if let GenericBackupRecord::Arq7(record) = generic_record {
                     // Only Arq7 records have a direct node
-                    if let Some(node) =
-                        self.find_node_by_path(&record.node, file_path)?
-                    {
+                    if let Some(node) = self.find_node_by_path(&record.node, file_path)? {
                         if !node.is_tree {
-                            return node.extract_file_with_encryption( // Use the method on crate::node::Node
+                            return node.extract_file_with_encryption(
                                 backup_set_dir.as_ref(),
                                 output_path,
                                 self.encryption_keyset.as_ref(),
@@ -1331,7 +1329,6 @@ impl BackupSet {
         node: &crate::node::Node,
         path_parts: &[&str],
         depth: usize,
-        
     ) -> Result<Option<crate::node::Node>> {
         let backup_set_dir_ref: &Path = self.root_path.as_ref();
 
@@ -1354,7 +1351,9 @@ impl BackupSet {
         //     }
         // }
         // Use the Node's own method now
-        if let Some(tree) = node.load_tree_with_encryption(backup_set_dir_ref, self.encryption_keyset.as_ref())? {
+        if let Some(tree) =
+            node.load_tree_with_encryption(backup_set_dir_ref, self.encryption_keyset.as_ref())?
+        {
             let target_name = path_parts[depth];
             // The unified Tree uses `nodes` for its HashMap
             if let Some(child_node_entry) = tree.nodes.get(target_name) {
@@ -1415,8 +1414,11 @@ impl BackupSet {
         //         self.collect_files_recursive(child_node, child_path, files, backup_set_dir)?;
         //     }
         // }
-        if let Some(tree) = node.load_tree_with_encryption(backup_set_dir, self.encryption_keyset.as_ref())? {
-            for (name, child_node_entry) in &tree.nodes { // Use tree.nodes
+        if let Some(tree) =
+            node.load_tree_with_encryption(backup_set_dir, self.encryption_keyset.as_ref())?
+        {
+            for (name, child_node_entry) in &tree.nodes {
+                // Use tree.nodes
                 let child_path = if current_path.is_empty() {
                     name.clone()
                 } else {
@@ -1505,7 +1507,11 @@ impl BackupSet {
     }
 
     /// Converts a Node into a DirectoryEntry (File or Directory).
-    fn node_to_directory_entry(&self, node: &crate::node::Node, name: String) -> Result<DirectoryEntry> {
+    fn node_to_directory_entry(
+        &self,
+        node: &crate::node::Node,
+        name: String,
+    ) -> Result<DirectoryEntry> {
         if node.is_tree {
             // For directories, create a DirectoryEntryNode without loading children.
             // Children will be loaded on demand.
@@ -1556,13 +1562,8 @@ impl BackupSet {
 
                         // Convert the root node of the backup record into a DirectoryEntry.
                         // This will be a shallow entry due to the modified node_to_directory_entry.
-                        let backup_root_entry = self.node_to_directory_entry(
-                            &arq7_record.node,
-                            arq7_record
-                                .local_path
-                                .clone()
-                                .unwrap_or_else(|| "backup_root".to_string()),
-                        )?;
+                        let backup_root_entry =
+                            self.node_to_directory_entry(&arq7_record.node, folder_uuid.clone())?;
 
                         // Create a directory entry for this specific backup record session (e.g., named by date).
                         // This directory will contain the actual root of the backed-up folder/file.
@@ -1589,8 +1590,8 @@ impl BackupSet {
         Ok(DirectoryEntryNode {
             name: "/".to_string(),
             children: Some(root_children_entries), // Ensure children is Some Vec
-            tree_blob_loc: None, // Root is virtual
-            modification_time_sec: 0, // Or some other sensible default/current time
+            tree_blob_loc: None,                   // Root is virtual
+            modification_time_sec: 0,              // Or some other sensible default/current time
             creation_time_sec: 0,
             mode: 0o040755, // Typical directory mode
         })
@@ -1613,7 +1614,9 @@ impl BackupSet {
         };
 
         // Load the tree data using the blob_loc
-        match blob_loc.load_tree_with_encryption(&self.root_path, self.encryption_keyset.as_ref())? {
+        match blob_loc
+            .load_tree_with_encryption(&self.root_path, self.encryption_keyset.as_ref())?
+        {
             Some(tree) => {
                 let mut children_entries = Vec::new();
                 for (name, child_node) in tree.nodes {
@@ -1659,7 +1662,8 @@ impl BackupSet {
         // This might not always be strictly necessary if Arq guarantees consistency,
         // but can catch issues during development or with corrupted data.
         if full_content.len() as u64 != file_entry.size {
-            eprintln!( // Using eprintln for warnings, not returning an error yet unless it's critical
+            eprintln!(
+                // Using eprintln for warnings, not returning an error yet unless it's critical
                 "Warning: Loaded content size {} for file '{}' does not match expected size {}.",
                 full_content.len(),
                 file_entry.name,
@@ -1930,7 +1934,8 @@ impl BlobLoc {
     }
 
     /// Load and parse a tree from this blob location
-    pub fn load_tree(&self, backup_set_path: &std::path::Path) -> Result<crate::tree::Tree> { // Changed to crate::tree::Tree
+    pub fn load_tree(&self, backup_set_path: &std::path::Path) -> Result<crate::tree::Tree> {
+        // Changed to crate::tree::Tree
         match self.load_tree_with_encryption(backup_set_path, None)? {
             Some(tree) => Ok(tree),
             None => Err(Error::InvalidFormat("No tree data found".to_string())),
@@ -1942,7 +1947,8 @@ impl BlobLoc {
         &self,
         backup_set_dir: &Path,
         keyset: Option<&EncryptedKeySet>,
-    ) -> Result<Option<crate::tree::Tree>> { // Changed to crate::tree::Tree
+    ) -> Result<Option<crate::tree::Tree>> {
+        // Changed to crate::tree::Tree
         let data = self.load_data(backup_set_dir, keyset)?;
 
         if data.is_empty() {
@@ -1955,7 +1961,11 @@ impl BlobLoc {
     }
 
     /// Load and parse a node from this blob location
-    pub fn load_node(&self, backup_set_path: &std::path::Path) -> Result<Option<crate::node::Node>> { // Changed to crate::node::Node
+    pub fn load_node(
+        &self,
+        backup_set_path: &std::path::Path,
+    ) -> Result<Option<crate::node::Node>> {
+        // Changed to crate::node::Node
         // Changed return type to unified Node
         self.load_node_with_encryption(backup_set_path, None)
     }
@@ -1965,7 +1975,8 @@ impl BlobLoc {
         &self,
         backup_set_dir: &Path,
         keyset: Option<&EncryptedKeySet>,
-    ) -> Result<Option<crate::node::Node>> { // Changed to crate::node::Node
+    ) -> Result<Option<crate::node::Node>> {
+        // Changed to crate::node::Node
         // Changed return type to unified Node
         let data = self.load_data(backup_set_dir, keyset)?;
 
@@ -2045,7 +2056,8 @@ impl Node {
 impl BackupSet {
     /// Find real blob locations for files in the backup records
     /// This can be used when binary parsing produces fake blob paths
-    pub fn find_all_blob_locations(&self) -> Vec<crate::blob_location::BlobLoc> { // Updated return type
+    pub fn find_all_blob_locations(&self) -> Vec<crate::blob_location::BlobLoc> {
+        // Updated return type
         let mut blob_locations = Vec::new();
 
         for (_, records_vec) in &self.backup_records {
@@ -2057,12 +2069,13 @@ impl BackupSet {
                     GenericBackupRecord::Arq5(record) => {
                         if let Some(key) = &record.arq5_tree_blob_key {
                             // Convert crate::blob::BlobKey to crate::blob_location::BlobLoc.
-                            blob_locations.push(crate::blob_location::BlobLoc { // Updated type
+                            blob_locations.push(crate::blob_location::BlobLoc {
+                                // Updated type
                                 blob_identifier: key.sha1.clone(),
                                 compression_type: key.compression_type,
                                 is_packed: false,
                                 length: key.archive_size, // From unified BlobKey
-                                offset: 0,        // Assumption for Arq5TreeBlobKey context
+                                offset: 0,                // Assumption for Arq5TreeBlobKey context
                                 relative_path: format!("arq5_migrated_tree_blob/{}", key.sha1), // Placeholder path
                                 stretch_encryption_key: key.stretch_encryption_key, // From unified BlobKey
                                 is_large_pack: None, // Arq5 context might not have this concept
@@ -2079,9 +2092,14 @@ impl BackupSet {
 }
 
 /// Recursively collect blob locations from a node tree (used for Arq7 records)
-fn collect_blob_locations_from_node(node: &crate::node::Node, blob_locations: &mut Vec<crate::blob_location::BlobLoc>) { // Updated Vec type
+fn collect_blob_locations_from_node(
+    node: &crate::node::Node,
+    blob_locations: &mut Vec<crate::blob_location::BlobLoc>,
+) {
+    // Updated Vec type
     // Add data blob locations from this node
-    for blob_loc in &node.data_blob_locs { // node.data_blob_locs are already crate::blob_location::BlobLoc
+    for blob_loc in &node.data_blob_locs {
+        // node.data_blob_locs are already crate::blob_location::BlobLoc
         blob_locations.push(blob_loc.clone());
     }
 
@@ -2129,7 +2147,8 @@ fn count_files_in_node(
     //     }
     // }
     if let Some(tree) = node.load_tree_with_encryption(backup_set_dir, keyset)? {
-        for (_, child_node_entry) in &tree.nodes { // Use tree.nodes
+        for (_, child_node_entry) in &tree.nodes {
+            // Use tree.nodes
             let (child_files, child_size) =
                 count_files_in_node(child_node_entry, backup_set_dir, keyset)?;
             file_count += child_files;
@@ -2191,7 +2210,10 @@ mod tests {
                     // Match on Arq7 variant
                     // Try to load the tree referenced by the root node
                     // record.node is crate::node::Node, which has load_tree_with_encryption
-                    match record.node.load_tree_with_encryption(backup_set_dir, backup_set.encryption_keyset()) {
+                    match record
+                        .node
+                        .load_tree_with_encryption(backup_set_dir, backup_set.encryption_keyset())
+                    {
                         Ok(Some(_tree)) => {
                             // Successfully loaded binary tree data
                             println!("Successfully loaded binary tree data");
@@ -2333,131 +2355,254 @@ mod tests {
 }
 
 #[test]
-fn test_get_root_directory() { // Modified for new on-demand behavior
+fn test_get_root_directory() {
+    // Modified for new on-demand behavior
     // Mock BackupSet components
     let backup_config = BackupConfig {
-        blob_identifier_type: 2, max_packed_item_length: 256000,
-        backup_name: "Test Backup".to_string(), is_worm: false,
-        contains_glacier_archives: false, additional_unpacked_blob_dirs: vec![],
-        chunker_version: 3, computer_name: "Test PC".to_string(),
-        computer_serial: "unused".to_string(), blob_storage_class: "STANDARD".to_string(),
+        blob_identifier_type: 2,
+        max_packed_item_length: 256000,
+        backup_name: "Test Backup".to_string(),
+        is_worm: false,
+        contains_glacier_archives: false,
+        additional_unpacked_blob_dirs: vec![],
+        chunker_version: 3,
+        computer_name: "Test PC".to_string(),
+        computer_serial: "unused".to_string(),
+        blob_storage_class: "STANDARD".to_string(),
         is_encrypted: false,
     };
     let backup_folders = BackupFolders {
-        standard_object_dirs: vec![], standard_ia_object_dirs: vec![],
-        onezone_ia_object_dirs: vec![], s3_glacier_object_dirs: vec![],
-        s3_deep_archive_object_dirs: vec![], s3_glacier_ir_object_dirs: None,
+        standard_object_dirs: vec![],
+        standard_ia_object_dirs: vec![],
+        onezone_ia_object_dirs: vec![],
+        s3_glacier_object_dirs: vec![],
+        s3_deep_archive_object_dirs: vec![],
+        s3_glacier_ir_object_dirs: None,
         imported_from: None,
     };
     let transfer_rate = TransferRate {
-        enabled: false, start_time_of_day: "00:00".to_string(), days_of_week: vec![],
-        schedule_type: "manual".to_string(), end_time_of_day: "23:59".to_string(), max_kbps: None,
+        enabled: false,
+        start_time_of_day: "00:00".to_string(),
+        days_of_week: vec![],
+        schedule_type: "manual".to_string(),
+        end_time_of_day: "23:59".to_string(),
+        max_kbps: None,
     };
     let schedule = Schedule {
-        backup_and_validate: false, start_when_volume_is_connected: false,
-        pause_during_window: false, schedule_type: "manual".to_string(), days_of_week: None,
-        every_hours: None, minutes_after_hour: None, pause_from: None, pause_to: None,
+        backup_and_validate: false,
+        start_when_volume_is_connected: false,
+        pause_during_window: false,
+        schedule_type: "manual".to_string(),
+        days_of_week: None,
+        every_hours: None,
+        minutes_after_hour: None,
+        pause_from: None,
+        pause_to: None,
     };
     let email_report = EmailReport {
-        port: 25, start_tls: false, authentication_type: "none".to_string(),
-        report_helo_use_ip: None, when: "never".to_string(), report_type: "none".to_string(),
-        hostname: None, username: None, from_address: None, to_address: None, subject: None,
+        port: 25,
+        start_tls: false,
+        authentication_type: "none".to_string(),
+        report_helo_use_ip: None,
+        when: "never".to_string(),
+        report_type: "none".to_string(),
+        hostname: None,
+        username: None,
+        from_address: None,
+        to_address: None,
+        subject: None,
     };
     let backup_plan = BackupPlan {
-        transfer_rate_json: transfer_rate, cpu_usage: 50, id: 1, storage_location_id: 1,
-        excluded_network_interfaces: vec![], needs_arq5_buckets: false, use_buzhash: true,
-        arq5_use_s3_ia: false, object_lock_update_interval_days: 0,
-        plan_uuid: "test-plan-uuid".to_string(), schedule_json: schedule,
-        keep_deleted_files: false, version: 1, created_at_pro_console: None,
-        backup_folder_plan_mount_points_are_initialized: None, include_new_volumes: false,
-        retain_months: 1, use_apfs_snapshots: false, backup_set_is_initialized: None,
-        backup_folder_plans_by_uuid: HashMap::new(), notify_on_error: false, retain_days: 7,
-        update_time: 0.0, excluded_wi_fi_network_names: vec![], object_lock_available: None,
-        managed: None, name: "Test Plan".to_string(), wake_for_backup: false,
-        include_network_interfaces: None, dataless_files_option: None, retain_all: false,
-        is_encrypted: false, active: true, notify_on_success: false, prevent_sleep: false,
-        creation_time: 1678886400, pause_on_battery: false, retain_weeks: 4, retain_hours: 24,
-        prevent_backup_on_constrained_networks: None, include_wi_fi_networks: false,
-        thread_count: 1, prevent_backup_on_expensive_networks: None,
-        email_report_json: email_report, include_file_list_in_activity_log: false,
+        transfer_rate_json: transfer_rate,
+        cpu_usage: 50,
+        id: 1,
+        storage_location_id: 1,
+        excluded_network_interfaces: vec![],
+        needs_arq5_buckets: false,
+        use_buzhash: true,
+        arq5_use_s3_ia: false,
+        object_lock_update_interval_days: 0,
+        plan_uuid: "test-plan-uuid".to_string(),
+        schedule_json: schedule,
+        keep_deleted_files: false,
+        version: 1,
+        created_at_pro_console: None,
+        backup_folder_plan_mount_points_are_initialized: None,
+        include_new_volumes: false,
+        retain_months: 1,
+        use_apfs_snapshots: false,
+        backup_set_is_initialized: None,
+        backup_folder_plans_by_uuid: HashMap::new(),
+        notify_on_error: false,
+        retain_days: 7,
+        update_time: 0.0,
+        excluded_wi_fi_network_names: vec![],
+        object_lock_available: None,
+        managed: None,
+        name: "Test Plan".to_string(),
+        wake_for_backup: false,
+        include_network_interfaces: None,
+        dataless_files_option: None,
+        retain_all: false,
+        is_encrypted: false,
+        active: true,
+        notify_on_success: false,
+        prevent_sleep: false,
+        creation_time: 1678886400,
+        pause_on_battery: false,
+        retain_weeks: 4,
+        retain_hours: 24,
+        prevent_backup_on_constrained_networks: None,
+        include_wi_fi_networks: false,
+        thread_count: 1,
+        prevent_backup_on_expensive_networks: None,
+        email_report_json: email_report,
+        include_file_list_in_activity_log: false,
         no_backups_alert_days: 0,
     };
 
     // Mock root_backup_node (as a directory)
     let root_backup_node_content_blob_loc = crate::blob_location::BlobLoc {
-        blob_identifier: "dummy_root_content_tree_blob".to_string(), compression_type: 0,
-        is_packed: false, length: 0, offset: 0,
+        blob_identifier: "dummy_root_content_tree_blob".to_string(),
+        compression_type: 0,
+        is_packed: false,
+        length: 0,
+        offset: 0,
         relative_path: "dummy/path/root_content_tree_blob".to_string(),
-        stretch_encryption_key: false, is_large_pack: Some(false),
+        stretch_encryption_key: false,
+        is_large_pack: Some(false),
     };
     let root_backup_node = crate::node::Node {
-        is_tree: true, item_size: 0, deleted: false, computer_os_type: Some(1),
-        modification_time_sec: 1678886400, modification_time_nsec: 0,
-        change_time_sec: 1678886400, change_time_nsec: 0,
-        creation_time_sec: 1678886400, creation_time_nsec: 0,
-        st_mode: 0o040755, st_ino: 3, st_nlink: 2, st_gid: 0, st_uid: Some(0),
-        username: Some("testuser".to_string()), group_name: Some("testgroup".to_string()),
-        st_dev: 0, st_rdev: 0, st_flags: 0, win_attrs: Some(0),
-        reparse_tag: None, reparse_point_is_directory: None, contained_files_count: Some(0),
+        is_tree: true,
+        item_size: 0,
+        deleted: false,
+        computer_os_type: Some(1),
+        modification_time_sec: 1678886400,
+        modification_time_nsec: 0,
+        change_time_sec: 1678886400,
+        change_time_nsec: 0,
+        creation_time_sec: 1678886400,
+        creation_time_nsec: 0,
+        st_mode: 0o040755,
+        st_ino: 3,
+        st_nlink: 2,
+        st_gid: 0,
+        st_uid: Some(0),
+        username: Some("testuser".to_string()),
+        group_name: Some("testgroup".to_string()),
+        st_dev: 0,
+        st_rdev: 0,
+        st_flags: 0,
+        win_attrs: Some(0),
+        reparse_tag: None,
+        reparse_point_is_directory: None,
+        contained_files_count: Some(0),
         data_blob_locs: vec![],
         tree_blob_loc: Some(root_backup_node_content_blob_loc.clone()),
-        xattrs_blob_locs: None, acl_blob_loc: None,
-        arq5_tree_contains_missing_items: None, arq5_data_compression_type: None,
-        arq5_xattrs_compression_type: None, arq5_acl_compression_type: None,
-        arq5_xattrs_blob_key: None, arq5_xattrs_size: None, arq5_acl_blob_key: None,
-        arq5_finder_flags: None, arq5_extended_finder_flags: None,
-        arq5_finder_file_type: None, arq5_finder_file_creator: None,
-        arq5_is_file_extension_hidden: None, arq5_st_blocks: None, arq5_st_blksize: None,
+        xattrs_blob_locs: None,
+        acl_blob_loc: None,
+        arq5_tree_contains_missing_items: None,
+        arq5_data_compression_type: None,
+        arq5_xattrs_compression_type: None,
+        arq5_acl_compression_type: None,
+        arq5_xattrs_blob_key: None,
+        arq5_xattrs_size: None,
+        arq5_acl_blob_key: None,
+        arq5_finder_flags: None,
+        arq5_extended_finder_flags: None,
+        arq5_finder_file_type: None,
+        arq5_finder_file_creator: None,
+        arq5_is_file_extension_hidden: None,
+        arq5_st_blocks: None,
+        arq5_st_blksize: None,
     };
 
     let arq7_record = Arq7BackupRecord {
         backup_folder_uuid: "test-folder-uuid".to_string(),
-        disk_identifier: "test-disk".to_string(), storage_class: "STANDARD".to_string(),
-        version: 100, backup_plan_uuid: "test-plan-uuid".to_string(),
-        backup_record_errors: None, copied_from_snapshot: false, copied_from_commit: false,
+        disk_identifier: "test-disk".to_string(),
+        storage_class: "STANDARD".to_string(),
+        version: 100,
+        backup_plan_uuid: "test-plan-uuid".to_string(),
+        backup_record_errors: None,
+        copied_from_snapshot: false,
+        copied_from_commit: false,
         node: root_backup_node.clone(),
-        arq_version: Some("7.0.0".to_string()), archived: Some(false),
-        backup_plan_json: None, relative_path: Some("/".to_string()),
-        computer_os_type: Some(1), local_path: Some("/test/backup/source".to_string()),
-        local_mount_point: Some("/".to_string()), is_complete: Some(true),
+        arq_version: Some("7.0.0".to_string()),
+        archived: Some(false),
+        backup_plan_json: None,
+        relative_path: Some("/".to_string()),
+        computer_os_type: Some(1),
+        local_path: Some("/test/backup/source".to_string()),
+        local_mount_point: Some("/".to_string()),
+        is_complete: Some(true),
         creation_date: Some(1678886400.0), // March 15, 2023 12:00:00 UTC
         volume_name: Some("TestVolume".to_string()),
     };
 
     let mut backup_records = HashMap::new();
-    backup_records.insert("test-folder-uuid".to_string(), vec![GenericBackupRecord::Arq7(arq7_record)]);
+    backup_records.insert(
+        "test-folder-uuid".to_string(),
+        vec![GenericBackupRecord::Arq7(arq7_record)],
+    );
 
     let dummy_backup_set_dir = std::path::PathBuf::from("dummy_get_root_dir_test");
 
     let backup_set = BackupSet {
-        backup_config, backup_folders, backup_plan,
-        backup_folder_configs: HashMap::new(), backup_records,
-        encryption_keyset: None, root_path: dummy_backup_set_dir.clone(),
+        backup_config,
+        backup_folders,
+        backup_plan,
+        backup_folder_configs: HashMap::new(),
+        backup_records,
+        encryption_keyset: None,
+        root_path: dummy_backup_set_dir.clone(),
     };
 
     let root_dir_result = backup_set.get_root_directory();
-    assert!(root_dir_result.is_ok(), "get_root_directory should now succeed with on-demand loading. Error: {:?}", root_dir_result.err());
+    assert!(
+        root_dir_result.is_ok(),
+        "get_root_directory should now succeed with on-demand loading. Error: {:?}",
+        root_dir_result.err()
+    );
 
     if let Ok(root_dir) = root_dir_result {
         assert_eq!(root_dir.name, "/");
         assert!(root_dir.children.is_some());
         let root_children = root_dir.children.unwrap();
-        assert_eq!(root_children.len(), 1, "Expected one backup session directory");
+        assert_eq!(
+            root_children.len(),
+            1,
+            "Expected one backup session directory"
+        );
 
         match &root_children[0] {
             DirectoryEntry::Directory(session_dir) => {
-                assert_eq!(session_dir.name, "2023-03-15T12-00-00", "Session directory name mismatch");
+                assert_eq!(
+                    session_dir.name, "2023-03-15T12-00-00",
+                    "Session directory name mismatch"
+                );
                 assert!(session_dir.children.is_some());
                 let session_children = session_dir.children.as_ref().unwrap();
-                assert_eq!(session_children.len(), 1, "Session directory should contain one entry (the backup's root)");
+                assert_eq!(
+                    session_children.len(),
+                    1,
+                    "Session directory should contain one entry (the backup's root)"
+                );
 
                 match &session_children[0] {
                     DirectoryEntry::Directory(backup_actual_root) => {
                         assert_eq!(backup_actual_root.name, "/test/backup/source");
-                        assert!(backup_actual_root.children.is_none(), "Children of actual backup root should be None (not loaded yet)");
-                        assert_eq!(backup_actual_root.tree_blob_loc, Some(root_backup_node_content_blob_loc));
+                        assert!(
+                            backup_actual_root.children.is_none(),
+                            "Children of actual backup root should be None (not loaded yet)"
+                        );
+                        assert_eq!(
+                            backup_actual_root.tree_blob_loc,
+                            Some(root_backup_node_content_blob_loc)
+                        );
                     }
-                    DirectoryEntry::File(_) => panic!("Expected backup actual root to be a directory, got a file."),
+                    DirectoryEntry::File(_) => {
+                        panic!("Expected backup actual root to be a directory, got a file.")
+                    }
                 }
             }
             _ => panic!("Expected session entry to be a directory."),
@@ -2467,20 +2612,122 @@ fn test_get_root_directory() { // Modified for new on-demand behavior
 
 #[test]
 fn test_load_directory_children_empty() {
-    let backup_config = BackupConfig { blob_identifier_type: 0, max_packed_item_length: 0, backup_name: String::new(), is_worm: false, contains_glacier_archives: false, additional_unpacked_blob_dirs: vec![], chunker_version: 0, computer_name: String::new(), computer_serial: String::new(), blob_storage_class: String::new(), is_encrypted: false };
-    let backup_folders = BackupFolders { standard_object_dirs: vec![], standard_ia_object_dirs: vec![], onezone_ia_object_dirs: vec![], s3_glacier_object_dirs: vec![], s3_deep_archive_object_dirs: vec![], s3_glacier_ir_object_dirs: None, imported_from: None };
-    let backup_plan = BackupPlan { transfer_rate_json: TransferRate { enabled: false, start_time_of_day: "".to_string(), days_of_week: vec![], schedule_type: "".to_string(), end_time_of_day: "".to_string(), max_kbps: None }, cpu_usage: 0, id: 0, storage_location_id: 0, excluded_network_interfaces: vec![], needs_arq5_buckets: false, use_buzhash: false, arq5_use_s3_ia: false, object_lock_update_interval_days: 0, plan_uuid: String::new(), schedule_json: Schedule { backup_and_validate: false, start_when_volume_is_connected: false, pause_during_window: false, schedule_type: "".to_string(), days_of_week: None, every_hours: None, minutes_after_hour: None, pause_from: None, pause_to: None }, keep_deleted_files: false, version: 0, created_at_pro_console: None, backup_folder_plan_mount_points_are_initialized: None, include_new_volumes: false, retain_months: 0, use_apfs_snapshots: false, backup_set_is_initialized: None, backup_folder_plans_by_uuid: HashMap::new(), notify_on_error: false, retain_days: 0, update_time: 0.0, excluded_wi_fi_network_names: vec![], object_lock_available: None, managed: None, name: String::new(), wake_for_backup: false, include_network_interfaces: None, dataless_files_option: None, retain_all: false, is_encrypted: false, active: false, notify_on_success: false, prevent_sleep: false, creation_time: 0, pause_on_battery: false, retain_weeks: 0, retain_hours: 0, prevent_backup_on_constrained_networks: None, include_wi_fi_networks: false, thread_count: 0, prevent_backup_on_expensive_networks: None, email_report_json: EmailReport { port: 0, start_tls: false, authentication_type: "".to_string(), report_helo_use_ip: None, when: "".to_string(), report_type: "".to_string(), hostname: None, username: None, from_address: None, to_address: None, subject: None }, include_file_list_in_activity_log: false, no_backups_alert_days: 0 };
+    let backup_config = BackupConfig {
+        blob_identifier_type: 0,
+        max_packed_item_length: 0,
+        backup_name: String::new(),
+        is_worm: false,
+        contains_glacier_archives: false,
+        additional_unpacked_blob_dirs: vec![],
+        chunker_version: 0,
+        computer_name: String::new(),
+        computer_serial: String::new(),
+        blob_storage_class: String::new(),
+        is_encrypted: false,
+    };
+    let backup_folders = BackupFolders {
+        standard_object_dirs: vec![],
+        standard_ia_object_dirs: vec![],
+        onezone_ia_object_dirs: vec![],
+        s3_glacier_object_dirs: vec![],
+        s3_deep_archive_object_dirs: vec![],
+        s3_glacier_ir_object_dirs: None,
+        imported_from: None,
+    };
+    let backup_plan = BackupPlan {
+        transfer_rate_json: TransferRate {
+            enabled: false,
+            start_time_of_day: "".to_string(),
+            days_of_week: vec![],
+            schedule_type: "".to_string(),
+            end_time_of_day: "".to_string(),
+            max_kbps: None,
+        },
+        cpu_usage: 0,
+        id: 0,
+        storage_location_id: 0,
+        excluded_network_interfaces: vec![],
+        needs_arq5_buckets: false,
+        use_buzhash: false,
+        arq5_use_s3_ia: false,
+        object_lock_update_interval_days: 0,
+        plan_uuid: String::new(),
+        schedule_json: Schedule {
+            backup_and_validate: false,
+            start_when_volume_is_connected: false,
+            pause_during_window: false,
+            schedule_type: "".to_string(),
+            days_of_week: None,
+            every_hours: None,
+            minutes_after_hour: None,
+            pause_from: None,
+            pause_to: None,
+        },
+        keep_deleted_files: false,
+        version: 0,
+        created_at_pro_console: None,
+        backup_folder_plan_mount_points_are_initialized: None,
+        include_new_volumes: false,
+        retain_months: 0,
+        use_apfs_snapshots: false,
+        backup_set_is_initialized: None,
+        backup_folder_plans_by_uuid: HashMap::new(),
+        notify_on_error: false,
+        retain_days: 0,
+        update_time: 0.0,
+        excluded_wi_fi_network_names: vec![],
+        object_lock_available: None,
+        managed: None,
+        name: String::new(),
+        wake_for_backup: false,
+        include_network_interfaces: None,
+        dataless_files_option: None,
+        retain_all: false,
+        is_encrypted: false,
+        active: false,
+        notify_on_success: false,
+        prevent_sleep: false,
+        creation_time: 0,
+        pause_on_battery: false,
+        retain_weeks: 0,
+        retain_hours: 0,
+        prevent_backup_on_constrained_networks: None,
+        include_wi_fi_networks: false,
+        thread_count: 0,
+        prevent_backup_on_expensive_networks: None,
+        email_report_json: EmailReport {
+            port: 0,
+            start_tls: false,
+            authentication_type: "".to_string(),
+            report_helo_use_ip: None,
+            when: "".to_string(),
+            report_type: "".to_string(),
+            hostname: None,
+            username: None,
+            from_address: None,
+            to_address: None,
+            subject: None,
+        },
+        include_file_list_in_activity_log: false,
+        no_backups_alert_days: 0,
+    };
 
     let backup_set = BackupSet {
-        backup_config, backup_folders, backup_plan,
-        backup_folder_configs: HashMap::new(), backup_records: HashMap::new(),
-        encryption_keyset: None, root_path: PathBuf::from("dummy_path_children_empty"),
+        backup_config,
+        backup_folders,
+        backup_plan,
+        backup_folder_configs: HashMap::new(),
+        backup_records: HashMap::new(),
+        encryption_keyset: None,
+        root_path: PathBuf::from("dummy_path_children_empty"),
     };
     let mut dir_node = DirectoryEntryNode {
         name: "empty_dir".to_string(),
         children: None,
         tree_blob_loc: None,
-        modification_time_sec: 0, creation_time_sec: 0, mode: 0o040755,
+        modification_time_sec: 0,
+        creation_time_sec: 0,
+        mode: 0o040755,
     };
     let result = backup_set.load_directory_children(&mut dir_node);
     assert!(result.is_ok());
@@ -2490,24 +2737,131 @@ fn test_load_directory_children_empty() {
 
 #[test]
 fn test_load_directory_children_non_existent_blob() {
-    let backup_config = BackupConfig { blob_identifier_type: 0, max_packed_item_length: 0, backup_name: String::new(), is_worm: false, contains_glacier_archives: false, additional_unpacked_blob_dirs: vec![], chunker_version: 0, computer_name: String::new(), computer_serial: String::new(), blob_storage_class: String::new(), is_encrypted: false };
-    let backup_folders = BackupFolders { standard_object_dirs: vec![], standard_ia_object_dirs: vec![], onezone_ia_object_dirs: vec![], s3_glacier_object_dirs: vec![], s3_deep_archive_object_dirs: vec![], s3_glacier_ir_object_dirs: None, imported_from: None };
-    let backup_plan = BackupPlan { transfer_rate_json: TransferRate { enabled: false, start_time_of_day: "".to_string(), days_of_week: vec![], schedule_type: "".to_string(), end_time_of_day: "".to_string(), max_kbps: None }, cpu_usage: 0, id: 0, storage_location_id: 0, excluded_network_interfaces: vec![], needs_arq5_buckets: false, use_buzhash: false, arq5_use_s3_ia: false, object_lock_update_interval_days: 0, plan_uuid: String::new(), schedule_json: Schedule { backup_and_validate: false, start_when_volume_is_connected: false, pause_during_window: false, schedule_type: "".to_string(), days_of_week: None, every_hours: None, minutes_after_hour: None, pause_from: None, pause_to: None }, keep_deleted_files: false, version: 0, created_at_pro_console: None, backup_folder_plan_mount_points_are_initialized: None, include_new_volumes: false, retain_months: 0, use_apfs_snapshots: false, backup_set_is_initialized: None, backup_folder_plans_by_uuid: HashMap::new(), notify_on_error: false, retain_days: 0, update_time: 0.0, excluded_wi_fi_network_names: vec![], object_lock_available: None, managed: None, name: String::new(), wake_for_backup: false, include_network_interfaces: None, dataless_files_option: None, retain_all: false, is_encrypted: false, active: false, notify_on_success: false, prevent_sleep: false, creation_time: 0, pause_on_battery: false, retain_weeks: 0, retain_hours: 0, prevent_backup_on_constrained_networks: None, include_wi_fi_networks: false, thread_count: 0, prevent_backup_on_expensive_networks: None, email_report_json: EmailReport { port: 0, start_tls: false, authentication_type: "".to_string(), report_helo_use_ip: None, when: "".to_string(), report_type: "".to_string(), hostname: None, username: None, from_address: None, to_address: None, subject: None }, include_file_list_in_activity_log: false, no_backups_alert_days: 0 };
+    let backup_config = BackupConfig {
+        blob_identifier_type: 0,
+        max_packed_item_length: 0,
+        backup_name: String::new(),
+        is_worm: false,
+        contains_glacier_archives: false,
+        additional_unpacked_blob_dirs: vec![],
+        chunker_version: 0,
+        computer_name: String::new(),
+        computer_serial: String::new(),
+        blob_storage_class: String::new(),
+        is_encrypted: false,
+    };
+    let backup_folders = BackupFolders {
+        standard_object_dirs: vec![],
+        standard_ia_object_dirs: vec![],
+        onezone_ia_object_dirs: vec![],
+        s3_glacier_object_dirs: vec![],
+        s3_deep_archive_object_dirs: vec![],
+        s3_glacier_ir_object_dirs: None,
+        imported_from: None,
+    };
+    let backup_plan = BackupPlan {
+        transfer_rate_json: TransferRate {
+            enabled: false,
+            start_time_of_day: "".to_string(),
+            days_of_week: vec![],
+            schedule_type: "".to_string(),
+            end_time_of_day: "".to_string(),
+            max_kbps: None,
+        },
+        cpu_usage: 0,
+        id: 0,
+        storage_location_id: 0,
+        excluded_network_interfaces: vec![],
+        needs_arq5_buckets: false,
+        use_buzhash: false,
+        arq5_use_s3_ia: false,
+        object_lock_update_interval_days: 0,
+        plan_uuid: String::new(),
+        schedule_json: Schedule {
+            backup_and_validate: false,
+            start_when_volume_is_connected: false,
+            pause_during_window: false,
+            schedule_type: "".to_string(),
+            days_of_week: None,
+            every_hours: None,
+            minutes_after_hour: None,
+            pause_from: None,
+            pause_to: None,
+        },
+        keep_deleted_files: false,
+        version: 0,
+        created_at_pro_console: None,
+        backup_folder_plan_mount_points_are_initialized: None,
+        include_new_volumes: false,
+        retain_months: 0,
+        use_apfs_snapshots: false,
+        backup_set_is_initialized: None,
+        backup_folder_plans_by_uuid: HashMap::new(),
+        notify_on_error: false,
+        retain_days: 0,
+        update_time: 0.0,
+        excluded_wi_fi_network_names: vec![],
+        object_lock_available: None,
+        managed: None,
+        name: String::new(),
+        wake_for_backup: false,
+        include_network_interfaces: None,
+        dataless_files_option: None,
+        retain_all: false,
+        is_encrypted: false,
+        active: false,
+        notify_on_success: false,
+        prevent_sleep: false,
+        creation_time: 0,
+        pause_on_battery: false,
+        retain_weeks: 0,
+        retain_hours: 0,
+        prevent_backup_on_constrained_networks: None,
+        include_wi_fi_networks: false,
+        thread_count: 0,
+        prevent_backup_on_expensive_networks: None,
+        email_report_json: EmailReport {
+            port: 0,
+            start_tls: false,
+            authentication_type: "".to_string(),
+            report_helo_use_ip: None,
+            when: "".to_string(),
+            report_type: "".to_string(),
+            hostname: None,
+            username: None,
+            from_address: None,
+            to_address: None,
+            subject: None,
+        },
+        include_file_list_in_activity_log: false,
+        no_backups_alert_days: 0,
+    };
 
     let backup_set = BackupSet {
-        backup_config, backup_folders, backup_plan,
-        backup_folder_configs: HashMap::new(), backup_records: HashMap::new(),
-        encryption_keyset: None, root_path: PathBuf::from("dummy_path_children_err"),
+        backup_config,
+        backup_folders,
+        backup_plan,
+        backup_folder_configs: HashMap::new(),
+        backup_records: HashMap::new(),
+        encryption_keyset: None,
+        root_path: PathBuf::from("dummy_path_children_err"),
     };
     let mut dir_node = DirectoryEntryNode {
         name: "err_dir".to_string(),
         children: None,
         tree_blob_loc: Some(crate::blob_location::BlobLoc {
-            blob_identifier: "non_existent_blob".to_string(), compression_type: 0, is_packed: false,
-            length: 0, offset: 0, relative_path: "non_existent_pack/non_existent_blob".to_string(),
-            stretch_encryption_key: false, is_large_pack: Some(false),
+            blob_identifier: "non_existent_blob".to_string(),
+            compression_type: 0,
+            is_packed: false,
+            length: 0,
+            offset: 0,
+            relative_path: "non_existent_pack/non_existent_blob".to_string(),
+            stretch_encryption_key: false,
+            is_large_pack: Some(false),
         }),
-        modification_time_sec: 0, creation_time_sec: 0, mode: 0o040755,
+        modification_time_sec: 0,
+        creation_time_sec: 0,
+        mode: 0o040755,
     };
     let result = backup_set.load_directory_children(&mut dir_node);
     assert!(result.is_err());
@@ -2515,17 +2869,121 @@ fn test_load_directory_children_non_existent_blob() {
 
 #[test]
 fn test_read_file_content_empty() {
-    let backup_config = BackupConfig { blob_identifier_type: 0, max_packed_item_length: 0, backup_name: String::new(), is_worm: false, contains_glacier_archives: false, additional_unpacked_blob_dirs: vec![], chunker_version: 0, computer_name: String::new(), computer_serial: String::new(), blob_storage_class: String::new(), is_encrypted: false };
-    let backup_folders = BackupFolders { standard_object_dirs: vec![], standard_ia_object_dirs: vec![], onezone_ia_object_dirs: vec![], s3_glacier_object_dirs: vec![], s3_deep_archive_object_dirs: vec![], s3_glacier_ir_object_dirs: None, imported_from: None };
-    let backup_plan = BackupPlan { transfer_rate_json: TransferRate { enabled: false, start_time_of_day: "".to_string(), days_of_week: vec![], schedule_type: "".to_string(), end_time_of_day: "".to_string(), max_kbps: None }, cpu_usage: 0, id: 0, storage_location_id: 0, excluded_network_interfaces: vec![], needs_arq5_buckets: false, use_buzhash: false, arq5_use_s3_ia: false, object_lock_update_interval_days: 0, plan_uuid: String::new(), schedule_json: Schedule { backup_and_validate: false, start_when_volume_is_connected: false, pause_during_window: false, schedule_type: "".to_string(), days_of_week: None, every_hours: None, minutes_after_hour: None, pause_from: None, pause_to: None }, keep_deleted_files: false, version: 0, created_at_pro_console: None, backup_folder_plan_mount_points_are_initialized: None, include_new_volumes: false, retain_months: 0, use_apfs_snapshots: false, backup_set_is_initialized: None, backup_folder_plans_by_uuid: HashMap::new(), notify_on_error: false, retain_days: 0, update_time: 0.0, excluded_wi_fi_network_names: vec![], object_lock_available: None, managed: None, name: String::new(), wake_for_backup: false, include_network_interfaces: None, dataless_files_option: None, retain_all: false, is_encrypted: false, active: false, notify_on_success: false, prevent_sleep: false, creation_time: 0, pause_on_battery: false, retain_weeks: 0, retain_hours: 0, prevent_backup_on_constrained_networks: None, include_wi_fi_networks: false, thread_count: 0, prevent_backup_on_expensive_networks: None, email_report_json: EmailReport { port: 0, start_tls: false, authentication_type: "".to_string(), report_helo_use_ip: None, when: "".to_string(), report_type: "".to_string(), hostname: None, username: None, from_address: None, to_address: None, subject: None }, include_file_list_in_activity_log: false, no_backups_alert_days: 0 };
+    let backup_config = BackupConfig {
+        blob_identifier_type: 0,
+        max_packed_item_length: 0,
+        backup_name: String::new(),
+        is_worm: false,
+        contains_glacier_archives: false,
+        additional_unpacked_blob_dirs: vec![],
+        chunker_version: 0,
+        computer_name: String::new(),
+        computer_serial: String::new(),
+        blob_storage_class: String::new(),
+        is_encrypted: false,
+    };
+    let backup_folders = BackupFolders {
+        standard_object_dirs: vec![],
+        standard_ia_object_dirs: vec![],
+        onezone_ia_object_dirs: vec![],
+        s3_glacier_object_dirs: vec![],
+        s3_deep_archive_object_dirs: vec![],
+        s3_glacier_ir_object_dirs: None,
+        imported_from: None,
+    };
+    let backup_plan = BackupPlan {
+        transfer_rate_json: TransferRate {
+            enabled: false,
+            start_time_of_day: "".to_string(),
+            days_of_week: vec![],
+            schedule_type: "".to_string(),
+            end_time_of_day: "".to_string(),
+            max_kbps: None,
+        },
+        cpu_usage: 0,
+        id: 0,
+        storage_location_id: 0,
+        excluded_network_interfaces: vec![],
+        needs_arq5_buckets: false,
+        use_buzhash: false,
+        arq5_use_s3_ia: false,
+        object_lock_update_interval_days: 0,
+        plan_uuid: String::new(),
+        schedule_json: Schedule {
+            backup_and_validate: false,
+            start_when_volume_is_connected: false,
+            pause_during_window: false,
+            schedule_type: "".to_string(),
+            days_of_week: None,
+            every_hours: None,
+            minutes_after_hour: None,
+            pause_from: None,
+            pause_to: None,
+        },
+        keep_deleted_files: false,
+        version: 0,
+        created_at_pro_console: None,
+        backup_folder_plan_mount_points_are_initialized: None,
+        include_new_volumes: false,
+        retain_months: 0,
+        use_apfs_snapshots: false,
+        backup_set_is_initialized: None,
+        backup_folder_plans_by_uuid: HashMap::new(),
+        notify_on_error: false,
+        retain_days: 0,
+        update_time: 0.0,
+        excluded_wi_fi_network_names: vec![],
+        object_lock_available: None,
+        managed: None,
+        name: String::new(),
+        wake_for_backup: false,
+        include_network_interfaces: None,
+        dataless_files_option: None,
+        retain_all: false,
+        is_encrypted: false,
+        active: false,
+        notify_on_success: false,
+        prevent_sleep: false,
+        creation_time: 0,
+        pause_on_battery: false,
+        retain_weeks: 0,
+        retain_hours: 0,
+        prevent_backup_on_constrained_networks: None,
+        include_wi_fi_networks: false,
+        thread_count: 0,
+        prevent_backup_on_expensive_networks: None,
+        email_report_json: EmailReport {
+            port: 0,
+            start_tls: false,
+            authentication_type: "".to_string(),
+            report_helo_use_ip: None,
+            when: "".to_string(),
+            report_type: "".to_string(),
+            hostname: None,
+            username: None,
+            from_address: None,
+            to_address: None,
+            subject: None,
+        },
+        include_file_list_in_activity_log: false,
+        no_backups_alert_days: 0,
+    };
     let backup_set = BackupSet {
-        backup_config, backup_folders, backup_plan,
-        backup_folder_configs: HashMap::new(), backup_records: HashMap::new(),
-        encryption_keyset: None, root_path: PathBuf::from("dummy_path_file_empty"),
+        backup_config,
+        backup_folders,
+        backup_plan,
+        backup_folder_configs: HashMap::new(),
+        backup_records: HashMap::new(),
+        encryption_keyset: None,
+        root_path: PathBuf::from("dummy_path_file_empty"),
     };
     let file_entry = FileEntry {
-        name: "empty_file.txt".to_string(), size: 0, data_blob_locs: vec![],
-        modification_time_sec: 0, creation_time_sec: 0, mode: 0o100644,
+        name: "empty_file.txt".to_string(),
+        size: 0,
+        data_blob_locs: vec![],
+        modification_time_sec: 0,
+        creation_time_sec: 0,
+        mode: 0o100644,
     };
     let result = backup_set.read_file_content(&file_entry);
     assert!(result.is_ok());
@@ -2534,23 +2992,131 @@ fn test_read_file_content_empty() {
 
 #[test]
 fn test_read_file_content_non_existent_blob() {
-    let backup_config = BackupConfig { blob_identifier_type: 0, max_packed_item_length: 0, backup_name: String::new(), is_worm: false, contains_glacier_archives: false, additional_unpacked_blob_dirs: vec![], chunker_version: 0, computer_name: String::new(), computer_serial: String::new(), blob_storage_class: String::new(), is_encrypted: false };
-    let backup_folders = BackupFolders { standard_object_dirs: vec![], standard_ia_object_dirs: vec![], onezone_ia_object_dirs: vec![], s3_glacier_object_dirs: vec![], s3_deep_archive_object_dirs: vec![], s3_glacier_ir_object_dirs: None, imported_from: None };
-    let backup_plan = BackupPlan { transfer_rate_json: TransferRate { enabled: false, start_time_of_day: "".to_string(), days_of_week: vec![], schedule_type: "".to_string(), end_time_of_day: "".to_string(), max_kbps: None }, cpu_usage: 0, id: 0, storage_location_id: 0, excluded_network_interfaces: vec![], needs_arq5_buckets: false, use_buzhash: false, arq5_use_s3_ia: false, object_lock_update_interval_days: 0, plan_uuid: String::new(), schedule_json: Schedule { backup_and_validate: false, start_when_volume_is_connected: false, pause_during_window: false, schedule_type: "".to_string(), days_of_week: None, every_hours: None, minutes_after_hour: None, pause_from: None, pause_to: None }, keep_deleted_files: false, version: 0, created_at_pro_console: None, backup_folder_plan_mount_points_are_initialized: None, include_new_volumes: false, retain_months: 0, use_apfs_snapshots: false, backup_set_is_initialized: None, backup_folder_plans_by_uuid: HashMap::new(), notify_on_error: false, retain_days: 0, update_time: 0.0, excluded_wi_fi_network_names: vec![], object_lock_available: None, managed: None, name: String::new(), wake_for_backup: false, include_network_interfaces: None, dataless_files_option: None, retain_all: false, is_encrypted: false, active: false, notify_on_success: false, prevent_sleep: false, creation_time: 0, pause_on_battery: false, retain_weeks: 0, retain_hours: 0, prevent_backup_on_constrained_networks: None, include_wi_fi_networks: false, thread_count: 0, prevent_backup_on_expensive_networks: None, email_report_json: EmailReport { port: 0, start_tls: false, authentication_type: "".to_string(), report_helo_use_ip: None, when: "".to_string(), report_type: "".to_string(), hostname: None, username: None, from_address: None, to_address: None, subject: None }, include_file_list_in_activity_log: false, no_backups_alert_days: 0 };
+    let backup_config = BackupConfig {
+        blob_identifier_type: 0,
+        max_packed_item_length: 0,
+        backup_name: String::new(),
+        is_worm: false,
+        contains_glacier_archives: false,
+        additional_unpacked_blob_dirs: vec![],
+        chunker_version: 0,
+        computer_name: String::new(),
+        computer_serial: String::new(),
+        blob_storage_class: String::new(),
+        is_encrypted: false,
+    };
+    let backup_folders = BackupFolders {
+        standard_object_dirs: vec![],
+        standard_ia_object_dirs: vec![],
+        onezone_ia_object_dirs: vec![],
+        s3_glacier_object_dirs: vec![],
+        s3_deep_archive_object_dirs: vec![],
+        s3_glacier_ir_object_dirs: None,
+        imported_from: None,
+    };
+    let backup_plan = BackupPlan {
+        transfer_rate_json: TransferRate {
+            enabled: false,
+            start_time_of_day: "".to_string(),
+            days_of_week: vec![],
+            schedule_type: "".to_string(),
+            end_time_of_day: "".to_string(),
+            max_kbps: None,
+        },
+        cpu_usage: 0,
+        id: 0,
+        storage_location_id: 0,
+        excluded_network_interfaces: vec![],
+        needs_arq5_buckets: false,
+        use_buzhash: false,
+        arq5_use_s3_ia: false,
+        object_lock_update_interval_days: 0,
+        plan_uuid: String::new(),
+        schedule_json: Schedule {
+            backup_and_validate: false,
+            start_when_volume_is_connected: false,
+            pause_during_window: false,
+            schedule_type: "".to_string(),
+            days_of_week: None,
+            every_hours: None,
+            minutes_after_hour: None,
+            pause_from: None,
+            pause_to: None,
+        },
+        keep_deleted_files: false,
+        version: 0,
+        created_at_pro_console: None,
+        backup_folder_plan_mount_points_are_initialized: None,
+        include_new_volumes: false,
+        retain_months: 0,
+        use_apfs_snapshots: false,
+        backup_set_is_initialized: None,
+        backup_folder_plans_by_uuid: HashMap::new(),
+        notify_on_error: false,
+        retain_days: 0,
+        update_time: 0.0,
+        excluded_wi_fi_network_names: vec![],
+        object_lock_available: None,
+        managed: None,
+        name: String::new(),
+        wake_for_backup: false,
+        include_network_interfaces: None,
+        dataless_files_option: None,
+        retain_all: false,
+        is_encrypted: false,
+        active: false,
+        notify_on_success: false,
+        prevent_sleep: false,
+        creation_time: 0,
+        pause_on_battery: false,
+        retain_weeks: 0,
+        retain_hours: 0,
+        prevent_backup_on_constrained_networks: None,
+        include_wi_fi_networks: false,
+        thread_count: 0,
+        prevent_backup_on_expensive_networks: None,
+        email_report_json: EmailReport {
+            port: 0,
+            start_tls: false,
+            authentication_type: "".to_string(),
+            report_helo_use_ip: None,
+            when: "".to_string(),
+            report_type: "".to_string(),
+            hostname: None,
+            username: None,
+            from_address: None,
+            to_address: None,
+            subject: None,
+        },
+        include_file_list_in_activity_log: false,
+        no_backups_alert_days: 0,
+    };
 
     let backup_set = BackupSet {
-        backup_config, backup_folders, backup_plan,
-        backup_folder_configs: HashMap::new(), backup_records: HashMap::new(),
-        encryption_keyset: None, root_path: PathBuf::from("dummy_path_file_err"),
+        backup_config,
+        backup_folders,
+        backup_plan,
+        backup_folder_configs: HashMap::new(),
+        backup_records: HashMap::new(),
+        encryption_keyset: None,
+        root_path: PathBuf::from("dummy_path_file_err"),
     };
     let file_entry = FileEntry {
-        name: "err_file.txt".to_string(), size: 100,
+        name: "err_file.txt".to_string(),
+        size: 100,
         data_blob_locs: vec![crate::blob_location::BlobLoc {
-            blob_identifier: "non_existent_data_blob".to_string(), compression_type: 0, is_packed: false,
-            length: 100, offset: 0, relative_path: "non_existent_pack/non_existent_data_blob".to_string(),
-            stretch_encryption_key: false, is_large_pack: Some(false),
+            blob_identifier: "non_existent_data_blob".to_string(),
+            compression_type: 0,
+            is_packed: false,
+            length: 100,
+            offset: 0,
+            relative_path: "non_existent_pack/non_existent_data_blob".to_string(),
+            stretch_encryption_key: false,
+            is_large_pack: Some(false),
         }],
-        modification_time_sec: 0, creation_time_sec: 0, mode: 0o100644,
+        modification_time_sec: 0,
+        creation_time_sec: 0,
+        mode: 0o100644,
     };
     let result = backup_set.read_file_content(&file_entry);
     assert!(result.is_err());
