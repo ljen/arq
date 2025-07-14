@@ -1,3 +1,6 @@
+use flate2::read::GzDecoder;
+use std::io::Read;
+
 use crate::error::Result;
 use crate::lz4;
 use crate::type_utils::ArqRead;
@@ -8,6 +11,7 @@ pub enum CompressionType {
     None,
     Gzip,
     LZ4,
+    Lzfse,
 }
 
 impl From<i32> for CompressionType {
@@ -16,6 +20,7 @@ impl From<i32> for CompressionType {
             0 => CompressionType::None,
             1 => CompressionType::Gzip,
             2 => CompressionType::LZ4,
+            3 => CompressionType::Lzfse,
             _ => panic!("Compression type '{}' unknown", value),
         }
     }
@@ -27,6 +32,7 @@ impl From<u32> for CompressionType {
             0 => CompressionType::None,
             1 => CompressionType::Gzip,
             2 => CompressionType::LZ4,
+            3 => CompressionType::Lzfse,
             _ => panic!("Compression type '{}' unknown", value),
         }
     }
@@ -40,6 +46,7 @@ impl CompressionType {
             0 => CompressionType::None,
             1 => CompressionType::Gzip,
             2 => CompressionType::LZ4,
+            3 => CompressionType::Lzfse,
             _ => panic!("Compression type '{}' unknown", c),
         })
     }
@@ -49,6 +56,7 @@ impl CompressionType {
             0 => CompressionType::None,
             1 => CompressionType::Gzip,
             2 => CompressionType::LZ4,
+            3 => CompressionType::Lzfse,
             _ => panic!("Compression type '{}' unknown", index),
         })
     }
@@ -56,7 +64,13 @@ impl CompressionType {
     pub fn decompress(compressed: &[u8], compression_type: CompressionType) -> Result<Vec<u8>> {
         Ok(match compression_type {
             CompressionType::LZ4 => lz4::decompress(compressed)?,
-            CompressionType::Gzip => unimplemented!(),
+            CompressionType::Gzip => {
+                let mut decoder = GzDecoder::new(compressed);
+                let mut decompressed = Vec::new();
+                decoder.read_to_end(&mut decompressed)?;
+                decompressed
+            }
+            CompressionType::Lzfse => unimplemented!(), // LZFSE is not supported yet
             CompressionType::None => compressed.to_owned(),
         })
     }
