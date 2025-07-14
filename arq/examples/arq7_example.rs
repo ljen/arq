@@ -10,17 +10,10 @@ use arq::arq7::DirectoryEntryNode;
 use arq::arq7::EncryptedKeySet;
 use arq::compression::CompressionType;
 use arq::tree;
-use plist::Dictionary;
-// use arq::tree::Tree; // Redundant due to `use arq::tree;` and usage `tree::Tree`
-// use chrono::SubsecRound; // Unused
-// use std::collections::TryReserveError; // Unused
-// use std::fs::File; // Unused
-// use std::io::Cursor; // Unused
-// use std::io::{BufReader, Read, Seek, SeekFrom}; // All seem unused now
-use std::path::Path; // PathBuf was unused
+use std::path::Path;
 
-// Error enum will be removed as part of the refactoring.
-// Errors will be handled by arq::error::Error and Option types.
+use std::fs::File;
+use std::io::prelude::*;
 
 fn list_children(
     bs: &mut BackupSet,
@@ -49,6 +42,8 @@ fn list_children(
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Path to an Arq 7 backup set directory
     let backup_set_path = "./tests/arq_storage_location/D1154AC6-01EB-41FE-B115-114464350B92";
+    // let backup_set_path =
+    // "/Users/ljensen/Projects/2025-06-arq/truenas/97328753-3EEB-4532-B27F-D4814B82405F";
     // let backup_set_path = "./tests/exos/A26237FB-0F74-4383-A86C-8A5BFD4E295B";
     let backup_passowrd = "asdfasdf1234";
 
@@ -71,16 +66,17 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     match BackupSet::from_directory_with_password(backup_set_path, Some(backup_passowrd)) {
         // match BackupSet::from_directory(backup_set_path) {
         Ok(mut backup_set) => {
-            let mut root_directory = backup_set.get_root_directory()?;
-            list_children(&mut backup_set, &mut root_directory, 2);
-            print_backup_config(&backup_set);
-            print_backup_plan(&backup_set);
-            print_backup_folders_config(&backup_set);
-            print_backup_folder_configs(&backup_set);
-            print_backup_records(&backup_set, backup_set_path);
-            print_backup_statistics(&backup_set);
+            // get_decrypted_blobloc(&backup_set);
+            // let mut root_directory = backup_set.get_root_directory()?;
+            // list_children(&mut backup_set, &mut root_directory, 2);
+            // print_backup_config(&backup_set);
+            // print_backup_plan(&backup_set);
+            // print_backup_folders_config(&backup_set);
+            // print_backup_folder_configs(&backup_set);
+            // print_backup_records(&backup_set, backup_set_path);
+            // print_backup_statistics(&backup_set);
             list_all_files(&backup_set, backup_set_path);
-            demonstrate_content_extraction(&backup_set, backup_set_path, Some(&keyset));
+            // demonstrate_content_extraction(&backup_set, backup_set_path, Some(&keyset));
         }
         Err(e) => {
             println!("❌ Failed to load backup set: {}", e);
@@ -449,6 +445,7 @@ fn list_all_files(backup_set: &BackupSet, backup_set_path: &str) {
                         record_idx + 1,
                         record.version
                     );
+
                     if let Some(creation_date) = record.creation_date {
                         let dt = chrono::DateTime::from_timestamp(creation_date as i64, 0)
                             .unwrap_or_default();
@@ -466,6 +463,7 @@ fn list_all_files(backup_set: &BackupSet, backup_set_path: &str) {
                         0,
                         folder_config.map(|f| f.name.as_str()).unwrap_or("Unknown"),
                         &mut stats,
+                        backup_set.encryption_keyset(),
                     );
                     println!("\n     📊 Record Statistics (Arq7):");
                     println!("        Files: {}", stats.total_files);
@@ -857,6 +855,7 @@ fn list_files_recursive(
     depth: usize,
     folder_name: &str,
     stats: &mut FileStats,
+    keyset: Option<&EncryptedKeySet>,
 ) {
     let indent = "  ".repeat(depth + 2);
     let path_display = if current_path.is_empty() {
@@ -864,20 +863,23 @@ fn list_files_recursive(
     } else {
         current_path.clone()
     };
-    // let keyset =
-    //     EncryptedKeySet::from_file(backup_set_path.join("encryptedkeyset.dat"), "asdfasdf1234")
-    //         .unwrap(); // This reload is inefficient and risky if password changes or file missing.
-    // It's better to pass keyset down if needed by load_tree_with_encryption.
-    // For now, assuming the global keyset passed to list_all_files is implicitly used by load_tree.
 
     if node.is_tree {
         println!("{}📁 {}/", indent, path_display);
         stats.total_directories += 1;
 
-        let tree_load_result = match node.tree_blob_loc.as_ref() {
-            Some(loc) => loc.load_tree_with_encryption(backup_set_path, None), // Assuming no specific keyset needed here based on original call
-            None => Ok(None),
-        };
+        let tree_load_result: Result<Option<tree::Tree>, arq::error::Error> =
+            match node.tree_blob_loc.as_ref() {
+                Some(loc) => {
+                    println!("{}├── Loading tree...", indent);
+                    let data = loc.extract_content(backup_set_path, keyset).unwrap();
+                    let mut file = std::fs::File::create(&loc.blob_identifier).unwrap();
+                    file.write_all(&data);
+                    file.flush();
+                    loc.load_tree_with_encryption(backup_set_path, keyset)
+                }
+                None => Ok(None),
+            };
 
         match tree_load_result {
             Ok(Some(tree)) => {
@@ -895,13 +897,15 @@ fn list_files_recursive(
                         depth + 1,
                         folder_name,
                         stats,
+                        keyset,
                     );
                 }
             }
             Ok(None) => {
                 println!("{}   ⚠️  No tree data available", indent);
             }
-            Err(_e) => {
+            Err(e) => {
+                println!("Error with {}", e)
                 // ...
             }
         }

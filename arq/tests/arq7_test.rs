@@ -5,12 +5,15 @@ use std::io::Cursor;
 use std::path::Path;
 
 const ARQ7_TEST_DATA_DIR_NOT_ENCRYPTED: &str =
-    "./tests/arq_storage_location/2E7BB0B6-BE5B-4A86-9E51-10FE730E1104";
+    "/Users/ljensen/Projects/2025-06-arq/arq/tests/arq_storage_location/2E7BB0B6-BE5B-4A86-9E51-10FE730E1104";
 
 const ARQ7_TEST_DATA_DIR_ENCRYPTED: &str =
-    "./tests/arq_storage_location/D1154AC6-01EB-41FE-B115-114464350B92";
+    "/Users/ljensen/Projects/2025-06-arq/arq/tests/arq_storage_location/D1154AC6-01EB-41FE-B115-114464350B92";
+// const ARQ7_TEST_DATA_DIR_NOT_ENCRYPTED: &str =
+//     "/Users/ljensen/Projects/2025-06-arq/arq/tests/arq_storage_location/FD5575D9-B7E1-43D9-B29C-B54ACC9BC2A9";
 
 const ARQ7_TEST_ENCRYPTION_PASSWORD: &str = "asdfasdf1234";
+
 
 #[test]
 fn test_parse_backup_config() {
@@ -467,12 +470,21 @@ fn test_parse_backup_folders() {
 #[test]
 fn test_parse_backup_plan_plaintext() {
     let plan_json =  "{\"active\":true,\"version\":2,\"creationTime\":1645883309.753,\"updateTime\":1667135336.514,\"id\":1,\"storageLocationId\":2,\"isEncrypted\":true,\"scheduleJSON\":{\"type\":\"Weekly\",\"dayOfWeek\":\"Mon\",\"timeOfDay\":\"00:00\",\"everyWeeks\":1,\"startWhenVolumeIsConnected\":false,\"pauseDuringWindow\":false,\"pauseFrom\":\"09:00\",\"pauseTo\":\"17:00\",\"backUpAndValidate\":true},\"retainAll\":true,\"retainHours\":24,\"retainDays\":30,\"retainWeeks\":52,\"retainMonths\":60,\"useAPFSSnapshots\":true,\"keepDeletedFiles\":false,\"wakeForBackup\":false,\"preventSleep\":true,\"notifyOnError\":false,\"notifyOnSuccess\":true,\"transferRateJSON\":{\"enabled\":false,\"scheduleType\":\"Scheduled\",\"startTimeOfDay\":\"18:00\",\"endTimeOfDay\":\"18:00\",\"daysOfWeek\":[\"Mon\",\"Tue\",\"Wed\",\"Thu\",\"Fri\",\"Sat\",\"Sun\"],\"maxKBPS\":100},\"includeNetworkInterfaces\":false,\"excludedNetworkInterfaces\":[],\"includeWiFiNetworks\":false,\"excludedWiFiNetworkNames\":[],\"emailReportJSON\":{\"when\":\"never\",\"subject\":\"\",\"fromAddress\":\"\",\"toAddress\":\"\",\"type\":\"custom\",\"hostname\":\"\",\"port\":587,\"username\":\"\",\"startTLS\":false,\"authenticationType\":\"none\"},\"name\":\"Persons Laptop: Back up all drives to Google Drive\",\"planUUID\":\"97328753-3EEB-4532-B27F-D4814B82405F\",\"threadCount\":15,\"pauseOnBattery\":false,\"includeNewVolumes\":false,\"useBuzhash\":false,\"cpuUsage\":100,\"needsArq5Buckets\":false,\"arq5UseS3IA\":false,\"includeFileListInActivityLog\":false,\"objectLockAvailable\":false,\"objectLockUpdateIntervalDays\":0,\"backupFolderPlansByUUID\":{\"4E98EEDB-F674-48C0-9D4A-FDFFF8124108\":{\"backupFolderUUID\":\"4E98EEDB-F674-48C0-9D4A-FDFFF8124108\",\"name\":\"All Drives\",\"skipDuringBackup\":false,\"skipIfNotMounted\":false,\"ignoredRelativePaths\":[],\"wildcardExcludes\":[\"$RECYCLE.BIN\",\"System Volume Information\",\"temp\",\"LocalCache\",\"Cache\",\"Logs\",\"node_modules\",\"iTunes/iTunes Media/Downloads\",\"iTunes/iTunes Media/Podcasts\",\"iTunes/Album Artwork\",\"AppData/Local/Google/Chrome/User Data/Default/Code Cache\",\"AppData/Local/Microsoft/WindowsApps\",\"/C/Config.Msi\",\"/C/hiberfil.sys\",\"/C/Microsoft\",\"/C/OneDriveTemp\",\"/C/pagefile.sys\",\"/C/Program Files\",\"/C/Program Files (x86)\",\"/C/Recovery\",\"/C/swapfile.sys\",\"/C/Windows\",\"/C/ProgramData/Microsoft/Search/Data\",\"/C/ProgramData/Dropbox/Update\"],\"regexExcludes\":[],\"excludedDrives\":[{\"diskIdentifier\":\"64e15cf7-f3f3-4159-b852-ca5bca317b1a\",\"volumeName\":\"D:\",\"mountPoint\":\"/D\"}],\"blobStorageClass\":\"STANDARD\",\"allDrives\":true,\"useDiskIdentifier\":false}}}";
-    let  reader = Cursor::new(plan_json.as_bytes());
+    let reader = Cursor::new(plan_json.as_bytes());
 
-    let plan =BackupPlan::from_reader(reader);
+    let plan = BackupPlan::from_reader(reader);
 
-
-
+    match plan {
+        Ok(plan) => {
+            assert_eq!(
+                plan.name,
+                "Persons Laptop: Back up all drives to Google Drive"
+            );
+        }
+        Err(err) => {
+            panic!("Failed to parse backup plan: {}", err);
+        }
+    }
 }
 
 #[test]
@@ -523,7 +535,7 @@ fn test_parse_backup_plan() {
     assert_eq!(plan.thread_count, 2);
     assert_eq!(plan.prevent_backup_on_expensive_networks, Some(false));
     assert!(!plan.include_file_list_in_activity_log);
-    assert_eq!(plan.no_backups_alert_days, 5);
+    assert_eq!(plan.no_backups_alert_days, Some(5));
 
     // Test transfer rate
     assert!(!plan.transfer_rate_json.enabled);
@@ -573,13 +585,13 @@ fn test_parse_backup_plan() {
     assert!(folder_plan.excluded_drives.is_empty());
     assert_eq!(
         folder_plan.local_path,
-        "/Users/ljensen/Projects/2024-12-arq-decryption/arq_backup_source"
+        Some("/Users/ljensen/Projects/2024-12-arq-decryption/arq_backup_source".to_string())
     );
     assert!(!folder_plan.all_drives);
     assert_eq!(folder_plan.skip_tm_excludes, Some(false));
     assert!(folder_plan.regex_excludes.is_empty());
     assert_eq!(folder_plan.name, "arq_backup_source");
-    assert_eq!(folder_plan.local_mount_point, "/");
+    assert_eq!(folder_plan.local_mount_point, Some("/".to_string()));
 }
 
 #[test]
@@ -745,7 +757,6 @@ fn test_binary_tree_loading_comprehensive() {
 
                         // Verify we can iterate over child nodes
                         for (name, node) in &tree.nodes {
-                            
                             println!("Child node: {} (is_tree: {})", name, node.is_tree);
                         }
                     }

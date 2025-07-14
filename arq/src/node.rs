@@ -221,11 +221,15 @@ impl Node {
         };
         let computer_os_type = reader.read_arq_u32()?;
         let data_blob_locs_count = reader.read_arq_u64()?;
+
+        // Validate blob count to prevent excessive memory allocation
+        let validated_count =
+            crate::blob_format_detector::validate_blob_count(data_blob_locs_count)?;
+
         let mut data_blob_locs = Vec::new();
-        for _i in 0..data_blob_locs_count {
+        for _i in 0..validated_count {
             data_blob_locs.push(BlobLoc::from_binary_reader(reader).map_err(|e| {
                 crate::error::Error::InvalidFormat(format!("Failed to parse data BlobLoc: {}", e))
-                // Changed to InvalidFormat
             })?);
         }
 
@@ -238,11 +242,15 @@ impl Node {
         };
 
         let xattrs_blob_locs_count = reader.read_arq_u64().unwrap_or(0);
+
+        // Validate xattrs blob count to prevent excessive memory allocation
+        let validated_xattrs_count =
+            crate::blob_format_detector::validate_blob_count(xattrs_blob_locs_count).unwrap_or(0);
+
         let mut parsed_xattrs_blob_locs = Vec::new();
-        for _ in 0..xattrs_blob_locs_count {
+        for _ in 0..validated_xattrs_count {
             parsed_xattrs_blob_locs.push(BlobLoc::from_binary_reader(reader).map_err(|e| {
                 crate::error::Error::InvalidFormat(format!("Failed to parse xattrs BlobLoc: {}", e))
-                // Changed to InvalidFormat
             })?);
         }
         let xattrs_blob_locs = if parsed_xattrs_blob_locs.is_empty() {
