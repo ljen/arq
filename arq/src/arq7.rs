@@ -140,6 +140,19 @@ const ENCRYPTED_KEYSET_HEADER: [u8; 25] = [
 ]; // ARQ_ENCRYPTED_MASTER_KEYS
 
 impl EncryptedKeySet {
+    pub fn from_master_keys(master_keys: Vec<Vec<u8>>) -> Result<Self> {
+        if master_keys.len() != 3 {
+            return Err(Error::InvalidFormat(
+                "Expected 3 master keys".to_string(),
+            ));
+        }
+        Ok(EncryptedKeySet {
+            encryption_key: master_keys[0].clone(),
+            hmac_key: master_keys[1].clone(),
+            blob_identifier_salt: master_keys[2].clone(),
+        })
+    }
+
     pub fn from_file<P: AsRef<Path>>(path: P, password: &str) -> Result<Self> {
         let file = File::open(path)?;
         let mut reader = BufReader::new(file);
