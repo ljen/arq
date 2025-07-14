@@ -27,10 +27,14 @@
 //! `/<computer_uuid>/packsets/<folder_uuid>-(blobs|trees)/<sha1>.index`
 use byteorder::{NetworkEndian, ReadBytesExt};
 use std;
-use std::io::{BufRead, Cursor, Seek, SeekFrom};
+use std::io::{BufRead, BufReader, Cursor, Seek, SeekFrom};
 
+use std::fs::{self, File};
+use std::path::Path;
+
+use crate::arq7::EncryptedKeySet;
 use crate::compression::CompressionType;
-use crate::error::Result;
+use crate::error::{Error, Result};
 use crate::object_encryption::{calculate_sha1sum, EncryptedObject};
 use crate::type_utils::ArqRead;
 use crate::utils::convert_to_hex_string;
@@ -355,4 +359,58 @@ impl PackObject {
         let content = CompressionType::decompress(&decrypted, compression_type)?;
         Ok(content)
     }
+}
+
+fn get_file_reader_for_restore(path: &Path) -> std::io::Result<BufReader<File>> {
+    let file = File::open(path)?;
+    Ok(BufReader::new(file))
+}
+
+pub fn restore_blob_with_sha(
+    path: &Path,
+    sha: &str,
+    keyset: &EncryptedKeySet,
+) -> Result<Vec<u8>> {
+    for entry_result in fs::read_dir(path)? {
+        let entry = entry_result?;
+
+        let fname = entry.file_name();
+        let fname_str = match fname.to_str() {
+            Some(s) => s,
+            None => {
+                continue;
+            }
+        };
+
+        if fname_str.ends_with(".index") {
+            let index_path = entry.path();
+            let mut reader =
+                get_file_reader_for_restore(&index_path).map_err(|e| Error::IoError(e))?;
+
+            let index = PackIndex::new(&mut reader)?;
+
+            for obj in index.objects {
+                if obj.sha1 == sha {
+                    let pack_path = index_path.with_extension("pack");
+                    if !pack_path.exists() {
+                        continue;
+                    }
+                    let mut pack_reader =
+                        get_file_reader_for_restore(&pack_path).map_err(|e| Error::IoError(e))?;
+
+                    pack_reader
+                        .seek(SeekFrom::Start(obj.offset as u64))
+                        .map_err(|e| Error::IoError(e))?;
+
+                    let pack = PackObject::new(&mut pack_reader)?;
+
+                    match pack.data.decrypt(&keyset.encryption_key) {
+                        Ok(data) => return Ok(data),
+                        Err(e) => return Err(e),
+                    }
+                }
+            }
+        }
+    }
+    Err(Error::InvalidFormat(format!("SHA not found: {}", sha)))
 }

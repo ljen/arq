@@ -5,31 +5,9 @@ use std::path::{Path, PathBuf};
 use crate::error::{Error, Result};
 use crate::utils;
 
+use arq::arq7::EncryptedKeySet;
 use arq::packset;
 use arq::tree;
-
-// TODO: Do this better - don't read all files multiple times
-pub fn restore_blob_with_sha(path: &PathBuf, sha: &str, master_key: &[u8]) -> Result<Vec<u8>> {
-    for entry in std::fs::read_dir(&path)? {
-        let fname = entry?.file_name().to_str().unwrap().to_string();
-        if fname.ends_with(".index") {
-            let index_path = path.join(&fname);
-            let mut reader = utils::get_file_reader(index_path.clone());
-            let index = packset::PackIndex::new(&mut reader)?;
-            for obj in index.objects {
-                if obj.sha1 == sha {
-                    let pack_path = index_path.with_extension("pack");
-                    let mut reader = utils::get_file_reader(pack_path);
-                    reader.seek(SeekFrom::Start(obj.offset as u64))?;
-                    let pack = packset::PackObject::new(&mut reader)?;
-                    return Ok(pack.data.decrypt(&master_key)?);
-                }
-            }
-        }
-    }
-
-    Err(Error::NotFound(format!("sha: {}", sha)))
-}
 
 pub fn restore_file(
     path: &str,
@@ -43,13 +21,14 @@ pub fn restore_file(
         .join(format!("{}-trees", folder));
 
     let master_keys = utils::get_master_keys(&path, &computer)?;
+    let keyset = EncryptedKeySet::from_master_keys(master_keys.clone())?;
     let head_sha = utils::find_latest_folder_sha(path, computer, folder)?;
 
-    let data = restore_blob_with_sha(&trees_path, &head_sha, &master_keys[0])?;
+    let data = packset::restore_blob_with_sha(&trees_path, &head_sha, &keyset)?;
     let commit = tree::Commit::new(Cursor::new(data))?;
 
     let arq_folder = utils::read_arq_folder(path, computer, folder, master_keys.clone())?;
-    let tree_blob = restore_blob_with_sha(&trees_path, &commit.tree_sha1, &master_keys[0])?;
+    let tree_blob = packset::restore_blob_with_sha(&trees_path, &commit.tree_sha1, &keyset)?;
     let tree = tree::Tree::new_arq5(&tree_blob, commit.tree_compression_type)?;
     restore_file_in_tree(
         Path::new(&arq_folder.local_path),
@@ -57,7 +36,7 @@ pub fn restore_file(
         absolute_filepath,
         folder,
         tree,
-        &master_keys[0],
+        &keyset,
     )
 }
 
@@ -67,24 +46,30 @@ fn restore_file_in_tree(
     absolute_filepath: &str,
     folder: &str,
     tree: tree::Tree,
-    master_key: &[u8],
+    keyset: &EncryptedKeySet,
 ) -> Result<()> {
     for (name, node) in tree.nodes {
         if !node.is_tree {
             let inner = prefix.join(name);
             if inner.as_os_str().to_str().unwrap() == absolute_filepath {
-                restore_object(path, folder, &node, absolute_filepath, master_key)?; // Passed node as reference
+                restore_object(path, folder, &node, absolute_filepath, &keyset.encryption_key)?;
+                // Passed node as reference
             }
         } else {
-            let data = restore_blob_with_sha(path, &node.data_blob_locs[0].blob_identifier, master_key)?; // Changed to data_blob_locs and blob_identifier
-            let inner_tree = tree::Tree::new_arq5(&data, node.arq5_data_compression_type.unwrap_or(arq::compression::CompressionType::None))?; // Changed to arq5_data_compression_type
+            let data =
+                packset::restore_blob_with_sha(path, &node.data_blob_locs[0].blob_identifier, keyset)?; // Changed to data_blob_locs and blob_identifier
+            let inner_tree = tree::Tree::new_arq5(
+                &data,
+                node.arq5_data_compression_type
+                    .unwrap_or(arq::compression::CompressionType::None),
+            )?; // Changed to arq5_data_compression_type
             restore_file_in_tree(
                 prefix.join(name).as_path(),
                 path,
                 absolute_filepath,
                 folder,
                 inner_tree,
-                master_key,
+                keyset,
             )?;
         }
     }

@@ -2,9 +2,10 @@ use std::io::Cursor;
 use std::path::{Path, PathBuf};
 
 use crate::error::Result;
-use crate::recovery;
 use crate::utils;
 
+use arq::arq7::EncryptedKeySet;
+use arq::packset;
 use arq::tree;
 
 fn show_commit(commit: &tree::Commit) {
@@ -41,6 +42,7 @@ pub fn show(path: &str, computer: &str, folder: &str) -> Result<()> {
         .join("packsets")
         .join(format!("{}-trees", folder));
     let master_keys = utils::get_master_keys(&path, &computer)?;
+    let keyset = EncryptedKeySet::from_master_keys(master_keys.clone())?;
     let arq_folder = utils::read_arq_folder(path, computer, folder, master_keys.clone())?;
     let head_sha = utils::find_latest_folder_sha(path, computer, folder)?;
 
@@ -48,7 +50,7 @@ pub fn show(path: &str, computer: &str, folder: &str) -> Result<()> {
         Path::new(&arq_folder.local_path),
         &trees_path,
         &head_sha,
-        &master_keys[0],
+        &keyset,
     )
 }
 
@@ -56,15 +58,15 @@ fn render_tree(
     prefix: &std::path::Path,
     path: &std::path::PathBuf,
     sha: &str,
-    master_key: &[u8],
+    keyset: &EncryptedKeySet,
 ) -> Result<()> {
-    let data = recovery::restore_blob_with_sha(path, sha, master_key)?;
+    let data = packset::restore_blob_with_sha(path, sha, keyset)?;
     let commit = tree::Commit::new(Cursor::new(data))?;
     //show_commit(&commit);
 
-    let tree_blob = recovery::restore_blob_with_sha(path, &commit.tree_sha1, master_key)?;
+    let tree_blob = packset::restore_blob_with_sha(path, &commit.tree_sha1, keyset)?;
     let tree = tree::Tree::new_arq5(&tree_blob, commit.tree_compression_type)?;
-    render_internal_tree(prefix, &path, tree, master_key)?;
+    render_internal_tree(prefix, &path, tree, keyset)?;
     Ok(())
 }
 
@@ -72,17 +74,22 @@ fn render_internal_tree(
     prefix: &std::path::Path,
     path: &PathBuf,
     tr: tree::Tree,
-    master_key: &[u8],
+    keyset: &EncryptedKeySet,
 ) -> Result<()> {
     for (k, v) in tr.nodes {
         if v.is_tree {
-            if v.data_blob_locs.is_empty() { // Changed data_blob_keys to data_blob_locs
+            if v.data_blob_locs.is_empty() {
+                // Changed data_blob_keys to data_blob_locs
                 continue;
             }
             let data =
-                recovery::restore_blob_with_sha(&path, &v.data_blob_locs[0].blob_identifier, &master_key)?; // Changed to data_blob_locs and blob_identifier
-            let tree = tree::Tree::new_arq5(&data, v.arq5_data_compression_type.unwrap_or(arq::compression::CompressionType::None))?; // Changed to arq5_data_compression_type
-            render_internal_tree(prefix.join(k).as_path(), &path, tree, &master_key)?;
+                packset::restore_blob_with_sha(&path, &v.data_blob_locs[0].blob_identifier, &keyset)?; // Changed to data_blob_locs and blob_identifier
+            let tree = tree::Tree::new_arq5(
+                &data,
+                v.arq5_data_compression_type
+                    .unwrap_or(arq::compression::CompressionType::None),
+            )?; // Changed to arq5_data_compression_type
+            render_internal_tree(prefix.join(k).as_path(), &path, tree, &keyset)?;
         } else {
             println!("{}", prefix.join(k).as_os_str().to_str().unwrap());
         }
