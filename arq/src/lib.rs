@@ -91,8 +91,6 @@
 //! }
 //! ```
 //!
-//! **For a more complex example, please check a command line tool (`evu`) built using this
-//! library at [https://github.com/nlopes/evu](https://github.com/nlopes/evu).**
 extern crate aes;
 extern crate byteorder;
 extern crate chrono;
@@ -110,6 +108,7 @@ extern crate sha2;
 
 pub mod arq7;
 pub mod blob_location;
+pub mod commit;
 pub mod compression;
 pub mod computer;
 pub mod error;
