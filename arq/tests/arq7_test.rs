@@ -14,7 +14,6 @@ const ARQ7_TEST_DATA_DIR_ENCRYPTED: &str =
 
 const ARQ7_TEST_ENCRYPTION_PASSWORD: &str = "asdfasdf1234";
 
-
 #[test]
 fn test_parse_backup_config() {
     let config_path = Path::new(ARQ7_TEST_DATA_DIR_NOT_ENCRYPTED).join("backupconfig.json");

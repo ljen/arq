@@ -12,9 +12,6 @@ use arq::compression::CompressionType;
 use arq::tree;
 use std::path::Path;
 
-use std::fs::File;
-use std::io::prelude::*;
-
 fn list_children(
     bs: &mut BackupSet,
     node: &mut DirectoryEntryNode,
@@ -871,11 +868,10 @@ fn list_files_recursive(
         let tree_load_result: Result<Option<tree::Tree>, arq::error::Error> =
             match node.tree_blob_loc.as_ref() {
                 Some(loc) => {
-                    println!("{}├── Loading tree...", indent);
-                    let data = loc.extract_content(backup_set_path, keyset).unwrap();
-                    let mut file = std::fs::File::create(&loc.blob_identifier).unwrap();
-                    file.write_all(&data);
-                    file.flush();
+                    // let data = loc.extract_content(backup_set_path, keyset).unwrap();
+                    // let mut file = std::fs::File::create(&loc.blob_identifier).unwrap();
+                    // file.write_all(&data);
+                    // file.flush();
                     loc.load_tree_with_encryption(backup_set_path, keyset)
                 }
                 None => Ok(None),
