@@ -109,16 +109,17 @@ extern crate sha1;
 extern crate sha2;
 
 pub mod arq7;
+pub mod blob_format_detector;
+pub mod blob_location;
 pub mod compression;
 pub mod computer;
 pub mod error;
 pub mod folder;
+pub mod node;
 pub mod object_encryption;
 pub mod packset;
 pub mod tree;
 pub mod type_utils;
-pub mod node;
-pub mod blob_location;
 
 mod blob;
 mod date;
