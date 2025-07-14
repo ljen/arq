@@ -38,10 +38,7 @@ fn list_children(
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Path to an Arq 7 backup set directory
-    let backup_set_path = "./tests/arq_storage_location/D1154AC6-01EB-41FE-B115-114464350B92";
-    // let backup_set_path =
-    // "/Users/ljensen/Projects/2025-06-arq/truenas/97328753-3EEB-4532-B27F-D4814B82405F";
-    // let backup_set_path = "./tests/exos/A26237FB-0F74-4383-A86C-8A5BFD4E295B";
+    let backup_set_path = "tests/arq_storage_location/D1154AC6-01EB-41FE-B115-114464350B92";
     let backup_passowrd = "asdfasdf1234";
 
     println!("🔍 Loading Arq 7 backup set from: {}", backup_set_path);
@@ -267,20 +264,12 @@ fn print_backup_records(backup_set: &BackupSet, backup_set_path: &str) -> Option
                                 }
                             };
 
-                            let data = match arq::tree::restore_blob_with_sha(
+                            let data = match arq::packset::restore_blob_with_sha(
                                 &trees_path,
                                 &sha,
                                 keyset_ref, // Pass the reference to EncryptedKeySet
                             ) {
-                                Ok(Some(d)) => d,
-                                Ok(None) => {
-                                    println!(
-                                        "      ⚠️ Blob data not found for SHA {} in {}",
-                                        sha,
-                                        trees_path.display()
-                                    );
-                                    return None;
-                                }
+                                Ok(d) => d,
                                 Err(e) => {
                                     println!(
                                         "      ❌ Error restoring blob with SHA {}: {}",
