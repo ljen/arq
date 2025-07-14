@@ -220,14 +220,10 @@ impl Node {
             None
         };
         let computer_os_type = reader.read_arq_u32()?;
+
         let data_blob_locs_count = reader.read_arq_u64()?;
-
-        // Validate blob count to prevent excessive memory allocation
-        let validated_count =
-            crate::blob_format_detector::validate_blob_count(data_blob_locs_count)?;
-
         let mut data_blob_locs = Vec::new();
-        for _i in 0..validated_count {
+        for _i in 0..data_blob_locs_count {
             data_blob_locs.push(BlobLoc::from_binary_reader(reader).map_err(|e| {
                 crate::error::Error::InvalidFormat(format!("Failed to parse data BlobLoc: {}", e))
             })?);
@@ -241,14 +237,10 @@ impl Node {
             false => None,
         };
 
-        let xattrs_blob_locs_count = reader.read_arq_u64().unwrap_or(0);
-
-        // Validate xattrs blob count to prevent excessive memory allocation
-        let validated_xattrs_count =
-            crate::blob_format_detector::validate_blob_count(xattrs_blob_locs_count).unwrap_or(0);
+        let xattrs_blob_locs_count = reader.read_arq_u32().unwrap_or(0);
 
         let mut parsed_xattrs_blob_locs = Vec::new();
-        for _ in 0..validated_xattrs_count {
+        for _ in 0..xattrs_blob_locs_count {
             parsed_xattrs_blob_locs.push(BlobLoc::from_binary_reader(reader).map_err(|e| {
                 crate::error::Error::InvalidFormat(format!("Failed to parse xattrs BlobLoc: {}", e))
             })?);
@@ -259,9 +251,9 @@ impl Node {
             Some(parsed_xattrs_blob_locs)
         };
 
-        let item_size = reader.read_arq_u64().unwrap_or(if is_tree { 0 } else { 0 }); // Default to 0 if missing
-        let contained_files_count =
-            Some(reader.read_arq_u64().unwrap_or(if is_tree { 0 } else { 1 }));
+        let _unknown_u32 = reader.read_arq_u32();
+        let item_size = reader.read_arq_u64()?;
+        let contained_files_count = reader.read_arq_u64().ok();
 
         let modification_time_sec = reader.read_arq_i64().unwrap_or(0);
         let modification_time_nsec = reader.read_arq_i64().unwrap_or(0);
@@ -274,16 +266,18 @@ impl Node {
         let group_name = reader.read_arq_string().ok().flatten();
         let deleted = reader.read_arq_bool().unwrap_or(false);
 
-        let st_dev = reader.read_arq_i32().unwrap_or(0);
-        let st_ino = reader.read_arq_u64().unwrap_or(0);
-        let st_mode = reader
-            .read_arq_u32()
-            .unwrap_or(if is_tree { 0o040755 } else { 0o100644 });
-        let st_nlink = reader.read_arq_u32().unwrap_or(1);
-        let st_uid = Some(reader.read_arq_u32().unwrap_or(0));
-        let st_gid = reader.read_arq_u32().unwrap_or(0);
-        let st_rdev = reader.read_arq_i32().unwrap_or(0);
-        let st_flags = reader.read_arq_i32().unwrap_or(0); // mac_st_flags
+        let st_dev = reader.read_arq_i32().ok().unwrap_or(0);
+        let st_ino = reader.read_arq_u64().ok().unwrap_or(0);
+        let st_mode =
+            reader
+                .read_arq_u32()
+                .ok()
+                .unwrap_or(if is_tree { 0o040755 } else { 0o100644 });
+        let st_nlink = reader.read_arq_u32().ok().unwrap_or(1);
+        let st_uid: Option<u32> = Some(reader.read_arq_u32().ok().unwrap_or(0));
+        let st_gid = reader.read_arq_u32().ok().unwrap_or(0);
+        let st_rdev = reader.read_arq_i32().ok().unwrap_or(0);
+        let st_flags = reader.read_arq_i32().ok().unwrap_or(0); // mac_st_flags
 
         let win_attrs = reader.read_arq_u32().ok(); // Optional
 
@@ -291,10 +285,10 @@ impl Node {
         let mut reparse_point_is_directory = None;
 
         // Arq 7 binary Node format has versioning for reparse points based on Tree version,
-        // but the provided `arq::arq7::Node::from_binary_reader` uses tree_version >= 2.
+        // but the provided `arq::arq7::Node::from_binary_reader` uses tree_version >= 3.
         // The `arq::arq7::binary::BinaryTree` itself has a version.
         // We assume `tree_version` passed here corresponds to the version of the containing tree.
-        if tree_version.unwrap_or(0) >= 2 {
+        if tree_version.unwrap_or(0) >= 3 {
             // Default to 0 if no tree_version, won't read these
             reparse_tag = reader.read_arq_u32().ok();
             reparse_point_is_directory = reader.read_arq_bool().ok();

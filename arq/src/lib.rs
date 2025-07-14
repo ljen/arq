@@ -109,7 +109,6 @@ extern crate sha1;
 extern crate sha2;
 
 pub mod arq7;
-pub mod blob_format_detector;
 pub mod blob_location;
 pub mod compression;
 pub mod computer;

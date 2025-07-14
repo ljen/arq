@@ -27,7 +27,7 @@ pub struct BlobKey {
     // Fields previously unique to the old BlobKey (binary parsed)
     // No direct JSON rename for archive_id as it wasn't in Arq5TreeBlobKey's JSON context
     #[serde(default)] // If missing in JSON, it will default to String::default() (empty string)
-                      // Alternatively, could be Option<String>
+    // Alternatively, could be Option<String>
     pub archive_id: String,
 
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -36,7 +36,8 @@ pub struct BlobKey {
 
 impl BlobKey {
     /// Creates a new BlobKey by reading from an ArqRead stream (binary format).
-    pub fn new<R: ArqRead>(reader: &mut R) -> Result<Option<BlobKey>> { // Changed to &mut R
+    pub fn new<R: ArqRead>(reader: &mut R) -> Result<Option<BlobKey>> {
+        // Changed to &mut R
         // Read fields common to the old BlobKey binary format
         let sha1_val = reader.read_arq_string()?;
 
@@ -51,9 +52,9 @@ impl BlobKey {
             // We must consume these even if we return None.
 
             let _ = reader.read_arq_bool()?; // is_encryption_key_stretched
-            let _ = reader.read_arq_u32()?;  // storage_type
+            let _ = reader.read_arq_u32()?; // storage_type
             let _ = reader.read_arq_string()?; // archive_id
-            let _ = reader.read_arq_u64()?;  // archive_size
+            let _ = reader.read_arq_u64()?; // archive_size
 
             // Consume date presence byte and potentially the date value
             let present_byte = reader.read_bytes(1)?;
@@ -76,16 +77,19 @@ impl BlobKey {
             // DateTime::from_timestamp_millis expects i64. u64 might be too large.
             // However, typical timestamps should fit. Consider error handling or capping if necessary.
             // For now, direct conversion, assuming valid range.
-            if milliseconds_since_epoch == 0 { // Treat 0 milliseconds as None as well
+            if milliseconds_since_epoch == 0 {
+                // Treat 0 milliseconds as None as well
                 parsed_archive_upload_date = None;
             } else {
-                parsed_archive_upload_date = DateTime::from_timestamp_millis(milliseconds_since_epoch as i64);
+                parsed_archive_upload_date =
+                    DateTime::from_timestamp_millis(milliseconds_since_epoch as i64);
                 if parsed_archive_upload_date.is_none() {
                     // This case means the timestamp was out of range for DateTime<Utc>
                     // Log or handle as an error. For now, map to None or return error.
                     // Let's return an error for invalid timestamp values.
                     return Err(crate::error::Error::InvalidFormat(format!(
-                        "Invalid timestamp for archive_upload_date: {}ms", milliseconds_since_epoch
+                        "Invalid timestamp for archive_upload_date: {}ms",
+                        milliseconds_since_epoch
                     )));
                 }
             }
