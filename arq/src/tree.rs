@@ -21,26 +21,25 @@ use std;
 use std::collections::HashMap;
 use std::io::BufReader; // Removed unused BufRead
 
-use chrono::{DateTime, Utc};
-use byteorder::{ReadBytesExt}; // Added ReadBytesExt, Removed BigEndian
+use byteorder::ReadBytesExt;
+use chrono::{DateTime, Utc}; // Added ReadBytesExt, Removed BigEndian
 
 use crate::blob;
 use crate::compression::CompressionType;
 // use crate::date::Date; // Date is no longer used in this file
+use crate::arq7::binary::ArqBinaryReader;
 use crate::error::Result;
-use crate::type_utils::ArqRead; // This provides an older read_arq_string
-use crate::arq7::binary::ArqBinaryReader; // This provides the newer read_arq_string for Arq7
-
+use crate::type_utils::ArqRead; // This provides an older read_arq_string // This provides the newer read_arq_string for Arq7
 
 // The old arq::tree::Node struct and its impl Node::new have been removed.
 // The unified node is now crate::node::Node.
 // The parsing logic from the old Node::new is incorporated into
 // crate::node::Node::from_binary_reader_arq5.
 
+use crate::packset::{PackIndex, PackObject};
 use std::fs::{self, File};
 use std::io::{Seek, SeekFrom};
 use std::path::Path;
-use crate::packset::{PackIndex, PackObject};
 // Removed unused import: crate::arq7::EncryptedKeySet;
 
 // Helper function to get a BufReader for a file, returning std::io::Error on failure.
@@ -55,8 +54,10 @@ pub fn restore_blob_with_sha(
     path: &Path,
     sha: &str,
     keyset: &crate::arq7::EncryptedKeySet, // Changed master_key to keyset and ensure correct path
-) -> Result<Option<Vec<u8>>> { // Changed to use the crate's Result alias correctly
-    for entry_result in fs::read_dir(path)? { // fs::read_dir error converted by From trait
+) -> Result<Option<Vec<u8>>> {
+    // Changed to use the crate's Result alias correctly
+    for entry_result in fs::read_dir(path)? {
+        // fs::read_dir error converted by From trait
         let entry = entry_result?; // Individual DirEntry error converted by From trait
 
         let fname = entry.file_name();
@@ -93,13 +94,15 @@ pub fn restore_blob_with_sha(
                     let mut pack_reader = get_file_reader_for_restore(&pack_path)
                         .map_err(|e| crate::error::Error::IoError(e))?;
 
-                    pack_reader.seek(SeekFrom::Start(obj.offset as u64))
+                    pack_reader
+                        .seek(SeekFrom::Start(obj.offset as u64))
                         .map_err(|e| crate::error::Error::IoError(e))?;
 
                     let pack = PackObject::new(&mut pack_reader)?; // PackObject::new can return arq::error::Error
 
                     // Decrypt returns Result<Vec<u8>, arq::error::Error>, so directly use ? or match
-                    match pack.data.decrypt(&keyset.encryption_key) { // Use keyset.encryption_key
+                    match pack.data.decrypt(&keyset.encryption_key) {
+                        // Use keyset.encryption_key
                         Ok(data) => return Ok(Some(data)),
                         Err(e) => return Err(e), // Return the decryption error
                     }
@@ -335,7 +338,9 @@ impl Tree {
         let mut reader = BufReader::new(std::io::Cursor::new(content));
         let tree_header = reader.read_bytes(8)?; // Reads "TreeV0XX" - ArqRead::read_bytes is unambiguous
         if &tree_header[..5] != b"TreeV" {
-            return Err(crate::error::Error::InvalidFormat("Invalid Arq5 tree header".to_string()));
+            return Err(crate::error::Error::InvalidFormat(
+                "Invalid Arq5 tree header".to_string(),
+            ));
         }
         let version = std::str::from_utf8(&tree_header[5..])?.parse::<u32>()?;
 
@@ -362,10 +367,22 @@ impl Tree {
         let st_blocks = ArqBinaryReader::read_arq_i64(&mut reader)?;
         let st_blksize = ArqBinaryReader::read_arq_u32(&mut reader)?;
 
-        let create_time_sec = if version >= 15 { ArqBinaryReader::read_arq_i64(&mut reader)? } else { mtime_sec }; // Fallback for older trees
-        let create_time_nsec = if version >= 15 { ArqBinaryReader::read_arq_i64(&mut reader)? } else { mtime_nsec };
+        let create_time_sec = if version >= 15 {
+            ArqBinaryReader::read_arq_i64(&mut reader)?
+        } else {
+            mtime_sec
+        }; // Fallback for older trees
+        let create_time_nsec = if version >= 15 {
+            ArqBinaryReader::read_arq_i64(&mut reader)?
+        } else {
+            mtime_nsec
+        };
 
-        let mut missing_node_count = if version >= 18 { ArqBinaryReader::read_arq_u32(&mut reader)? } else { 0 };
+        let mut missing_node_count = if version >= 18 {
+            ArqBinaryReader::read_arq_u32(&mut reader)?
+        } else {
+            0
+        };
         let mut missing_nodes = Vec::new();
         while missing_node_count > 0 {
             if let Some(missing_node_name) = ArqBinaryReader::read_arq_string(&mut reader)? {
@@ -383,13 +400,19 @@ impl Tree {
         while node_count > 0 {
             let node_name = match ArqBinaryReader::read_arq_string(&mut reader)? {
                 Some(name) if !name.is_empty() => name,
-                Some(_) => { // Name is Some("")
+                Some(_) => {
+                    // Name is Some("")
                     // Arq documentation states file name can't be null, but handle defensively
-                    return Err(crate::error::Error::InvalidFormat("Empty node name in Arq5 tree".to_string()));
+                    return Err(crate::error::Error::InvalidFormat(
+                        "Empty node name in Arq5 tree".to_string(),
+                    ));
                 }
-                None => { // Name is None
-                     // Arq documentation states file name can't be null
-                    return Err(crate::error::Error::InvalidFormat("Null node name in Arq5 tree".to_string()));
+                None => {
+                    // Name is None
+                    // Arq documentation states file name can't be null
+                    return Err(crate::error::Error::InvalidFormat(
+                        "Null node name in Arq5 tree".to_string(),
+                    ));
                 }
             };
             // Pass the tree's version to the node parser, as some node fields are version-dependent
@@ -460,7 +483,7 @@ impl Tree {
             let name = match child_name_opt {
                 Some(name) if !name.is_empty() => name,
                 Some(_) => format!("empty_child_name_{}", i), // Handle Some("") case
-                None => format!("unnamed_child_{}", i), // Handle None case
+                None => format!("unnamed_child_{}", i),       // Handle None case
             };
             // Use the unified Node's Arq7 binary parser
             // The `tree_version` here is the version of the BinaryTree structure itself.
@@ -476,28 +499,28 @@ impl Tree {
             version, // This is the Arq7 BinaryTree version, not Arq5 TreeV0XX version
             xattrs_compression_type: CompressionType::None, // Default, not in Arq7 BinaryTree header
             acl_compression_type: CompressionType::None,    // Default
-            xattrs_blob_key: None,                         // Default
-            xattrs_size: 0,                                // Default
-            acl_blob_key: None,                            // Default
-            uid: 0,                                        // Default
-            gid: 0,                                        // Default
-            mode: 0,                                       // Default
-            mtime_sec: 0,                                  // Default
-            mtime_nsec: 0,                                 // Default
-            flags: 0,                                      // Default
-            finder_flags: 0,                               // Default
-            extended_finder_flags: 0,                      // Default
-            st_dev: 0,                                     // Default
-            st_ino: 0,                                     // Default
-            st_nlink: 0,                                   // Default
-            st_rdev: 0,                                    // Default
-            ctime_sec: 0,                                  // Default
-            ctime_nsec: 0,                                 // Default
-            create_time_sec: 0,                            // Default
-            create_time_nsec: 0,                           // Default
-            st_blocks: 0,                                  // Default
-            st_blksize: 0,                                 // Default
-            missing_nodes: Vec::new(),                     // Default (specific to Arq5 tree parsing)
+            xattrs_blob_key: None,                          // Default
+            xattrs_size: 0,                                 // Default
+            acl_blob_key: None,                             // Default
+            uid: 0,                                         // Default
+            gid: 0,                                         // Default
+            mode: 0,                                        // Default
+            mtime_sec: 0,                                   // Default
+            mtime_nsec: 0,                                  // Default
+            flags: 0,                                       // Default
+            finder_flags: 0,                                // Default
+            extended_finder_flags: 0,                       // Default
+            st_dev: 0,                                      // Default
+            st_ino: 0,                                      // Default
+            st_nlink: 0,                                    // Default
+            st_rdev: 0,                                     // Default
+            ctime_sec: 0,                                   // Default
+            ctime_nsec: 0,                                  // Default
+            create_time_sec: 0,                             // Default
+            create_time_nsec: 0,                            // Default
+            st_blocks: 0,                                   // Default
+            st_blksize: 0,                                  // Default
+            missing_nodes: Vec::new(), // Default (specific to Arq5 tree parsing)
             nodes: child_nodes_map,
         })
     }
@@ -603,10 +626,12 @@ impl Commit {
             if milliseconds_since_epoch == 0 {
                 parsed_creation_date = None;
             } else {
-                parsed_creation_date = DateTime::from_timestamp_millis(milliseconds_since_epoch as i64);
+                parsed_creation_date =
+                    DateTime::from_timestamp_millis(milliseconds_since_epoch as i64);
                 if parsed_creation_date.is_none() {
                     return Err(crate::error::Error::InvalidFormat(format!(
-                        "Invalid timestamp for commit creation_date: {}ms", milliseconds_since_epoch
+                        "Invalid timestamp for commit creation_date: {}ms",
+                        milliseconds_since_epoch
                     )));
                 }
             }

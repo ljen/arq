@@ -1,2 +1,9 @@
 target/
 Cargo.lock
+arq/tests/arq_storage_location/37FA0482-9BE1-46DC-9644-334271E810AD/**
+evu/.vscode/launch.json
+**/.DS_Store
+**/.gitignore
+
+truenas/**
+arq/extracted_backups/**
