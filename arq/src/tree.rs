@@ -24,9 +24,9 @@ use std::io::{BufReader, Seek, SeekFrom};
 use byteorder::ReadBytesExt;
 use chrono::{DateTime, Utc};
 
+use crate::arq7::binary::ArqBinaryReader;
 use crate::blob;
 use crate::compression::CompressionType;
-use crate::arq7::binary::ArqBinaryReader;
 use crate::error::Result;
 use crate::type_utils::ArqRead;
 

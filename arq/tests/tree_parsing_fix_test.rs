@@ -1,5 +1,5 @@
-use arq::tree::Tree;
 use arq::compression::CompressionType;
+use arq::tree::Tree;
 use std::fs;
 use std::path::Path;
 
@@ -11,7 +11,7 @@ fn load_treepacks_from_dir(dir: &str) {
         let path = path.unwrap().path();
         if path.is_file() {
             let data = fs::read(&path).unwrap();
-            
+
             // Check the first few bytes to determine format
             // Arq5 trees start with "TreeV"
             if data.len() >= 5 && &data[0..5] == b"TreeV" {

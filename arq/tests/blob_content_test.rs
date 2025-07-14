@@ -38,7 +38,8 @@ fn test_blob_content_extraction() {
     };
 
     // Test first file extraction
-    match first_file_blob.extract_content(backup_set_path, None) { // Changed to extract_content
+    match first_file_blob.extract_content(backup_set_path, None) {
+        // Changed to extract_content
         Ok(content_bytes) => {
             let content = String::from_utf8_lossy(&content_bytes);
             println!("First file content: '{}'", content);
@@ -56,7 +57,8 @@ fn test_blob_content_extraction() {
     }
 
     // Test second file extraction
-    match second_file_blob.extract_content(backup_set_path, None) { // Changed to extract_content
+    match second_file_blob.extract_content(backup_set_path, None) {
+        // Changed to extract_content
         Ok(content_bytes) => {
             let content = String::from_utf8_lossy(&content_bytes);
             println!("Second file content: '{}'", content);
@@ -147,11 +149,14 @@ fn test_json_blob_locations() {
         backup_set.backup_records.len()
     );
 
-    for (folder_uuid, generic_records) in &backup_set.backup_records { // Renamed records to generic_records
+    for (folder_uuid, generic_records) in &backup_set.backup_records {
+        // Renamed records to generic_records
         println!("Folder {}: {} records", folder_uuid, generic_records.len());
 
-        for (i, generic_record) in generic_records.iter().enumerate() { // Renamed record to generic_record
-            if let GenericBackupRecord::Arq7(record) = generic_record { // Match on Arq7 variant
+        for (i, generic_record) in generic_records.iter().enumerate() {
+            // Renamed record to generic_record
+            if let GenericBackupRecord::Arq7(record) = generic_record {
+                // Match on Arq7 variant
                 println!(
                     "  Record {} (Arq7 v{}): is_tree={}, has_tree_blob_loc={}", // Added version
                     i,
@@ -175,14 +180,14 @@ fn test_json_blob_locations() {
                     );
                 }
             } else if let GenericBackupRecord::Arq5(record) = generic_record {
-                 println!(
+                println!(
                     "  Record {} (Arq5 v{}): Arq5TreeBlobKey: {}",
                     i,
                     record.version,
                     record.arq5_tree_blob_key.is_some()
                 );
                 if let Some(key) = &record.arq5_tree_blob_key {
-                     println!(
+                    println!(
                         "    Arq5 Tree Blob Key: sha1={}, size={}, type={}, compression={}",
                         key.sha1, key.archive_size, key.storage_type, key.compression_type
                     );
@@ -205,7 +210,8 @@ fn test_remove_hardcoded_paths() {
     ];
 
     for test_path in test_cases {
-        let blob_loc = arq::blob_location::BlobLoc { // Changed path
+        let blob_loc = arq::blob_location::BlobLoc {
+            // Changed path
             blob_identifier: "test".to_string(),
             compression_type: 0,
             is_packed: true,
