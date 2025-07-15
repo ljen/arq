@@ -5,6 +5,8 @@ use std::path::Path; // Required for Path::new
 fn main() -> Result<(), evu::error::Error> {
     let matches = evu::cli::parse_flags();
 
+    evu::utils::initialize_debug_from_args(&matches);
+
     // Global arguments (relevant for Arq7 or if we make Arq5 path/password global too)
     let global_path_opt = matches.value_of("path");
     let global_password_opt = matches.value_of("password");
