@@ -66,3 +66,25 @@ pub fn get_master_keys(path: &str, computer: &str) -> Result<Vec<Vec<u8>>> {
     let enc_data = object_encryption::EncryptionDat::new(&mut reader, &password)?;
     Ok(enc_data.master_keys)
 }
+
+use std::sync::atomic::{AtomicBool, Ordering};
+
+static IS_DEBUG: AtomicBool = AtomicBool::new(false);
+
+pub fn initialize_debug_from_args(matches: &clap::ArgMatches) {
+    let is_debug = matches.is_present("debug");
+    IS_DEBUG.store(is_debug, Ordering::Relaxed);
+}
+
+pub fn is_debug_enabled() -> bool {
+    IS_DEBUG.load(Ordering::Relaxed)
+}
+
+#[macro_export]
+macro_rules! debug_eprintln {
+    ($($arg:tt)*) => {
+        if $crate::utils::is_debug_enabled() {
+            eprintln!($($arg)*);
+        }
+    };
+}
