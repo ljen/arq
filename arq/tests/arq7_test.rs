@@ -6,7 +6,9 @@ use std::path::Path;
 
 const ARQ7_TEST_DATA_DIR_NOT_ENCRYPTED: &str = "tests/arq_storage_location/2E7BB0B6-BE5B-4A86-9E51-10FE730E1104";
 
+
 const ARQ7_TEST_DATA_DIR_ENCRYPTED: &str = "tests/arq_storage_location/D1154AC6-01EB-41FE-B115-114464350B92";
+
 
 const ARQ7_TEST_ENCRYPTION_PASSWORD: &str = "asdfasdf1234";
 
