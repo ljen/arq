@@ -2,7 +2,7 @@ use super::backup_config::BackupConfig;
 use super::backup_folder::BackupFolder;
 use super::backup_folders::BackupFolders;
 use super::backup_plan::BackupPlan;
-use super::backup_record::{GenericBackupRecord, Arq7BackupRecord};
+use super::backup_record::GenericBackupRecord;
 use super::encrypted_keyset::EncryptedKeySet;
 use super::virtual_fs::{DirectoryEntry, DirectoryEntryNode, FileEntry};
 use crate::error::{Error, Result};
