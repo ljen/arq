@@ -28,12 +28,16 @@
 use byteorder::{NetworkEndian, ReadBytesExt};
 use std;
 use std::io::{BufRead, BufReader, Cursor, Seek, SeekFrom};
-
+use std::path::PathBuf;
+use std::path::Path;
+use std::fs;
+use std::fs::File;
 use crate::compression::CompressionType;
 use crate::error::{Error, Result};
 use crate::object_encryption::{calculate_sha1sum, EncryptedObject};
 use crate::type_utils::ArqRead;
 use crate::utils::convert_to_hex_string;
+use crate::arq7::EncryptedKeySet;
 
 pub struct PackSet {
     path: PathBuf,
@@ -426,10 +430,6 @@ impl PackObject {
     }
 }
 
-fn get_file_reader_for_restore(path: &Path) -> std::io::Result<BufReader<File>> {
-    let file = File::open(path)?;
-    Ok(BufReader::new(file))
-}
 
 pub fn restore_blob_with_sha(
     path: &Path,

@@ -142,9 +142,7 @@ const ENCRYPTED_KEYSET_HEADER: [u8; 25] = [
 impl EncryptedKeySet {
     pub fn from_master_keys(master_keys: Vec<Vec<u8>>) -> Result<Self> {
         if master_keys.len() != 3 {
-            return Err(Error::InvalidFormat(
-                "Expected 3 master keys".to_string(),
-            ));
+            return Err(Error::InvalidFormat("Expected 3 master keys".to_string()));
         }
         Ok(EncryptedKeySet {
             encryption_key: master_keys[0].clone(),
@@ -769,7 +767,6 @@ impl BlobLoc {
             compression_type,
         })
     }
-
 }
 
 /// Conversion from arq7::BlobLoc to blob_location::BlobLoc
