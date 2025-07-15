@@ -195,6 +195,127 @@ pub fn list_backup_records(backup_set_path: &Path, password: Option<&str>) -> Re
     Ok(())
 }
 
+pub fn list_files(
+    backup_set_path: &Path,
+    password: Option<&str>,
+    record_identifier: Option<&str>,
+    folder_path_in_backup: Option<&str>,
+) -> Result<()> {
+    let backup_set = load_backup_set(backup_set_path, password)?;
+    let keyset = backup_set.encryption_keyset();
+
+    let records_to_process: Vec<&arq::arq7::Arq7BackupRecord> =
+        if let Some(identifier) = record_identifier {
+            find_record_by_identifier(&backup_set, identifier)
+                .map(|r| vec![r])
+                .ok_or_else(|| {
+                    Error::NotFound(format!(
+                        "Record with identifier '{}' not found.",
+                        identifier
+                    ))
+                })?
+        } else {
+            backup_set
+                .backup_records
+                .values()
+                .flatten()
+                .filter_map(|gen_rec| match gen_rec {
+                    arq::arq7::GenericBackupRecord::Arq7(r) => Some(r),
+                    _ => None,
+                })
+                .collect()
+        };
+
+    if records_to_process.is_empty() {
+        println!("No matching Arq7 records found.");
+        return Ok(());
+    }
+
+    for arq7_record in records_to_process {
+        let timestamp_str = arq7_record.creation_date.map_or_else(
+            || "Unknown Timestamp".to_string(),
+            |ts_f64| {
+                chrono::DateTime::from_timestamp(
+                    ts_f64 as i64,
+                    (ts_f64.fract() * 1_000_000_000.0) as u32,
+                )
+                .map_or_else(
+                    || ts_f64.to_string(),
+                    |dt| dt.format("%Y-%m-%d %H:%M:%S UTC").to_string(),
+                )
+            },
+        );
+        println!("\nRecord: {}", timestamp_str);
+
+        let path_parts: Vec<&str> = folder_path_in_backup
+            .unwrap_or("")
+            .split('/')
+            .filter(|s| !s.is_empty())
+            .collect();
+
+        let start_node = find_node_in_record_tree(
+            &arq7_record.node,
+            &path_parts,
+            0,
+            backup_set_path,
+            keyset,
+        )?
+        .ok_or_else(|| {
+            Error::NotFound(format!(
+                "Folder '{}' not found in record '{}'.",
+                folder_path_in_backup.unwrap_or("/"),
+                timestamp_str
+            ))
+        })?;
+
+        if !start_node.is_tree {
+            return Err(Error::Generic(format!(
+                "Path '{}' points to a file, not a directory.",
+                folder_path_in_backup.unwrap_or("/")
+            )));
+        }
+
+        list_node_contents_recursive(&start_node, backup_set_path, keyset, 0)?;
+    }
+
+    Ok(())
+}
+
+fn list_node_contents_recursive(
+    node: &Node,
+    backup_set_path: &Path,
+    keyset: Option<&EncryptedKeySet>,
+    depth: usize,
+) -> Result<()> {
+    if !node.is_tree {
+        return Ok(());
+    }
+
+    match node.load_tree_with_encryption(backup_set_path, keyset) {
+        Ok(Some(tree)) => {
+            for (child_name, child_node) in &tree.nodes {
+                let indent = "  ".repeat(depth);
+                let entry_type = if child_node.is_tree { "D" } else { "F" };
+                println!(
+                    "{} - {} {} ({} bytes)",
+                    indent, entry_type, child_name, child_node.item_size
+                );
+                if child_node.is_tree {
+                    list_node_contents_recursive(child_node, backup_set_path, keyset, depth + 1)?;
+                }
+            }
+        }
+        Ok(None) => {
+            eprintln!("Warning: Node is a tree but has no loadable tree data.");
+        }
+        Err(e) => {
+            eprintln!("Error loading tree: {}", e);
+        }
+    }
+
+    Ok(())
+}
+
 pub fn list_file_versions(
     backup_set_path: &Path,
     file_path_in_backup: &str,
