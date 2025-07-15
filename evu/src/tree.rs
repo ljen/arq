@@ -5,9 +5,10 @@ use crate::error::Result;
 use crate::utils;
 
 use arq::arq7::EncryptedKeySet;
+use arq::commit::Commit;
+use arq::commit::{Commit};
 use arq::packset;
 use arq::tree;
-use arq::commit::Commit;
 
 fn show_commit(commit: &Commit) {
     println!(

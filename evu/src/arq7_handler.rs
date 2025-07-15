@@ -1,3 +1,4 @@
+use crate::debug_eprintln;
 use crate::error::{Error, Result};
 use arq::arq7::{BackupSet, EncryptedKeySet};
 use arq::node::Node; // Updated to use arq::node::Node
@@ -63,7 +64,7 @@ fn find_node_in_record_tree(
     match node.load_tree_with_encryption(backup_set_path, keyset) {
         Ok(Some(tree)) => {
             let target_child_name = path_parts[current_depth];
-            eprintln!(
+            debug_eprintln!(
                 "DEBUG: find_node_in_record_tree: Depth: {}, Target: '{}', Children: {:?}",
                 current_depth,
                 target_child_name,
@@ -103,9 +104,9 @@ pub fn list_backup_records(backup_set_path: &Path, password: Option<&str>) -> Re
     println!("Arq 7 Backup Records:");
     println!("---------------------");
 
-    eprintln!("DEBUG: All loaded backup_folder_configs:");
+    debug_eprintln!("DEBUG: All loaded backup_folder_configs:");
     for (uuid, config) in &backup_set.backup_folder_configs {
-        eprintln!(
+        debug_eprintln!(
             "  UUID: {}, Name: {}, LocalPath: {}",
             uuid, config.name, config.local_path
         );
@@ -121,7 +122,7 @@ pub fn list_backup_records(backup_set_path: &Path, password: Option<&str>) -> Re
         let folder_name = folder_config.map_or("Unknown Folder", |fc| &fc.name);
         let folder_local_path = folder_config.map_or("N/A", |fc| &fc.local_path);
 
-        eprintln!(
+        debug_eprintln!(
             "DEBUG: list_backup_records: Processing folder_uuid: {}, Retrieved local_path: {}",
             folder_uuid, folder_local_path
         );
@@ -199,6 +200,127 @@ pub fn list_backup_records(backup_set_path: &Path, password: Option<&str>) -> Re
             }
         }
     }
+    Ok(())
+}
+
+pub fn list_files(
+    backup_set_path: &Path,
+    password: Option<&str>,
+    record_identifier: Option<&str>,
+    folder_path_in_backup: Option<&str>,
+) -> Result<()> {
+    let backup_set = load_backup_set(backup_set_path, password)?;
+    let keyset = backup_set.encryption_keyset();
+
+    let records_to_process: Vec<&arq::arq7::Arq7BackupRecord> =
+        if let Some(identifier) = record_identifier {
+            find_record_by_identifier(&backup_set, identifier)
+                .map(|r| vec![r])
+                .ok_or_else(|| {
+                    Error::NotFound(format!(
+                        "Record with identifier '{}' not found.",
+                        identifier
+                    ))
+                })?
+        } else {
+            backup_set
+                .backup_records
+                .values()
+                .flatten()
+                .filter_map(|gen_rec| match gen_rec {
+                    arq::arq7::GenericBackupRecord::Arq7(r) => Some(r),
+                    _ => None,
+                })
+                .collect()
+        };
+
+    if records_to_process.is_empty() {
+        println!("No matching Arq7 records found.");
+        return Ok(());
+    }
+
+    for arq7_record in records_to_process {
+        let timestamp_str = arq7_record.creation_date.map_or_else(
+            || "Unknown Timestamp".to_string(),
+            |ts_f64| {
+                chrono::DateTime::from_timestamp(
+                    ts_f64 as i64,
+                    (ts_f64.fract() * 1_000_000_000.0) as u32,
+                )
+                .map_or_else(
+                    || ts_f64.to_string(),
+                    |dt| dt.format("%Y-%m-%d %H:%M:%S UTC").to_string(),
+                )
+            },
+        );
+        println!("\nRecord: {}", timestamp_str);
+
+        let path_parts: Vec<&str> = folder_path_in_backup
+            .unwrap_or("")
+            .split('/')
+            .filter(|s| !s.is_empty())
+            .collect();
+
+        let start_node = find_node_in_record_tree(
+            &arq7_record.node,
+            &path_parts,
+            0,
+            backup_set_path,
+            keyset,
+        )?
+        .ok_or_else(|| {
+            Error::NotFound(format!(
+                "Folder '{}' not found in record '{}'.",
+                folder_path_in_backup.unwrap_or("/"),
+                timestamp_str
+            ))
+        })?;
+
+        if !start_node.is_tree {
+            return Err(Error::Generic(format!(
+                "Path '{}' points to a file, not a directory.",
+                folder_path_in_backup.unwrap_or("/")
+            )));
+        }
+
+        list_node_contents_recursive(&start_node, backup_set_path, keyset, 0)?;
+    }
+
+    Ok(())
+}
+
+fn list_node_contents_recursive(
+    node: &Node,
+    backup_set_path: &Path,
+    keyset: Option<&EncryptedKeySet>,
+    depth: usize,
+) -> Result<()> {
+    if !node.is_tree {
+        return Ok(());
+    }
+
+    match node.load_tree_with_encryption(backup_set_path, keyset) {
+        Ok(Some(tree)) => {
+            for (child_name, child_node) in &tree.nodes {
+                let indent = "  ".repeat(depth);
+                let entry_type = if child_node.is_tree { "D" } else { "F" };
+                println!(
+                    "{} - {} {} ({} bytes)",
+                    indent, entry_type, child_name, child_node.item_size
+                );
+                if child_node.is_tree {
+                    list_node_contents_recursive(child_node, backup_set_path, keyset, depth + 1)?;
+                }
+            }
+        }
+        Ok(None) => {
+                debug_eprintln!("Warning: Node is a tree but has no loadable tree data.");
+        }
+        Err(e) => {
+                debug_eprintln!("Error loading tree: {}", e);
+        }
+    }
+
     Ok(())
 }
 
@@ -280,7 +402,7 @@ pub fn list_file_versions(
                         keyset,
                     ) {
                         Ok(Some(node)) if !node.is_tree => {
-                            eprintln!(
+                            debug_eprintln!(
                                 "DEBUG list_file_versions: Found file node: {:?}, size: {}",
                                 node.data_blob_locs.first().map(|b| &b.blob_identifier),
                                 node.item_size
@@ -311,7 +433,7 @@ pub fn list_file_versions(
                         Ok(Some(_node)) => {} // Found a directory when expecting a file
                         Ok(None) => {}        // Path not found in this record
                         Err(e) => {
-                            eprintln!(
+                            debug_eprintln!(
                                 "Warning: Error processing Arq7 record {:?}: {}",
                                 record.creation_date, e
                             );
@@ -334,7 +456,7 @@ pub fn list_file_versions(
                             .to_string()
                         },
                     );
-                    eprintln!(
+                     debug_eprintln!(
                         "DEBUG list_file_versions: Skipping Arq5 record (Timestamp: {}) for detailed version listing.",
                         timestamp_str
                     );
@@ -372,7 +494,7 @@ pub fn list_folder_versions(
                     let record_local_path_str = record.local_path.as_deref().unwrap_or("");
                     let mut effective_path_parts = path_parts.clone();
 
-                    eprintln!(
+                    debug_eprintln!(
                         "DEBUG list_folder_versions: Folder: '{}', Record LocalPath: '{}'",
                         folder_path_in_backup, record_local_path_str
                     );
@@ -458,7 +580,7 @@ pub fn list_folder_versions(
                         Ok(Some(_node)) => {}
                         Ok(None) => {}
                         Err(e) => {
-                            eprintln!(
+                            debug_eprintln!(
                                 "Warning: Error processing Arq7 record {:?}: {}",
                                 record.creation_date, e
                             );
@@ -478,7 +600,7 @@ pub fn list_folder_versions(
                             .to_string()
                         },
                     );
-                    eprintln!(
+                    debug_eprintln!(
                         "DEBUG list_folder_versions: Skipping Arq5 record (Timestamp: {}) for detailed version listing.",
                         timestamp_str
                     );
@@ -541,7 +663,7 @@ pub fn restore_full_record(
                 stats.files_restored, stats.dirs_created, stats.bytes_restored, stats.errors
             );
             if stats.errors > 0 {
-                eprintln!(
+                debug_eprintln!(
                     "Warning: {} errors occurred during restoration.",
                     stats.errors
                 );
@@ -802,7 +924,7 @@ pub fn restore_specific_folder_from_record(
         stats.files_restored, stats.dirs_created, stats.bytes_restored, stats.errors
     );
     if stats.errors > 0 {
-        eprintln!(
+        debug_eprintln!(
             "Warning: {} errors occurred during restoration.",
             stats.errors
         );
@@ -972,7 +1094,7 @@ pub fn restore_all_folder_versions(
                                         stats.errors
                                     );
                                     if stats.errors > 0 {
-                                        eprintln!(
+                                        debug_eprintln!(
                                             "    Warning: {} errors occurred during this version's restoration.",
                                             stats.errors
                                         );
@@ -980,7 +1102,7 @@ pub fn restore_all_folder_versions(
                                     versions_restored_count += 1;
                                 }
                                 Err(e) => {
-                                    eprintln!(
+                                    debug_eprintln!(
                                         "    Error restoring version from record {}: {}",
                                         timestamp_str, e
                                     );
@@ -993,7 +1115,7 @@ pub fn restore_all_folder_versions(
                     // Arq5 records don't have a direct `node` of type `arq::arq7::Node`
                     // and this function is geared towards Arq7's structure for restoring.
                     // So, we'll skip Arq5 records for this specific function.
-                    eprintln!(
+                    debug_eprintln!(
                         "DEBUG restore_all_folder_versions: Skipping Arq5 record for folder version restoration."
                     );
                 }
@@ -1057,19 +1179,19 @@ fn extract_node_to_destination_recursive(
                         child_name,
                         stats,
                     ) {
-                        eprintln!("Error processing child '{}': {}", child_name, e);
+                        debug_eprintln!("Error processing child '{}': {}", child_name, e);
                         stats.errors += 1;
                     }
                 }
             }
             Ok(None) => {
-                eprintln!(
+                debug_eprintln!(
                     "Warning: Node {} is a tree but has no loadable tree data.",
                     node_output_path.display()
                 );
             }
             Err(e) => {
-                eprintln!(
+                debug_eprintln!(
                     "Error loading tree for {}: {}",
                     node_output_path.display(),
                     e
@@ -1103,7 +1225,7 @@ fn extract_node_to_destination_recursive(
                 }
             }
             Err(e) => {
-                eprintln!(
+                debug_eprintln!(
                     "Error reconstructing file data for {}: {}",
                     node_output_path.display(),
                     e
