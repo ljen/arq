@@ -7,8 +7,9 @@ use crate::utils;
 use arq::arq7::EncryptedKeySet;
 use arq::packset;
 use arq::tree;
+use arq::commit::{self, Commit};
 
-fn show_commit(commit: &tree::Commit) {
+fn show_commit(commit: &Commit) {
     println!(
         "   - author: {}, comment: {}, version: {}, location: {}",
         &commit.author, &commit.comment, &commit.version, &commit.folder_path
@@ -61,7 +62,7 @@ fn render_tree(
     keyset: &EncryptedKeySet,
 ) -> Result<()> {
     let data = packset::restore_blob_with_sha(path, sha, keyset)?;
-    let commit = tree::Commit::new(Cursor::new(data))?;
+    let commit = Commit::new(Cursor::new(data))?;
     //show_commit(&commit);
 
     let tree_blob = packset::restore_blob_with_sha(path, &commit.tree_sha1, keyset)?;
