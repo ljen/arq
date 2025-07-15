@@ -3,7 +3,7 @@ use super::encrypted_keyset::EncryptedKeySet;
 use crate::error::{Error, Result};
 use crate::object_encryption::EncryptedObject;
 use byteorder::{BigEndian, ReadBytesExt};
-use serde::{Deserialize, Deserializer, Serialize, Serializer};
+use serde::{Deserialize, Deserializer, Serializer};
 use std::fs::File;
 use std::io::BufRead;
 use std::path::Path;
@@ -101,7 +101,6 @@ pub struct Arq7BackupRecord {
 // to handle cases where it might be an integer in JSON but needs to be Option<f64>
 mod f64_parser_allow_int {
     use super::*;
-    use serde::de::Error;
 
     pub fn deserialize<'de, D>(deserializer: D) -> std::result::Result<Option<f64>, D::Error>
     where

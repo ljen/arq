@@ -1,13 +1,10 @@
-use super::backup_folders::{is_file_encrypted, decrypt_json_file};
 use super::encrypted_keyset::EncryptedKeySet;
+use super::utils::load_json_with_encryption;
 use crate::error::Result;
-use serde::{Deserialize, Serialize};
-use std::fs::File;
-use std::io::BufReader;
-use std::path::Path;
+use serde::Deserialize;
 
 /// BackupFolder represents a backupfolder.json file within the backupfolders/<UUID>/ directory
-#[derive(Debug, Clone, Deserialize, Serialize)]
+#[derive(Debug, Clone, Deserialize)]
 pub struct BackupFolder {
     #[serde(rename = "localPath")]
     pub local_path: String,
@@ -39,33 +36,10 @@ impl BackupFolder {
     }
 
     /// Load BackupFolder from file, optionally decrypting if needed
-    pub fn from_file_with_encryption<P: AsRef<Path>>(
+    pub fn from_file_with_encryption<P: AsRef<std::path::Path>>(
         path: P,
         keyset: Option<&EncryptedKeySet>,
     ) -> Result<BackupFolder> {
         load_json_with_encryption(path, keyset)
     }
-}
-
-/// Helper function to load JSON from either encrypted or unencrypted file
-fn load_json_with_encryption<T, P>(path: P, keyset: Option<&EncryptedKeySet>) -> Result<T>
-where
-    T: for<'de> serde::Deserialize<'de>,
-    P: AsRef<Path>,
-{
-    let path_ref = path.as_ref();
-
-    if let Some(keyset) = keyset {
-        // Check if file is encrypted
-        if is_file_encrypted(path_ref)? {
-            // Decrypt and parse
-            let json_content = decrypt_json_file(path_ref, keyset)?;
-            return Ok(serde_json::from_str(&json_content)?);
-        }
-    }
-
-    // Load as regular unencrypted file
-    let file = File::open(path_ref)?;
-    let reader = BufReader::new(file);
-    return Ok(serde_json::from_reader(reader)?);
 }
