@@ -13,7 +13,8 @@ fn load_backup_set(backup_set_path: &Path, password: Option<&str>) -> Result<Bac
 fn find_record_by_identifier<'a>(
     backup_set: &'a BackupSet,
     identifier: &str,
-) -> Option<&'a arq::arq7::Arq7BackupRecord> { // Changed return type
+) -> Option<&'a arq::arq7::Arq7BackupRecord> {
+    // Changed return type
     for records_vec in backup_set.backup_records.values() {
         for gen_record in records_vec {
             match gen_record {
@@ -36,8 +37,7 @@ fn find_record_by_identifier<'a>(
                             // This function is now specific to finding Arq7 records.
                         }
                     }
-                }
-                // Removed duplicate Arq5 match arm here
+                } // Removed duplicate Arq5 match arm here
             }
         }
     }
@@ -69,7 +69,8 @@ fn find_node_in_record_tree(
                 target_child_name,
                 tree.nodes.keys() // Changed from child_nodes to nodes
             );
-            if let Some(child_node) = tree.nodes.get(target_child_name) { // Changed from child_nodes to nodes
+            if let Some(child_node) = tree.nodes.get(target_child_name) {
+                // Changed from child_nodes to nodes
                 return find_node_in_record_tree(
                     child_node,
                     path_parts,
@@ -140,11 +141,14 @@ pub fn list_backup_records(backup_set_path: &Path, password: Option<&str>) -> Re
                             // Arq 7 uses f64 for timestamp (seconds with fractional part)
                             // For display, we can truncate or round to seconds.
                             // Assuming ts_f64 is seconds since epoch.
-                            chrono::DateTime::from_timestamp(ts_f64 as i64, (ts_f64.fract() * 1_000_000_000.0) as u32)
-                                .map_or_else(
-                                    || ts_f64.to_string(),
-                                    |dt| dt.format("%Y-%m-%d %H:%M:%S UTC").to_string(),
-                                )
+                            chrono::DateTime::from_timestamp(
+                                ts_f64 as i64,
+                                (ts_f64.fract() * 1_000_000_000.0) as u32,
+                            )
+                            .map_or_else(
+                                || ts_f64.to_string(),
+                                |dt| dt.format("%Y-%m-%d %H:%M:%S UTC").to_string(),
+                            )
                         },
                     );
                     println!(
@@ -168,11 +172,14 @@ pub fn list_backup_records(backup_set_path: &Path, password: Option<&str>) -> Re
                     let timestamp_str = record.creation_date.map_or_else(
                         || "Unknown Timestamp".to_string(),
                         |ts_f64| {
-                             chrono::DateTime::from_timestamp(ts_f64 as i64, (ts_f64.fract() * 1_000_000_000.0) as u32)
-                                .map_or_else(
-                                    || ts_f64.to_string(),
-                                    |dt| dt.format("%Y-%m-%d %H:%M:%S UTC").to_string(),
-                                )
+                            chrono::DateTime::from_timestamp(
+                                ts_f64 as i64,
+                                (ts_f64.fract() * 1_000_000_000.0) as u32,
+                            )
+                            .map_or_else(
+                                || ts_f64.to_string(),
+                                |dt| dt.format("%Y-%m-%d %H:%M:%S UTC").to_string(),
+                            )
                         },
                     );
                     println!(
@@ -234,7 +241,8 @@ pub fn list_file_versions(
                             .split('/')
                             .filter(|s| !s.is_empty())
                             .collect();
-                        if effective_path_parts.is_empty() && !relative_file_path_trimmed.is_empty() {
+                        if effective_path_parts.is_empty() && !relative_file_path_trimmed.is_empty()
+                        {
                             effective_path_parts = vec![relative_file_path_trimmed];
                         }
                     } else if record_local_path_str.is_empty()
@@ -245,12 +253,14 @@ pub fn list_file_versions(
                                 let relative_file_path = file_path_in_backup
                                     .strip_prefix(&bf_config.local_path)
                                     .unwrap_or(file_path_in_backup);
-                                let relative_file_path_trimmed = relative_file_path.trim_start_matches('/');
+                                let relative_file_path_trimmed =
+                                    relative_file_path.trim_start_matches('/');
                                 effective_path_parts = relative_file_path_trimmed
                                     .split('/')
                                     .filter(|s| !s.is_empty())
                                     .collect();
-                                if effective_path_parts.is_empty() && !relative_file_path_trimmed.is_empty()
+                                if effective_path_parts.is_empty()
+                                    && !relative_file_path_trimmed.is_empty()
                                 {
                                     effective_path_parts = vec![relative_file_path_trimmed];
                                 }
@@ -278,10 +288,13 @@ pub fn list_file_versions(
                             let timestamp_str = record.creation_date.map_or_else(
                                 || "Unknown Timestamp".to_string(),
                                 |ts_f64| {
-                                    chrono::DateTime::from_timestamp(ts_f64 as i64, (ts_f64.fract() * 1_000_000_000.0) as u32)
-                                        .unwrap()
-                                        .format("%Y-%m-%d %H:%M:%S UTC")
-                                        .to_string()
+                                    chrono::DateTime::from_timestamp(
+                                        ts_f64 as i64,
+                                        (ts_f64.fract() * 1_000_000_000.0) as u32,
+                                    )
+                                    .unwrap()
+                                    .format("%Y-%m-%d %H:%M:%S UTC")
+                                    .to_string()
                                 },
                             );
                             println!(
@@ -296,7 +309,7 @@ pub fn list_file_versions(
                             found_versions += 1;
                         }
                         Ok(Some(_node)) => {} // Found a directory when expecting a file
-                        Ok(None) => {} // Path not found in this record
+                        Ok(None) => {}        // Path not found in this record
                         Err(e) => {
                             eprintln!(
                                 "Warning: Error processing Arq7 record {:?}: {}",
@@ -312,13 +325,16 @@ pub fn list_file_versions(
                     let timestamp_str = record.creation_date.map_or_else(
                         || "Unknown Timestamp".to_string(),
                         |ts_f64| {
-                            chrono::DateTime::from_timestamp(ts_f64 as i64, (ts_f64.fract() * 1_000_000_000.0) as u32)
-                                .unwrap()
-                                .format("%Y-%m-%d %H:%M:%S UTC")
-                                .to_string()
+                            chrono::DateTime::from_timestamp(
+                                ts_f64 as i64,
+                                (ts_f64.fract() * 1_000_000_000.0) as u32,
+                            )
+                            .unwrap()
+                            .format("%Y-%m-%d %H:%M:%S UTC")
+                            .to_string()
                         },
                     );
-                     eprintln!(
+                    eprintln!(
                         "DEBUG list_file_versions: Skipping Arq5 record (Timestamp: {}) for detailed version listing.",
                         timestamp_str
                     );
@@ -370,7 +386,8 @@ pub fn list_folder_versions(
                         let relative_folder_path = folder_path_in_backup
                             .strip_prefix(record_local_path_str)
                             .unwrap_or(folder_path_in_backup);
-                        let relative_folder_path_trimmed = relative_folder_path.trim_start_matches('/');
+                        let relative_folder_path_trimmed =
+                            relative_folder_path.trim_start_matches('/');
                         effective_path_parts = relative_folder_path_trimmed
                             .split('/')
                             .filter(|s| !s.is_empty())
@@ -399,7 +416,7 @@ pub fn list_folder_versions(
                                     && !relative_folder_path.is_empty()
                                     && folder_path_in_backup != "/"
                                 {
-                                     effective_path_parts = Vec::new();
+                                    effective_path_parts = Vec::new();
                                 }
                             }
                         }
@@ -416,11 +433,15 @@ pub fn list_folder_versions(
                         Ok(Some(node)) if node.is_tree => {
                             let timestamp_str = record.creation_date.map_or_else(
                                 || "Unknown Timestamp".to_string(),
-                                |ts_f64| { // Use ts_f64 for Arq7 f64 timestamp
-                                    chrono::DateTime::from_timestamp(ts_f64 as i64, (ts_f64.fract() * 1_000_000_000.0) as u32)
-                                        .unwrap()
-                                        .format("%Y-%m-%d %H:%M:%S UTC")
-                                        .to_string()
+                                |ts_f64| {
+                                    // Use ts_f64 for Arq7 f64 timestamp
+                                    chrono::DateTime::from_timestamp(
+                                        ts_f64 as i64,
+                                        (ts_f64.fract() * 1_000_000_000.0) as u32,
+                                    )
+                                    .unwrap()
+                                    .format("%Y-%m-%d %H:%M:%S UTC")
+                                    .to_string()
                                 },
                             );
                             println!(
@@ -448,10 +469,13 @@ pub fn list_folder_versions(
                     let timestamp_str = record.creation_date.map_or_else(
                         || "Unknown Timestamp".to_string(),
                         |ts_f64| {
-                            chrono::DateTime::from_timestamp(ts_f64 as i64, (ts_f64.fract() * 1_000_000_000.0) as u32)
-                                .unwrap()
-                                .format("%Y-%m-%d %H:%M:%S UTC")
-                                .to_string()
+                            chrono::DateTime::from_timestamp(
+                                ts_f64 as i64,
+                                (ts_f64.fract() * 1_000_000_000.0) as u32,
+                            )
+                            .unwrap()
+                            .format("%Y-%m-%d %H:%M:%S UTC")
+                            .to_string()
                         },
                     );
                     eprintln!(
@@ -488,7 +512,8 @@ pub fn restore_full_record(
     }
 
     match find_record_by_identifier(&backup_set, record_identifier) {
-        Some(arq7_record) => { // Changed variable name to reflect it's an Arq7BackupRecord
+        Some(arq7_record) => {
+            // Changed variable name to reflect it's an Arq7BackupRecord
             let timestamp_str = arq7_record
                 .creation_date
                 .map_or_else(|| record_identifier.to_string(), |ts| ts.to_string());
@@ -540,12 +565,14 @@ pub fn restore_specific_file_from_record(
     let backup_set = load_backup_set(backup_set_path, password)?;
     let keyset = backup_set.encryption_keyset();
 
-    let arq7_record = find_record_by_identifier(&backup_set, record_identifier).ok_or_else(|| { // Renamed record to arq7_record
-        Error::NotFound(format!(
-            "Record with identifier '{}' not found.",
-            record_identifier
-        ))
-    })?;
+    let arq7_record =
+        find_record_by_identifier(&backup_set, record_identifier).ok_or_else(|| {
+            // Renamed record to arq7_record
+            Error::NotFound(format!(
+                "Record with identifier '{}' not found.",
+                record_identifier
+            ))
+        })?;
 
     let path_parts: Vec<&str> = file_path_in_backup
         .split('/')
@@ -572,7 +599,8 @@ pub fn restore_specific_file_from_record(
     } else if record_local_path_str.is_empty() {
         if let Some(bf_config) = backup_set
             .backup_folder_configs
-            .get(&arq7_record.backup_folder_uuid) // Used arq7_record
+            .get(&arq7_record.backup_folder_uuid)
+        // Used arq7_record
         {
             if file_path_in_backup.starts_with(&bf_config.local_path) {
                 let relative_file_path = file_path_in_backup
@@ -655,12 +683,14 @@ pub fn restore_specific_folder_from_record(
     let backup_set = load_backup_set(backup_set_path, password)?;
     let keyset = backup_set.encryption_keyset();
 
-    let arq7_record = find_record_by_identifier(&backup_set, record_identifier).ok_or_else(|| { // Renamed record to arq7_record
-        Error::NotFound(format!(
-            "Record with identifier '{}' not found.",
-            record_identifier
-        ))
-    })?;
+    let arq7_record =
+        find_record_by_identifier(&backup_set, record_identifier).ok_or_else(|| {
+            // Renamed record to arq7_record
+            Error::NotFound(format!(
+                "Record with identifier '{}' not found.",
+                record_identifier
+            ))
+        })?;
 
     let path_parts: Vec<&str> = folder_path_in_backup
         .split('/')
@@ -691,7 +721,8 @@ pub fn restore_specific_folder_from_record(
     } else if record_local_path_str.is_empty() {
         if let Some(bf_config) = backup_set
             .backup_folder_configs
-            .get(&arq7_record.backup_folder_uuid) // Used arq7_record
+            .get(&arq7_record.backup_folder_uuid)
+        // Used arq7_record
         {
             if folder_path_in_backup.starts_with(&bf_config.local_path) {
                 let relative_path = folder_path_in_backup
@@ -810,10 +841,35 @@ pub fn restore_all_folder_versions(
         .collect();
     let mut versions_restored_count = 0;
 
-    for (folder_uuid, gen_records_vec) in &backup_set.backup_records { // Renamed records to gen_records_vec
-        for gen_record in gen_records_vec { // Renamed record to gen_record
-            match gen_record { // Added match statement to handle GenericBackupRecord
-                arq::arq7::GenericBackupRecord::Arq7(arq7_record) => { // Handle Arq7 variant
+    for (folder_uuid, gen_records_vec) in &backup_set.backup_records {
+        // Renamed records to gen_records_vec
+        for gen_record in gen_records_vec {
+            // Renamed record to gen_record
+            match gen_record {
+                // Added match statement to handle GenericBackupRecord
+                arq::arq7::GenericBackupRecord::Arq7(arq7_record) => {
+                    // Handle Arq7 variant
+
+                    let timestamp_str = arq7_record.creation_date.map_or_else(
+                        // Used arq7_record
+                        || format!("unknown_ts_{}", versions_restored_count),
+                        |ts_f64| {
+                            // Arq7 uses f64
+                            DateTime::from_timestamp(
+                                ts_f64 as i64,
+                                (ts_f64.fract() * 1_000_000_000.0) as u32,
+                            )
+                            .map_or_else(
+                                || ts_f64.to_string(), // Fallback to raw string if conversion fails
+                                |dt| dt.to_rfc3339(),
+                            )
+                        },
+                    );
+
+                    eprintln!(
+                        "DEBUG: restore_all_folder_versions: Arq7 record timestamp: {}",
+                        timestamp_str
+                    );
                     let record_local_path_str = arq7_record.local_path.as_deref().unwrap_or("");
                     let mut effective_path_parts = path_parts.clone();
 
@@ -865,14 +921,19 @@ pub fn restore_all_folder_versions(
                         keyset,
                     ) {
                         if target_node.is_tree {
-                            let timestamp_str = arq7_record.creation_date.map_or_else( // Used arq7_record
+                            let timestamp_str = arq7_record.creation_date.map_or_else(
+                                // Used arq7_record
                                 || format!("unknown_ts_{}", versions_restored_count),
-                                |ts_f64| { // Arq7 uses f64
-                                    DateTime::from_timestamp(ts_f64 as i64, (ts_f64.fract() * 1_000_000_000.0) as u32)
-                                        .map_or_else(
-                                            || ts_f64.to_string(), // Fallback to raw string if conversion fails
-                                            |dt| dt.to_rfc3339(),
-                                        )
+                                |ts_f64| {
+                                    // Arq7 uses f64
+                                    DateTime::from_timestamp(
+                                        ts_f64 as i64,
+                                        (ts_f64.fract() * 1_000_000_000.0) as u32,
+                                    )
+                                    .map_or_else(
+                                        || ts_f64.to_string(), // Fallback to raw string if conversion fails
+                                        |dt| dt.to_rfc3339(),
+                                    )
                                 },
                             );
 
@@ -881,7 +942,8 @@ pub fn restore_all_folder_versions(
 
                             let content_dest_dir_name =
                                 effective_path_parts.last().map_or("root_content", |n| *n);
-                            let final_content_destination = version_destination.join(content_dest_dir_name);
+                            let final_content_destination =
+                                version_destination.join(content_dest_dir_name);
 
                             if !final_content_destination.exists() {
                                 std::fs::create_dir_all(&final_content_destination)?;
@@ -985,7 +1047,8 @@ fn extract_node_to_destination_recursive(
 
         match node.load_tree_with_encryption(backup_set_path, keyset) {
             Ok(Some(tree)) => {
-                for (child_name, child_node) in &tree.nodes { // Changed from child_nodes to nodes
+                for (child_name, child_node) in &tree.nodes {
+                    // Changed from child_nodes to nodes
                     if let Err(e) = extract_node_to_destination_recursive(
                         child_node,
                         backup_set_path,
