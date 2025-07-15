@@ -92,6 +92,7 @@ pub mod binary;
 pub mod blob_loc;
 pub mod encrypted_keyset;
 pub mod node;
+pub mod utils;
 pub mod virtual_fs;
 
 pub use backup_config::BackupConfig;

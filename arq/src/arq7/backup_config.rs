@@ -1,12 +1,12 @@
 use crate::error::Result;
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
 
 /// BackupConfig represents the backupconfig.json file
 ///
 /// This file tells Arq how objects are to be added to the backup set – whether the data are
 /// encrypted, what kind of hashing mechanism to use, what maximum size to use for packing
 /// small files together, etc.
-#[derive(Debug, Clone, Deserialize, Serialize)]
+#[derive(Debug, Clone, Deserialize)]
 pub struct BackupConfig {
     /// 1=SHA1, 2=SHA256
     #[serde(rename = "blobIdentifierType")]
