@@ -1,7 +1,6 @@
 use super::encrypted_keyset::EncryptedKeySet;
 use super::utils::load_json_with_encryption;
 use crate::error::Result;
-use serde::Deserialize;
 
 /// BackupFolders represents the backupfolders.json file
 ///

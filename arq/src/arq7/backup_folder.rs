@@ -1,10 +1,9 @@
 use super::encrypted_keyset::EncryptedKeySet;
 use super::utils::load_json_with_encryption;
 use crate::error::Result;
-use serde::Deserialize;
 
 /// BackupFolder represents a backupfolder.json file within the backupfolders/<UUID>/ directory
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct BackupFolder {
     #[serde(rename = "localPath")]
     pub local_path: String,
