@@ -1,5 +1,4 @@
 use crate::error::Result;
-use serde::Deserialize;
 
 /// BackupConfig represents the backupconfig.json file
 ///
