@@ -9,6 +9,7 @@ use arq::arq7::DirectoryEntry;
 use arq::arq7::DirectoryEntryNode;
 use arq::arq7::EncryptedKeySet;
 use arq::compression::CompressionType;
+use arq::packset::PackSet;
 use arq::tree;
 use std::path::Path;
 
@@ -55,11 +56,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         println!("❌ Keyset files for Arq7 not found!");
         return Ok(());
     }
-    let keyset = EncryptedKeySet::from_file(keyset_path, backup_passowrd)?;
+    let _keyset = EncryptedKeySet::from_file(keyset_path, backup_passowrd)?;
     // Load the complete backup set
     match BackupSet::from_directory_with_password(backup_set_path, Some(backup_passowrd)) {
         // match BackupSet::from_directory(backup_set_path) {
-        Ok(mut backup_set) => {
+        Ok(backup_set) => {
             // get_decrypted_blobloc(&backup_set);
             // let mut root_directory = backup_set.get_root_directory()?;
             // list_children(&mut backup_set, &mut root_directory, 2);
@@ -264,18 +265,19 @@ fn print_backup_records(backup_set: &BackupSet, backup_set_path: &str) -> Option
                                 }
                             };
 
-                            let data = match arq::packset::restore_blob_with_sha(
-                                &trees_path,
+
+                            let packset = PackSet::new(&trees_path);
+                            let data = match packset.restore_blob_with_sha(
                                 &sha,
-                                keyset_ref, // Pass the reference to EncryptedKeySet
+                                keyset_ref,
                             ) {
-                                Ok(d) => d,
+                                Ok(d) => d.unwrap(),
                                 Err(e) => {
                                     println!(
                                         "      ❌ Error restoring blob with SHA {}: {}",
                                         sha, e
                                     );
-                                    return None;
+                                    return None
                                 }
                             };
                             // let commit = tree::Commit::new(Cursor::new(data)).ok()?;
@@ -409,6 +411,7 @@ struct FileStats {
     largest_file_path: String,
 }
 
+#[allow(dead_code)]
 fn list_all_files(backup_set: &BackupSet, backup_set_path: &str) {
     println!("\n📁 Complete File Listing (from Arq7 Records)"); // Clarified title
     println!("{}", "=".repeat(60));
@@ -487,6 +490,7 @@ fn list_all_files(backup_set: &BackupSet, backup_set_path: &str) {
     }
 }
 
+#[allow(dead_code)]
 fn demonstrate_content_extraction(
     backup_set: &BackupSet,
     backup_set_path: &str,
@@ -592,6 +596,7 @@ struct ExtractionStats {
     directories_created: usize,
 }
 
+#[allow(dead_code)]
 fn extract_backup_record(
     generic_record: &arq::arq7::GenericBackupRecord,
     backup_set_path: &Path,
@@ -641,6 +646,7 @@ fn extract_backup_record(
     }
 }
 
+#[allow(dead_code)]
 fn extract_tree_node(
     node: &arq::node::Node,
     backup_set_path: &Path,
@@ -729,6 +735,7 @@ fn extract_tree_node(
     }
 }
 
+#[allow(dead_code)]
 fn extract_file_node(
     node: &arq::node::Node,
     backup_set_path: &Path,
@@ -791,6 +798,7 @@ fn extract_file_node(
     }
 }
 
+#[allow(dead_code)]
 fn extract_using_json_fallback(
     node: &arq::node::Node,
     backup_set_path: &Path,
@@ -811,6 +819,7 @@ fn extract_using_json_fallback(
     }
 }
 
+#[allow(dead_code)]
 fn set_file_metadata(file_path: &Path, node: &arq::node::Node) {
     // Changed to &Path
     if node.modification_time_sec > 0 {
