@@ -8,6 +8,7 @@ use crate::utils;
 use arq::arq7::EncryptedKeySet;
 use arq::packset;
 use arq::tree;
+use arq::commit::{self, Commit};
 
 pub fn restore_file(
     path: &str,
@@ -25,7 +26,7 @@ pub fn restore_file(
     let head_sha = utils::find_latest_folder_sha(path, computer, folder)?;
 
     let data = packset::restore_blob_with_sha(&trees_path, &head_sha, &keyset)?;
-    let commit = tree::Commit::new(Cursor::new(data))?;
+    let commit = Commit::new(Cursor::new(data))?;
 
     let arq_folder = utils::read_arq_folder(path, computer, folder, master_keys.clone())?;
     let tree_blob = packset::restore_blob_with_sha(&trees_path, &commit.tree_sha1, &keyset)?;
