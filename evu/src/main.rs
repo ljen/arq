@@ -80,6 +80,11 @@ fn main() -> Result<(), evu::error::Error> {
                     let dest_root_str = sub_matches.value_of("destination-root").unwrap();
                     evu::arq7_handler::restore_all_folder_versions(arq7_path, folder_path, Path::new(dest_root_str), arq7_password)?;
                 }
+                ("list-files", Some(sub_matches)) => {
+                    let record_id = sub_matches.value_of("record");
+                    let folder_path = sub_matches.value_of("folder");
+                    evu::arq7_handler::list_files(arq7_path, arq7_password, record_id, folder_path)?;
+                }
                 _ => println!("Invalid 'arq7' subcommand. Use --help for details."),
             }
         }

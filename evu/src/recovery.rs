@@ -8,7 +8,7 @@ use crate::utils;
 use arq::arq7::EncryptedKeySet;
 use arq::packset;
 use arq::tree;
-use arq::commit::{self, Commit};
+use arq::commit::{Commit};
 
 pub fn restore_file(
     path: &str,
