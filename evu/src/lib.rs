@@ -13,4 +13,4 @@ pub mod folders;
 pub mod tree;
 pub mod recovery;
 pub mod arq7_handler; // Added new module
-mod utils;
+pub mod utils;

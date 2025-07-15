@@ -6,6 +6,10 @@ pub fn parse_flags<'a>() -> clap::ArgMatches<'a> {
         .author(clap::crate_authors!())
         .about("Command line interface to ARQ (Supports Arq 5 and Arq 7)")
         .arg(
+            clap::Arg::from_usage("-d --debug 'Enable debug output'")
+                .global(true)
+        )
+        .arg(
             clap::Arg::from_usage("-p --path [path] 'Path to the Arq backup data (computer UUID folder for Arq5, backup set root for Arq7)'")
                 .global(true)
         )
