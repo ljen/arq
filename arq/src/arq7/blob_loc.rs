@@ -229,8 +229,8 @@ impl BlobLoc {
             let mut header = [0u8; 4];
             reader.read_exact(&mut header)?;
 
+            // "ARQO" - encrypted
             if header == [65, 82, 81, 79] {
-                // "ARQO" - encrypted
                 // Seek back and decrypt
                 reader.seek(SeekFrom::Start(0))?;
                 let encrypted_obj = EncryptedObject::new(&mut reader)?;
@@ -296,9 +296,8 @@ impl BlobLoc {
 
         // Handle encryption if present
         let data = if let Some(keyset) = keyset {
-            // Check if this blob is encrypted
+            // Check if this blob is encrypted  "ARQO"
             if blob_data.len() >= 4 && &blob_data[0..4] == [65, 82, 81, 79] {
-                // "ARQO"
                 // This blob is encrypted
                 let mut cursor = std::io::Cursor::new(&blob_data);
                 let encrypted_obj = EncryptedObject::new(&mut cursor)?;
