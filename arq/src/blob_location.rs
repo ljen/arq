@@ -55,8 +55,11 @@ impl BlobLoc {
         // by a higher-level process or a specifically crafted reader.
         let relative_path = match relative_path_opt {
             Ok(Some(path)) => path,
-            Ok(None) => String::new(), // Default to empty if None
-            Err(e) => return Err(e),   // Propagate error if string read failed
+            Ok(None) => {
+                panic!("why is the path empty?");
+                String::new()
+            } // Default to empty if None
+            Err(e) => return Err(e), // Propagate error if string read failed
         };
 
         let offset = reader.read_arq_u64()?;
@@ -117,11 +120,14 @@ impl BlobLoc {
         // If path starts with backup_set_dir's UUID, remove it
         if let Some(first_component) = backup_set_dir.file_name().and_then(|n| n.to_str()) {
             if path_str.starts_with(&format!("/{}", first_component)) {
+                // println!("starting with backup id");
                 let stripped_path = path_str.trim_start_matches('/');
                 let components: Vec<&str> = stripped_path.splitn(2, '/').collect();
                 if components.len() > 1 {
                     return backup_set_dir.join(components[1]);
                 }
+            } else {
+                println!("not starting with backup id");
             }
         }
         // Fallback: assume path is relative after the initial UUID component if present
