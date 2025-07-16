@@ -55,10 +55,7 @@ impl BlobLoc {
         // by a higher-level process or a specifically crafted reader.
         let relative_path = match relative_path_opt {
             Ok(Some(path)) => path,
-            Ok(None) => {
-                panic!("why is the path empty?");
-                String::new()
-            } // Default to empty if None
+            Ok(None) => String::new(), // Default to empty if None
             Err(e) => return Err(e), // Propagate error if string read failed
         };
 
