@@ -17,10 +17,10 @@ fn get_evu_cmd() -> Command {
 #[test]
 fn test_arq7_show_records_unencrypted() {
     let mut cmd = get_evu_cmd();
-    cmd.arg("arq7")
+    cmd.arg("show")
         .arg("--path")
         .arg(ARQ7_UNENCRYPTED_PATH)
-        .arg("show-records");
+        .arg("records");
 
     cmd.assert()
         .success()
@@ -37,12 +37,12 @@ fn test_arq7_show_records_unencrypted() {
 #[test]
 fn test_arq7_show_records_encrypted_with_password() {
     let mut cmd = get_evu_cmd();
-    cmd.arg("arq7")
+    cmd.arg("show")
         .arg("--path")
         .arg(ARQ7_ENCRYPTED_PATH)
         .arg("--password")
         .arg(ARQ7_ENCRYPTED_PASSWORD)
-        .arg("show-records");
+        .arg("records");
 
     cmd.assert()
         .success()
@@ -60,10 +60,10 @@ fn test_arq7_show_records_encrypted_with_password() {
 #[test]
 fn test_arq7_show_records_encrypted_no_password() {
     let mut cmd = get_evu_cmd();
-    cmd.arg("arq7")
+    cmd.arg("show")
         .arg("--path")
         .arg(ARQ7_ENCRYPTED_PATH)
-        .arg("show-records");
+        .arg("records");
 
     // Expect failure because password is required for encrypted backups
     // The arq library should return an error that we propagate.
@@ -76,16 +76,14 @@ fn test_arq7_show_records_encrypted_no_password() {
 #[test]
 fn test_arq7_show_records_path_not_found() {
     let mut cmd = get_evu_cmd();
-    cmd.arg("arq7")
+    cmd.arg("show")
         .arg("--path")
         .arg("/path/to/nonexistent/backup")
-        .arg("show-records");
+        .arg("records");
 
     cmd.assert()
         .failure()
-        .stderr(predicate::str::contains("No such file or directory").or(
-            predicate::str::contains("path does not exist"), // For arq::Error::PathDoesNotExist
-        ));
+        .stderr(predicate::str::contains("Error: UnknownArqVersion"));
 }
 
 // --- Tests for show-file-versions ---
@@ -93,10 +91,10 @@ fn test_arq7_show_records_path_not_found() {
 #[test]
 fn test_arq7_show_file_versions_unencrypted_found() {
     let mut cmd = get_evu_cmd();
-    cmd.arg("arq7")
+    cmd.arg("show")
         .arg("--path")
         .arg(ARQ7_UNENCRYPTED_PATH)
-        .arg("show-file-versions")
+        .arg("file-versions")
         .arg("--file")
         // Path relative to the root of the backup contents for that folder
         .arg("/Users/ljensen/Projects/2024-12-arq-decryption/arq_backup_source/file 1.txt");
@@ -111,10 +109,10 @@ fn test_arq7_show_file_versions_unencrypted_found() {
 #[test]
 fn test_arq7_show_file_versions_unencrypted_subfolder_found() {
     let mut cmd = get_evu_cmd();
-    cmd.arg("arq7")
+    cmd.arg("show")
         .arg("--path")
         .arg(ARQ7_UNENCRYPTED_PATH)
-        .arg("show-file-versions")
+        .arg("file-versions")
         .arg("--file")
         .arg(
             "/Users/ljensen/Projects/2024-12-arq-decryption/arq_backup_source/subfolder/file 2.txt",
@@ -130,12 +128,12 @@ fn test_arq7_show_file_versions_unencrypted_subfolder_found() {
 #[test]
 fn test_arq7_show_file_versions_encrypted_found() {
     let mut cmd = get_evu_cmd();
-    cmd.arg("arq7")
+    cmd.arg("show")
         .arg("--path")
         .arg(ARQ7_ENCRYPTED_PATH)
         .arg("--password")
         .arg(ARQ7_ENCRYPTED_PASSWORD)
-        .arg("show-file-versions")
+        .arg("file-versions")
         .arg("--file")
         // Path adjusted to the flawed LocalPath from test data for stripping logic to work
         .arg("/Users/ljensen/Projects/2024-12-arq-decryption/arq_backup_source/file 1.txt");
@@ -150,10 +148,10 @@ fn test_arq7_show_file_versions_encrypted_found() {
 #[test]
 fn test_arq7_show_file_versions_not_found() {
     let mut cmd = get_evu_cmd();
-    cmd.arg("arq7")
+    cmd.arg("show")
         .arg("--path")
         .arg(ARQ7_UNENCRYPTED_PATH)
-        .arg("show-file-versions")
+        .arg("file-versions")
         .arg("--file")
         .arg(
             "/Users/ljensen/Projects/2024-12-arq-decryption/arq_backup_source/nonexistentfile.txt",
@@ -169,10 +167,10 @@ fn test_arq7_show_file_versions_not_found() {
 #[test]
 fn test_arq7_show_folder_versions_unencrypted_found() {
     let mut cmd = get_evu_cmd();
-    cmd.arg("arq7")
+    cmd.arg("show")
         .arg("--path")
         .arg(ARQ7_UNENCRYPTED_PATH)
-        .arg("show-folder-versions")
+        .arg("folder-versions")
         .arg("--folder")
         .arg("/Users/ljensen/Projects/2024-12-arq-decryption/arq_backup_source/subfolder");
 
@@ -188,10 +186,10 @@ fn test_arq7_show_folder_versions_unencrypted_found() {
 #[test]
 fn test_arq7_show_folder_versions_unencrypted_root_found() {
     let mut cmd = get_evu_cmd();
-    cmd.arg("arq7")
+    cmd.arg("show")
         .arg("--path")
         .arg(ARQ7_UNENCRYPTED_PATH)
-        .arg("show-folder-versions")
+        .arg("folder-versions")
         .arg("--folder")
         .arg("/Users/ljensen/Projects/2024-12-arq-decryption/arq_backup_source"); // The root of the backup
 
@@ -212,12 +210,12 @@ fn test_arq7_show_folder_versions_unencrypted_root_found() {
 #[test]
 fn test_arq7_show_folder_versions_encrypted_found() {
     let mut cmd = get_evu_cmd();
-    cmd.arg("arq7")
+    cmd.arg("show")
         .arg("--path")
         .arg(ARQ7_ENCRYPTED_PATH)
         .arg("--password")
         .arg(ARQ7_ENCRYPTED_PASSWORD)
-        .arg("show-folder-versions")
+        .arg("folder-versions")
         .arg("--folder")
         // Path adjusted to the flawed LocalPath from test data
         .arg("/Users/ljensen/Projects/2024-12-arq-decryption/arq_backup_source/subfolder");
@@ -234,10 +232,10 @@ fn test_arq7_show_folder_versions_encrypted_found() {
 #[test]
 fn test_arq7_show_folder_versions_not_found() {
     let mut cmd = get_evu_cmd();
-    cmd.arg("arq7")
+    cmd.arg("show")
         .arg("--path")
         .arg(ARQ7_UNENCRYPTED_PATH)
-        .arg("show-folder-versions")
+        .arg("folder-versions")
         .arg("--folder")
         .arg("/Users/ljensen/Projects/2024-12-arq-decryption/arq_backup_source/nonexistentfolder");
 
@@ -273,10 +271,10 @@ fn test_arq7_restore_file_unencrypted() {
     let record_id = "1751139835"; // Use seconds
 
     let mut cmd = get_evu_cmd();
-    cmd.arg("arq7")
+    cmd.arg("restore")
         .arg("--path")
         .arg(backup_path_str)
-        .arg("restore-file")
+        .arg("file")
         .arg("--record")
         .arg(record_id)
         .arg("--file")
@@ -311,12 +309,12 @@ fn test_arq7_restore_file_encrypted() {
     let record_id = "1736712823";
 
     let mut cmd = get_evu_cmd();
-    cmd.arg("arq7")
+    cmd.arg("restore")
         .arg("--path")
         .arg(backup_path_str)
         .arg("--password")
         .arg(ARQ7_ENCRYPTED_PASSWORD)
-        .arg("restore-file")
+        .arg("file")
         .arg("--record")
         .arg(record_id)
         .arg("--file")
@@ -347,10 +345,10 @@ fn test_arq7_restore_folder_unencrypted() {
     let record_id = "1751139835"; // Use seconds
 
     let mut cmd = get_evu_cmd();
-    cmd.arg("arq7")
+    cmd.arg("restore")
         .arg("--path")
         .arg(backup_path_str)
-        .arg("restore-folder")
+        .arg("folder")
         .arg("--record")
         .arg(record_id)
         .arg("--folder")
@@ -388,10 +386,10 @@ fn test_arq7_restore_full_record_unencrypted() {
     let record_id = "1751139835"; // Use seconds
 
     let mut cmd = get_evu_cmd();
-    cmd.arg("arq7")
+    cmd.arg("restore")
         .arg("--path")
         .arg(backup_path_str)
-        .arg("restore-record")
+        .arg("record")
         .arg("--record")
         .arg(record_id)
         .arg("--destination")
@@ -435,10 +433,10 @@ fn test_arq7_restore_all_folder_versions_unencrypted() {
     let destination_root = temp_dir();
 
     let mut cmd = get_evu_cmd();
-    cmd.arg("arq7")
+    cmd.arg("restore")
         .arg("--path")
         .arg(backup_path_str)
-        .arg("restore-all-folder-versions")
+        .arg("all-folder-versions")
         .arg("--folder")
         .arg(folder_to_restore)
         .arg("--destination-root")

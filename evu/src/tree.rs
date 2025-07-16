@@ -8,7 +8,6 @@ use arq::arq7::EncryptedKeySet;
 use arq::packset;
 use arq::tree;
 use arq::commit::{Commit};
-
 fn show_commit(commit: &Commit) {
     println!(
         "   - author: {}, comment: {}, version: {}, location: {}",
@@ -34,15 +33,14 @@ fn show_commit(commit: &Commit) {
     }
 }
 
-pub fn show(path: &str, computer: &str, folder: &str) -> Result<()> {
-    println!("Tree\n----");
-    println!("\nComputer: {}, Folder: {}\n", computer, folder);
+pub fn show(path: &str, computer: &str, folder: &str, password: Option<&str>) -> Result<()> {
+    println!("Tree for folder {}\n----------------", folder);
 
-    let trees_path = std::path::Path::new(path)
-        .join(computer)
+    let computer_path = Path::new(path);
+    let trees_path = computer_path
         .join("packsets")
         .join(format!("{}-trees", folder));
-    let master_keys = utils::get_master_keys(&path, &computer)?;
+    let master_keys = utils::get_master_keys(&path, &computer, password)?;
     let keyset = EncryptedKeySet::from_master_keys(master_keys.clone())?;
     let arq_folder = utils::read_arq_folder(path, computer, folder, master_keys.clone())?;
     let head_sha = utils::find_latest_folder_sha(path, computer, folder)?;
