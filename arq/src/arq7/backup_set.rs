@@ -106,8 +106,8 @@ impl BackupSet {
         let backup_config = BackupConfig::from_file(&config_path)?;
 
         // Load encryption keyset if this is an encrypted backup
-        let encryption_keyset = if backup_config.is_encrypted {
-            let keyset_path = dir_path.join("encryptedkeyset.dat");
+        let encryption_keyset: Option<EncryptedKeySet> = if backup_config.is_encrypted {
+            let keyset_path: PathBuf = dir_path.join("encryptedkeyset.dat");
             if keyset_path.exists() {
                 match password {
                     Some(pwd) => Some(EncryptedKeySet::from_file(&keyset_path, pwd)?),
