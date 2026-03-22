@@ -186,6 +186,13 @@ impl BlobLoc {
         file.seek(SeekFrom::Start(self.offset))?;
 
         // Read the blob data
+        const MAX_BLOB_SIZE: u64 = 4 * 1024 * 1024 * 1024; // 4 GB
+        if self.length > MAX_BLOB_SIZE {
+            return Err(Error::InvalidFormat(format!(
+                "Blob length {} exceeds maximum allowed size",
+                self.length
+            )));
+        }
         let mut blob_data = vec![0u8; self.length as usize];
         file.read_exact(&mut blob_data)?;
 
