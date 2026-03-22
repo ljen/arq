@@ -26,7 +26,6 @@
 //!
 //! `/<computer_uuid>/packsets/<folder_uuid>-(blobs|trees)/<sha1>.index`
 use byteorder::{NetworkEndian, ReadBytesExt};
-use std;
 use std::io::{BufRead, BufReader, Cursor, Seek, SeekFrom};
 use std::path::PathBuf;
 use std::path::Path;
@@ -284,7 +283,11 @@ pub struct PackIndexObject {
 impl PackIndex {
     pub fn new<R: BufRead + ArqRead + Seek>(mut reader: R) -> Result<PackIndex> {
         let magic_number = reader.read_bytes(4)?;
-        assert_eq!(magic_number, [255, 116, 79, 99]); // ff 74 4f 63
+        if magic_number[..] != [255, 116, 79, 99] {
+            return Err(Error::InvalidFormat(
+                "Invalid pack index magic number: expected ff744f63".to_string(),
+            ));
+        }
 
         let version = reader.read_bytes(4)?;
 
@@ -337,7 +340,11 @@ impl PackIndex {
         reader.read_exact(&mut content)?;
 
         let sha1 = reader.read_bytes(20)?;
-        assert_eq!(calculate_sha1sum(&content), sha1);
+        if calculate_sha1sum(&content) != sha1[..] {
+            return Err(Error::InvalidFormat(
+                "Pack index SHA1 checksum mismatch".to_string(),
+            ));
+        }
 
         Ok(PackIndex {
             version: version.to_vec(),
@@ -353,7 +360,11 @@ impl PackIndex {
 impl Pack {
     pub fn new<R: ArqRead + BufRead + Seek>(mut reader: R) -> Result<Pack> {
         let signature = reader.read_bytes(4)?;
-        assert_eq!(signature, [80, 65, 67, 75]);
+        if signature[..] != [80, 65, 67, 75] {
+            return Err(Error::InvalidFormat(
+                "Invalid pack file signature: expected 'PACK'".to_string(),
+            ));
+        }
         let version = reader.read_bytes(4)?;
         let mut object_count = reader.read_u64::<NetworkEndian>()? as usize;
         let mut objects: Vec<PackObject> = Vec::new();
@@ -369,7 +380,11 @@ impl Pack {
         reader.read_exact(&mut content)?;
 
         let sha1 = reader.read_bytes(20)?;
-        assert_eq!(calculate_sha1sum(&content), sha1);
+        if calculate_sha1sum(&content) != sha1[..] {
+            return Err(Error::InvalidFormat(
+                "Pack file SHA1 checksum mismatch".to_string(),
+            ));
+        }
 
         Ok(Pack {
             version: version.to_vec(),

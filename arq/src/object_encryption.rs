@@ -4,7 +4,6 @@
 //!
 //! - EncryptionDat
 //! - EncryptedObject
-use std;
 use std::io::{BufRead, Seek};
 use std::str;
 
@@ -49,10 +48,10 @@ impl Validation for Header {
         match str::from_utf8(&self[0..count]) {
             Ok(header_str) => {
                 if header_str != content {
-                    panic!("File contains wrong header: {}", header_str);
+                    eprintln!("Warning: File contains wrong header: {}", header_str);
                 }
             }
-            Err(err) => panic!("Couldn't convert to string ({})", err),
+            Err(err) => eprintln!("Warning: Couldn't convert header to string ({})", err),
         };
     }
 }
@@ -198,7 +197,11 @@ impl EncryptionDat {
 
     pub fn new<R: BufRead + Seek>(mut reader: R, password: &str) -> Result<EncryptionDat> {
         let header = reader.read_bytes(12)?;
-        assert_eq!(header, ENCRYPTION_V2_HEADER);
+        if header[..] != ENCRYPTION_V2_HEADER {
+            return Err(Error::InvalidFormat(
+                "Invalid encryption dat header: expected 'ENCRYPTIONV2'".to_string(),
+            ));
+        }
         let salt = reader.read_bytes(8)?;
         let hmacsha256 = reader.read_bytes(32)?;
         let iv = reader.read_bytes(16)?;
@@ -272,7 +275,11 @@ pub struct EncryptedObject {
 impl EncryptedObject {
     pub fn new<R: ArqRead + BufRead>(mut reader: R) -> Result<EncryptedObject> {
         let header = reader.read_bytes(4)?.to_vec();
-        assert_eq!(header, [65, 82, 81, 79]); // ARQO
+        if header != [65, 82, 81, 79] {
+            return Err(Error::InvalidFormat(
+                "Invalid encrypted object header: expected 'ARQO'".to_string(),
+            ));
+        }
         let hmac_sha256 = reader.read_bytes(32)?.to_vec();
         let master_iv = reader.read_bytes(16)?.to_vec();
         let encrypted_data_iv_session = reader.read_bytes(64)?.to_vec();
@@ -292,7 +299,11 @@ impl EncryptedObject {
         master_iv_and_data.append(&mut self.encrypted_data_iv_session.clone());
         master_iv_and_data.append(&mut self.ciphertext.clone());
         let calculated_hmacsha256 = calculate_hmacsha256(master_key, &master_iv_and_data)?;
-        assert_eq!(calculated_hmacsha256, self.hmac_sha256);
+        if calculated_hmacsha256 != self.hmac_sha256 {
+            return Err(Error::InvalidFormat(
+                "HMAC-SHA256 validation failed: data may be corrupted".to_string(),
+            ));
+        }
         Ok(())
     }
 
