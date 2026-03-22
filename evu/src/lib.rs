@@ -7,6 +7,7 @@ extern crate chrono; // Added for arq7_handler
 extern crate filetime; // Added for arq7_handler
 
 pub mod cli;
+pub mod autodetect;
 pub mod computers;
 pub mod error;
 pub mod folders;

@@ -60,6 +60,14 @@ impl EncryptedKeySet {
         })
     }
 
+    pub fn to_master_keys(self) -> Vec<Vec<u8>> {
+        vec![
+            self.encryption_key,
+            self.hmac_key,
+            self.blob_identifier_salt,
+        ]
+    }
+
     pub fn from_file<P: AsRef<Path>>(path: P, password: &str) -> Result<Self> {
         let file = File::open(path)?;
         let mut reader = std::io::BufReader::new(file);
