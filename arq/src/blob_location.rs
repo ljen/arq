@@ -123,8 +123,6 @@ impl BlobLoc {
                 if components.len() > 1 {
                     return backup_set_dir.join(components[1]);
                 }
-            } else {
-                println!("not starting with backup id");
             }
         }
         // Fallback: assume path is relative after the initial UUID component if present

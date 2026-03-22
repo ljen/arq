@@ -253,10 +253,9 @@ impl BackupSet {
                             } else if path.extension().map_or(false, |ext| ext == "backuprecord") {
                                 match GenericBackupRecord::from_file_with_encryption(&path, keyset)
                                 {
-                                    // Changed to GenericBackupRecord
                                     Ok(record) => records.push(record),
                                     Err(e) => {
-                                        println!(
+                                        eprintln!(
                                             "Warning: Failed to load backup record {:?}: {}",
                                             path, e
                                         );
@@ -268,7 +267,7 @@ impl BackupSet {
                     }
 
                     if let Err(e) = collect_records(&records_dir, &mut folder_records, keyset) {
-                        println!(
+                        eprintln!(
                             "Warning: Failed to load backup records for folder {}: {}",
                             folder_uuid, e
                         );
