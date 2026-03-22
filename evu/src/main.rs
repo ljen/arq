@@ -12,7 +12,7 @@ fn main() -> Result<(), evu::error::Error> {
     let global_path = Path::new(global_path_str);
     let global_password = matches.value_of("password");
 
-    let mut version = detect_version(global_path)?;
+    let version = detect_version(global_path)?;
 
 
     match matches.subcommand() {
