@@ -91,7 +91,6 @@ pub mod backup_set;
 pub mod binary;
 pub mod blob_loc;
 pub mod encrypted_keyset;
-pub mod node;
 pub mod utils;
 pub mod virtual_fs;
 
@@ -108,5 +107,4 @@ pub use backup_record::{
 pub use backup_set::{BackupSet, BackupStatistics, IntegrityReport};
 pub use blob_loc::BlobLoc;
 pub use encrypted_keyset::EncryptedKeySet;
-pub use node::Node;
 pub use virtual_fs::{DirectoryEntry, DirectoryEntryNode, FileEntry};
