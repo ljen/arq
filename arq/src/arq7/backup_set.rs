@@ -685,7 +685,6 @@ fn collect_blob_locations_from_node(
 ) {
        // Add data blob locations from this node
     for blob_loc in &node.data_blob_locs {
-        // Convert arq7::BlobLoc to blob_location::BlobLoc
         blob_locations.push(blob_loc.clone().into());
     }
 

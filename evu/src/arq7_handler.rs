@@ -397,8 +397,7 @@ pub fn list_file_versions(
                     }
 
                     match find_node_in_record_tree(
-                        &record.node, // This is arq::arq7::Node from Arq7BackupRecord
-                        &effective_path_parts,
+                        &record.node,                        &effective_path_parts,
                         0,
                         backup_set_path,
                         keyset,
@@ -528,8 +527,7 @@ pub fn list_folder_versions(
                     // End of path adjustment logic
 
                     match find_node_in_record_tree(
-                        &record.node, // This is arq::arq7::Node from Arq7BackupRecord
-                        &effective_path_parts,
+                        &record.node,                        &effective_path_parts,
                         0,
                         backup_set_path,
                         keyset,
@@ -1054,9 +1052,7 @@ pub fn restore_all_folder_versions(
                     }
                 }
                 arq::arq7::GenericBackupRecord::Arq5(_arq5_record) => {
-                    // Arq5 records don't have a direct `node` of type `arq::arq7::Node`
-                    // and this function is geared towards Arq7's structure for restoring.
-                    // So, we'll skip Arq5 records for this specific function.
+                    // Arq5 records lack the direct node structure needed for folder restoration.
                     debug_eprintln!(
                         "DEBUG restore_all_folder_versions: Skipping Arq5 record for folder version restoration."
                     );
