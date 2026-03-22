@@ -17,7 +17,6 @@
 //! and the Arq7 binary tree format (parsed by `Tree::from_arq7_binary_data`).
 //!
 //! All commits, trees and blobs are typically stored as EncryptedObjects in Arq backups.
-use std;
 use std::collections::HashMap;
 use std::io::BufReader;
 
