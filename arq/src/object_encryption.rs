@@ -352,7 +352,6 @@ mod tests {
     #[test]
     fn test_calculate_sha1sum() {
         let message = "message".as_bytes();
-        println!("{:#?}", calculate_sha1sum(message));
         assert_eq!(
             hex!("6f9b9af3cd6e8b8a73c2cdced37fe9f59226e27d"),
             calculate_sha1sum(message)[..]
