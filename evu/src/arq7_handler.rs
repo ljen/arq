@@ -1,9 +1,44 @@
 use crate::debug_eprintln;
 use crate::error::{Error, Result};
 use arq::arq7::{BackupSet, EncryptedKeySet};
-use arq::node::Node; // Updated to use arq::node::Node
+use arq::node::Node;
 use chrono::DateTime;
 use std::path::Path;
+
+/// Safely convert an f64 timestamp (seconds since epoch) to a formatted string.
+fn format_timestamp(ts_f64: f64) -> String {
+    let secs = ts_f64 as i64;
+    let fract = ts_f64.fract();
+    let nanos = if fract >= 0.0 {
+        (fract * 1_000_000_000.0) as u32
+    } else {
+        0
+    };
+    DateTime::from_timestamp(secs, nanos)
+        .map(|dt| dt.format("%Y-%m-%d %H:%M:%S UTC").to_string())
+        .unwrap_or_else(|| ts_f64.to_string())
+}
+
+/// Safely convert an f64 timestamp to RFC3339 format.
+fn format_timestamp_rfc3339(ts_f64: f64) -> String {
+    let secs = ts_f64 as i64;
+    let fract = ts_f64.fract();
+    let nanos = if fract >= 0.0 {
+        (fract * 1_000_000_000.0) as u32
+    } else {
+        0
+    };
+    DateTime::from_timestamp(secs, nanos)
+        .map(|dt| dt.to_rfc3339())
+        .unwrap_or_else(|| ts_f64.to_string())
+}
+
+/// Safely format a seconds-since-epoch i64 for display.
+fn format_epoch_secs(secs: i64) -> String {
+    DateTime::from_timestamp(secs, 0)
+        .map(|dt| dt.format("%Y-%m-%d %H:%M:%S").to_string())
+        .unwrap_or_else(|| secs.to_string())
+}
 
 // Helper function to load the backup set
 fn load_backup_set(backup_set_path: &Path, password: Option<&str>) -> Result<BackupSet> {
@@ -136,22 +171,9 @@ pub fn list_backup_records(backup_set_path: &Path, password: Option<&str>) -> Re
         for gen_record in records_vec {
             match gen_record {
                 arq::arq7::GenericBackupRecord::Arq7(record) => {
-                    let timestamp_str = record.creation_date.map_or_else(
-                        || "Unknown Timestamp".to_string(),
-                        |ts_f64| {
-                            // Arq 7 uses f64 for timestamp (seconds with fractional part)
-                            // For display, we can truncate or round to seconds.
-                            // Assuming ts_f64 is seconds since epoch.
-                            chrono::DateTime::from_timestamp(
-                                ts_f64 as i64,
-                                (ts_f64.fract() * 1_000_000_000.0) as u32,
-                            )
-                            .map_or_else(
-                                || ts_f64.to_string(),
-                                |dt| dt.format("%Y-%m-%d %H:%M:%S UTC").to_string(),
-                            )
-                        },
-                    );
+                    let timestamp_str = record
+                        .creation_date
+                        .map_or_else(|| "Unknown Timestamp".to_string(), format_timestamp);
                     println!(
                         "  - Record Timestamp: {} (Arq7, Raw: {:?})",
                         timestamp_str,
@@ -170,19 +192,9 @@ pub fn list_backup_records(backup_set_path: &Path, password: Option<&str>) -> Re
                     }
                 }
                 arq::arq7::GenericBackupRecord::Arq5(record) => {
-                    let timestamp_str = record.creation_date.map_or_else(
-                        || "Unknown Timestamp".to_string(),
-                        |ts_f64| {
-                            chrono::DateTime::from_timestamp(
-                                ts_f64 as i64,
-                                (ts_f64.fract() * 1_000_000_000.0) as u32,
-                            )
-                            .map_or_else(
-                                || ts_f64.to_string(),
-                                |dt| dt.format("%Y-%m-%d %H:%M:%S UTC").to_string(),
-                            )
-                        },
-                    );
+                    let timestamp_str = record
+                        .creation_date
+                        .map_or_else(|| "Unknown Timestamp".to_string(), format_timestamp);
                     println!(
                         "  - Record Timestamp: {} (Arq5, Raw: {:?})",
                         timestamp_str,
@@ -240,19 +252,9 @@ pub fn list_files(
     }
 
     for arq7_record in records_to_process {
-        let timestamp_str = arq7_record.creation_date.map_or_else(
-            || "Unknown Timestamp".to_string(),
-            |ts_f64| {
-                chrono::DateTime::from_timestamp(
-                    ts_f64 as i64,
-                    (ts_f64.fract() * 1_000_000_000.0) as u32,
-                )
-                .map_or_else(
-                    || ts_f64.to_string(),
-                    |dt| dt.format("%Y-%m-%d %H:%M:%S UTC").to_string(),
-                )
-            },
-        );
+        let timestamp_str = arq7_record
+            .creation_date
+            .map_or_else(|| "Unknown Timestamp".to_string(), format_timestamp);
         println!("\nRecord: {}", timestamp_str);
 
         let path_parts: Vec<&str> = folder_path_in_backup
@@ -407,26 +409,15 @@ pub fn list_file_versions(
                                 node.data_blob_locs.first().map(|b| &b.blob_identifier),
                                 node.item_size
                             );
-                            let timestamp_str = record.creation_date.map_or_else(
-                                || "Unknown Timestamp".to_string(),
-                                |ts_f64| {
-                                    chrono::DateTime::from_timestamp(
-                                        ts_f64 as i64,
-                                        (ts_f64.fract() * 1_000_000_000.0) as u32,
-                                    )
-                                    .unwrap()
-                                    .format("%Y-%m-%d %H:%M:%S UTC")
-                                    .to_string()
-                                },
-                            );
+                            let timestamp_str = record
+                                .creation_date
+                                .map_or_else(|| "Unknown Timestamp".to_string(), format_timestamp);
                             println!(
                                 "  - Record Timestamp: {} (Arq7, Raw: {:?}), Size: {} bytes, Modified: {}",
                                 timestamp_str,
                                 record.creation_date.unwrap_or(0.0),
                                 node.item_size,
-                                chrono::DateTime::from_timestamp(node.modification_time_sec, 0) // Assuming nsec is 0 for this display
-                                    .unwrap()
-                                    .format("%Y-%m-%d %H:%M:%S")
+                                format_epoch_secs(node.modification_time_sec),
                             );
                             found_versions += 1;
                         }
@@ -441,18 +432,9 @@ pub fn list_file_versions(
                     }
                 }
                 arq::arq7::GenericBackupRecord::Arq5(record) => {
-                    let timestamp_str = record.creation_date.map_or_else(
-                        || "Unknown Timestamp".to_string(),
-                        |ts_f64| {
-                            chrono::DateTime::from_timestamp(
-                                ts_f64 as i64,
-                                (ts_f64.fract() * 1_000_000_000.0) as u32,
-                            )
-                            .unwrap()
-                            .format("%Y-%m-%d %H:%M:%S UTC")
-                            .to_string()
-                        },
-                    );
+                    let timestamp_str = record
+                        .creation_date
+                        .map_or_else(|| "Unknown Timestamp".to_string(), format_timestamp);
                     println!(
                         "  - Record Timestamp: {} (Arq5, Raw: {:?})",
                         timestamp_str,
@@ -553,27 +535,15 @@ pub fn list_folder_versions(
                         keyset,
                     ) {
                         Ok(Some(node)) if node.is_tree => {
-                            let timestamp_str = record.creation_date.map_or_else(
-                                || "Unknown Timestamp".to_string(),
-                                |ts_f64| {
-                                    // Use ts_f64 for Arq7 f64 timestamp
-                                    chrono::DateTime::from_timestamp(
-                                        ts_f64 as i64,
-                                        (ts_f64.fract() * 1_000_000_000.0) as u32,
-                                    )
-                                    .unwrap()
-                                    .format("%Y-%m-%d %H:%M:%S UTC")
-                                    .to_string()
-                                },
-                            );
+                            let timestamp_str = record
+                                .creation_date
+                                .map_or_else(|| "Unknown Timestamp".to_string(), format_timestamp);
                             println!(
                                 "  - Record Timestamp: {} (Arq7, Raw: {:?}), Items: ~{}, Modified: {}",
                                 timestamp_str,
-                                record.creation_date.unwrap_or(0.0), // Use 0.0 for f64
+                                record.creation_date.unwrap_or(0.0),
                                 node.contained_files_count.unwrap_or(0),
-                                chrono::DateTime::from_timestamp(node.modification_time_sec, 0)
-                                    .unwrap()
-                                    .format("%Y-%m-%d %H:%M:%S")
+                                format_epoch_secs(node.modification_time_sec),
                             );
                             found_versions += 1;
                         }
@@ -588,18 +558,9 @@ pub fn list_folder_versions(
                     }
                 }
                 arq::arq7::GenericBackupRecord::Arq5(record) => {
-                    let timestamp_str = record.creation_date.map_or_else(
-                        || "Unknown Timestamp".to_string(),
-                        |ts_f64| {
-                            chrono::DateTime::from_timestamp(
-                                ts_f64 as i64,
-                                (ts_f64.fract() * 1_000_000_000.0) as u32,
-                            )
-                            .unwrap()
-                            .format("%Y-%m-%d %H:%M:%S UTC")
-                            .to_string()
-                        },
-                    );
+                    let timestamp_str = record
+                        .creation_date
+                        .map_or_else(|| "Unknown Timestamp".to_string(), format_timestamp);
                     println!(
                         "  - Record Timestamp: {} (Arq5, Raw: {:?})",
                         timestamp_str,
@@ -976,22 +937,11 @@ pub fn restore_all_folder_versions(
                     // Handle Arq7 variant
 
                     let timestamp_str = arq7_record.creation_date.map_or_else(
-                        // Used arq7_record
                         || format!("unknown_ts_{}", versions_restored_count),
-                        |ts_f64| {
-                            // Arq7 uses f64
-                            DateTime::from_timestamp(
-                                ts_f64 as i64,
-                                (ts_f64.fract() * 1_000_000_000.0) as u32,
-                            )
-                            .map_or_else(
-                                || ts_f64.to_string(), // Fallback to raw string if conversion fails
-                                |dt| dt.to_rfc3339(),
-                            )
-                        },
+                        format_timestamp_rfc3339,
                     );
 
-                    eprintln!(
+                    debug_eprintln!(
                         "DEBUG: restore_all_folder_versions: Arq7 record timestamp: {}",
                         timestamp_str
                     );
@@ -1047,19 +997,8 @@ pub fn restore_all_folder_versions(
                     ) {
                         if target_node.is_tree {
                             let timestamp_str = arq7_record.creation_date.map_or_else(
-                                // Used arq7_record
                                 || format!("unknown_ts_{}", versions_restored_count),
-                                |ts_f64| {
-                                    // Arq7 uses f64
-                                    DateTime::from_timestamp(
-                                        ts_f64 as i64,
-                                        (ts_f64.fract() * 1_000_000_000.0) as u32,
-                                    )
-                                    .map_or_else(
-                                        || ts_f64.to_string(), // Fallback to raw string if conversion fails
-                                        |dt| dt.to_rfc3339(),
-                                    )
-                                },
+                                format_timestamp_rfc3339,
                             );
 
                             let version_dest_dir_name = format!("{}", timestamp_str);
