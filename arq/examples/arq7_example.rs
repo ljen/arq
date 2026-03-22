@@ -295,7 +295,7 @@ fn print_backup_records(backup_set: &BackupSet, backup_set_path: &str) -> Option
                             // .ok()?;
                             let tree = tree::Tree::new_arq5(
                                 &data,
-                                CompressionType::try_from(key.compression_type)?,
+                                CompressionType::try_from(key.compression_type).ok()?,
                             )
                             .ok()?;
 
