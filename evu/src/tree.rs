@@ -7,7 +7,8 @@ use crate::utils;
 use arq::arq7::EncryptedKeySet;
 use arq::packset;
 use arq::tree;
-use arq::commit::{Commit};
+use arq::commit::Commit;
+#[allow(dead_code)]
 fn show_commit(commit: &Commit) {
     println!(
         "   - author: {}, comment: {}, version: {}, location: {}",
