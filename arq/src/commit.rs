@@ -94,14 +94,23 @@ impl Commit {
 
     pub fn new<R: ArqRead>(mut reader: R) -> Result<Commit> {
         let header = reader.read_bytes(10)?;
-        assert_eq!(header[..7], [67, 111, 109, 109, 105, 116, 86]); // CommitV
+        if header[..7] != [67, 111, 109, 109, 105, 116, 86] {
+            return Err(crate::error::Error::InvalidFormat(
+                "Invalid commit header: expected 'CommitV'".to_string(),
+            ));
+        }
         let version = std::str::from_utf8(&header[7..])?.parse::<u32>()?;
 
         let author = reader.read_arq_string()?;
         let comment = reader.read_arq_string()?;
 
         let mut num_parent_commits = reader.read_arq_u64()?;
-        assert!(num_parent_commits == 0 || num_parent_commits == 1);
+        if num_parent_commits > 1 {
+            return Err(crate::error::Error::InvalidFormat(format!(
+                "Expected 0 or 1 parent commits, got {}",
+                num_parent_commits
+            )));
+        }
 
         let mut parent_commits: HashMap<String, bool> = HashMap::new();
         while num_parent_commits > 0 {
