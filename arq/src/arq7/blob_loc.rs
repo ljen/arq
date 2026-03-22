@@ -242,8 +242,7 @@ impl BlobLoc {
 
     /// Load and parse a tree from this blob location
     pub fn load_tree(&self, backup_set_path: &std::path::Path) -> Result<crate::tree::Tree> {
-        // Changed to crate::tree::Tree
-        match self.load_tree_with_encryption(backup_set_path, None)? {
+               match self.load_tree_with_encryption(backup_set_path, None)? {
             Some(tree) => Ok(tree),
             None => Err(Error::InvalidFormat("No tree data found".to_string())),
         }
@@ -270,9 +269,7 @@ impl BlobLoc {
         &self,
         backup_set_path: &std::path::Path,
     ) -> Result<Option<crate::node::Node>> {
-        // Changed to crate::node::Node
-        // Changed return type to unified Node
-        self.load_node_with_encryption(backup_set_path, None)
+                      self.load_node_with_encryption(backup_set_path, None)
     }
 
     /// Load and parse as binary node with encryption support
@@ -281,9 +278,7 @@ impl BlobLoc {
         backup_set_dir: &Path,
         keyset: Option<&EncryptedKeySet>,
     ) -> Result<Option<crate::node::Node>> {
-        // Changed to crate::node::Node
-        // Changed return type to unified Node
-        let data = self.load_data(backup_set_dir, keyset)?;
+                      let data = self.load_data(backup_set_dir, keyset)?;
 
         if data.is_empty() {
             return Ok(None);

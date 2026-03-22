@@ -50,8 +50,7 @@ fn find_record_by_identifier<'a>(
     backup_set: &'a BackupSet,
     identifier: &str,
 ) -> Option<&'a arq::arq7::Arq7BackupRecord> {
-    // Changed return type
-    for records_vec in backup_set.backup_records.values() {
+       for records_vec in backup_set.backup_records.values() {
         for gen_record in records_vec {
             match gen_record {
                 arq::arq7::GenericBackupRecord::Arq7(arq7_record) => {
@@ -73,8 +72,7 @@ fn find_record_by_identifier<'a>(
                             // This function is now specific to finding Arq7 records.
                         }
                     }
-                } // Removed duplicate Arq5 match arm here
-            }
+                }            }
         }
     }
     None
@@ -103,11 +101,9 @@ fn find_node_in_record_tree(
                 "DEBUG: find_node_in_record_tree: Depth: {}, Target: '{}', Children: {:?}",
                 current_depth,
                 target_child_name,
-                tree.nodes.keys() // Changed from child_nodes to nodes
-            );
+                tree.nodes.keys()            );
             if let Some(child_node) = tree.nodes.get(target_child_name) {
-                // Changed from child_nodes to nodes
-                return find_node_in_record_tree(
+                               return find_node_in_record_tree(
                     child_node,
                     path_parts,
                     current_depth + 1,
@@ -597,8 +593,7 @@ pub fn restore_full_record(
 
     match find_record_by_identifier(&backup_set, record_identifier) {
         Some(arq7_record) => {
-            // Changed variable name to reflect it's an Arq7BackupRecord
-            let timestamp_str = arq7_record
+                       let timestamp_str = arq7_record
                 .creation_date
                 .map_or_else(|| record_identifier.to_string(), |ts| ts.to_string());
             let record_dest_name = format!("record_{}", timestamp_str);
@@ -651,8 +646,7 @@ pub fn restore_specific_file_from_record(
 
     let arq7_record =
         find_record_by_identifier(&backup_set, record_identifier).ok_or_else(|| {
-            // Renamed record to arq7_record
-            Error::NotFound(format!(
+                       Error::NotFound(format!(
                 "Record with identifier '{}' not found.",
                 record_identifier
             ))
@@ -666,8 +660,7 @@ pub fn restore_specific_file_from_record(
         return Err(Error::Generic("File path cannot be empty".to_string()));
     }
 
-    let record_local_path_str = arq7_record.local_path.as_deref().unwrap_or(""); // Used arq7_record
-    let mut effective_path_parts = path_parts.clone();
+    let record_local_path_str = arq7_record.local_path.as_deref().unwrap_or("");    let mut effective_path_parts = path_parts.clone();
     if !record_local_path_str.is_empty() && file_path_in_backup.starts_with(record_local_path_str) {
         let relative_file_path = file_path_in_backup
             .strip_prefix(record_local_path_str)
@@ -684,8 +677,7 @@ pub fn restore_specific_file_from_record(
         if let Some(bf_config) = backup_set
             .backup_folder_configs
             .get(&arq7_record.backup_folder_uuid)
-        // Used arq7_record
-        {
+               {
             if file_path_in_backup.starts_with(&bf_config.local_path) {
                 let relative_file_path = file_path_in_backup
                     .strip_prefix(&bf_config.local_path)
@@ -709,8 +701,7 @@ pub fn restore_specific_file_from_record(
     }
 
     let target_node = find_node_in_record_tree(
-        &arq7_record.node, // Used arq7_record
-        &effective_path_parts,
+        &arq7_record.node,        &effective_path_parts,
         0,
         backup_set_path,
         keyset,
@@ -747,8 +738,7 @@ pub fn restore_specific_file_from_record(
     println!(
         "Restoring file '{}' from record (Timestamp: {:?}) to {}...",
         file_path_in_backup,
-        arq7_record.creation_date, // Used arq7_record
-        output_path.display()
+        arq7_record.creation_date,        output_path.display()
     );
     let file_data = target_node.reconstruct_file_data_with_encryption(backup_set_path, keyset)?;
     std::fs::write(&output_path, file_data)?;
@@ -769,8 +759,7 @@ pub fn restore_specific_folder_from_record(
 
     let arq7_record =
         find_record_by_identifier(&backup_set, record_identifier).ok_or_else(|| {
-            // Renamed record to arq7_record
-            Error::NotFound(format!(
+                       Error::NotFound(format!(
                 "Record with identifier '{}' not found.",
                 record_identifier
             ))
@@ -781,8 +770,7 @@ pub fn restore_specific_folder_from_record(
         .filter(|s| !s.is_empty())
         .collect();
     let mut effective_path_parts = path_parts.clone();
-    let record_local_path_str = arq7_record.local_path.as_deref().unwrap_or(""); // Used arq7_record
-
+    let record_local_path_str = arq7_record.local_path.as_deref().unwrap_or("");
     if folder_path_in_backup == "/" || folder_path_in_backup.is_empty() {
         effective_path_parts = Vec::new();
     } else if !record_local_path_str.is_empty()
@@ -806,8 +794,7 @@ pub fn restore_specific_folder_from_record(
         if let Some(bf_config) = backup_set
             .backup_folder_configs
             .get(&arq7_record.backup_folder_uuid)
-        // Used arq7_record
-        {
+               {
             if folder_path_in_backup.starts_with(&bf_config.local_path) {
                 let relative_path = folder_path_in_backup
                     .strip_prefix(&bf_config.local_path)
@@ -828,8 +815,7 @@ pub fn restore_specific_folder_from_record(
     }
 
     let target_node = find_node_in_record_tree(
-        &arq7_record.node, // Used arq7_record
-        &effective_path_parts,
+        &arq7_record.node,        &effective_path_parts,
         0,
         backup_set_path,
         keyset,
@@ -867,8 +853,7 @@ pub fn restore_specific_folder_from_record(
     println!(
         "Restoring folder '{}' from record (Timestamp: {:?}) to {}...",
         folder_path_in_backup,
-        arq7_record.creation_date, // Used arq7_record
-        final_destination_for_folder_content.display()
+        arq7_record.creation_date,        final_destination_for_folder_content.display()
     );
 
     let mut stats = ExtractionStats::default();
@@ -926,12 +911,9 @@ pub fn restore_all_folder_versions(
     let mut versions_restored_count = 0;
 
     for (folder_uuid, gen_records_vec) in &backup_set.backup_records {
-        // Renamed records to gen_records_vec
-        for gen_record in gen_records_vec {
-            // Renamed record to gen_record
-            match gen_record {
-                // Added match statement to handle GenericBackupRecord
-                arq::arq7::GenericBackupRecord::Arq7(arq7_record) => {
+               for gen_record in gen_records_vec {
+                       match gen_record {
+                               arq::arq7::GenericBackupRecord::Arq7(arq7_record) => {
                     // Handle Arq7 variant
 
                     let timestamp_str = arq7_record.creation_date.map_or_else(
@@ -987,8 +969,7 @@ pub fn restore_all_folder_versions(
                     }
 
                     if let Ok(Some(target_node)) = find_node_in_record_tree(
-                        &arq7_record.node, // Used arq7_record
-                        &effective_path_parts,
+                        &arq7_record.node,                        &effective_path_parts,
                         0,
                         backup_set_path,
                         keyset,
@@ -1108,8 +1089,7 @@ fn extract_node_to_destination_recursive(
         match node.load_tree_with_encryption(backup_set_path, keyset) {
             Ok(Some(tree)) => {
                 for (child_name, child_node) in &tree.nodes {
-                    // Changed from child_nodes to nodes
-                    if let Err(e) = extract_node_to_destination_recursive(
+                                       if let Err(e) = extract_node_to_destination_recursive(
                         child_node,
                         backup_set_path,
                         keyset,

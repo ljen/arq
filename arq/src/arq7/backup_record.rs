@@ -47,8 +47,7 @@ pub struct Arq5BackupRecord {
     #[serde(rename = "copiedFromCommit")]
     pub copied_from_commit: bool,
     #[serde(rename = "arq5TreeBlobKey")]
-    pub arq5_tree_blob_key: Option<crate::blob::BlobKey>, // Updated to use the new BlobKey
-    pub archived: Option<bool>, // Matches example, though original top-level was not optional
+    pub arq5_tree_blob_key: Option<crate::blob::BlobKey>,    pub archived: Option<bool>, // Matches example, though original top-level was not optional
     #[serde(rename = "relativePath")]
     pub relative_path: Option<String>,
 }
@@ -71,8 +70,7 @@ pub struct Arq7BackupRecord {
     pub copied_from_snapshot: bool,
     #[serde(rename = "copiedFromCommit")]
     pub copied_from_commit: bool,
-    pub node: crate::node::Node, // Changed to use unified Node
-    #[serde(rename = "arqVersion")]
+    pub node: crate::node::Node,    #[serde(rename = "arqVersion")]
     pub arq_version: Option<String>,
     pub archived: Option<bool>,
     #[serde(rename = "backupPlanJSON")]
@@ -152,8 +150,7 @@ impl GenericBackupRecord {
         path: P,
         keyset: Option<&EncryptedKeySet>,
     ) -> Result<Self> {
-        // Changed BackupRecord to Self
-        let path_ref = path.as_ref();
+               let path_ref = path.as_ref();
         let file = File::open(path_ref)?;
         let mut reader = std::io::BufReader::new(file);
 
@@ -170,8 +167,7 @@ impl GenericBackupRecord {
         mut reader: R,
         keyset: Option<&EncryptedKeySet>,
     ) -> Result<Self> {
-        // Changed BackupRecord to Self
-        let data = if let Some(keyset) = keyset {
+               let data = if let Some(keyset) = keyset {
             // Check if this is an encrypted file by peeking at the header
             let mut header = [0u8; 4];
             reader.read_exact(&mut header)?;
