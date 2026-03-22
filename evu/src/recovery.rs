@@ -16,12 +16,15 @@ pub fn restore_file(
     folder: &str,
     absolute_filepath: &str,
 ) -> Result<()> {
+use rpassword;
+
     let trees_path = Path::new(path)
         .join(computer)
         .join("packsets")
         .join(format!("{}-trees", folder));
 
-    let master_keys = utils::get_master_keys(&path, &computer)?;
+    let password = rpassword::prompt_password("Enter encryption password: ")?;
+    let master_keys = utils::get_master_keys(&path, &computer, Some(&password))?;
     let keyset = EncryptedKeySet::from_master_keys(master_keys.clone())?;
     let head_sha = utils::find_latest_folder_sha(path, computer, folder)?;
 
@@ -101,12 +104,12 @@ fn restore_object(
             let fname = entry?.file_name().to_str().unwrap().to_string();
             if fname.ends_with(".index") {
                 let index_path = path.join(&fname);
-                let mut reader = utils::get_file_reader(index_path);
+                let mut reader = utils::get_file_reader(&index_path)?;
                 let index = packset::PackIndex::new(&mut reader)?;
                 for obj in index.objects {
                     if obj.sha1 == blob.blob_identifier { // Changed blob.sha1 to blob.blob_identifier
                         let pack_path = path.join(&fname.replace(".index", ".pack"));
-                        let mut reader = utils::get_file_reader(pack_path);
+                        let mut reader = utils::get_file_reader(&pack_path)?;
                         reader.seek(SeekFrom::Start(obj.offset as u64))?;
                         let ob = packset::PackObject::new(&mut reader)?;
                         let mut f = File::create(filename)?;

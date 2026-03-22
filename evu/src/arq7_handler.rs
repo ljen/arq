@@ -441,9 +441,6 @@ pub fn list_file_versions(
                     }
                 }
                 arq::arq7::GenericBackupRecord::Arq5(record) => {
-                    // Arq5 records don't have a direct `node` of type `arq::arq7::Node`.
-                    // Listing versions from Arq5 records would require loading the Arq5 tree structure.
-                    // For this update, we'll skip detailed listing for Arq5.
                     let timestamp_str = record.creation_date.map_or_else(
                         || "Unknown Timestamp".to_string(),
                         |ts_f64| {
@@ -456,10 +453,13 @@ pub fn list_file_versions(
                             .to_string()
                         },
                     );
-                     debug_eprintln!(
-                        "DEBUG list_file_versions: Skipping Arq5 record (Timestamp: {}) for detailed version listing.",
-                        timestamp_str
+                    println!(
+                        "  - Record Timestamp: {} (Arq5, Raw: {:?})",
+                        timestamp_str,
+                        record.creation_date.unwrap_or(0.0)
                     );
+                    println!("    (Arq5 record - detailed file version info not supported)");
+                    found_versions += 1;
                 }
             }
         }
@@ -600,10 +600,13 @@ pub fn list_folder_versions(
                             .to_string()
                         },
                     );
-                    debug_eprintln!(
-                        "DEBUG list_folder_versions: Skipping Arq5 record (Timestamp: {}) for detailed version listing.",
-                        timestamp_str
+                    println!(
+                        "  - Record Timestamp: {} (Arq5, Raw: {:?})",
+                        timestamp_str,
+                        record.creation_date.unwrap_or(0.0)
                     );
+                    println!("    (Arq5 record - detailed folder version info not supported)");
+                    found_versions += 1;
                 }
             }
         }
