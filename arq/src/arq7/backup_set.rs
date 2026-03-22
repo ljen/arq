@@ -372,8 +372,7 @@ impl BackupSet {
     // collect_files_recursive remains largely the same.
     fn collect_files_recursive(
         &self,
-        node: &crate::node::Node, // Changed to crate::node::Node
-        current_path: String,
+        node: &crate::node::Node,        current_path: String,
         files: &mut Vec<String>,
         backup_set_dir: &Path,
     ) -> Result<()> {
@@ -404,8 +403,7 @@ impl BackupSet {
         let backup_set_dir_ref = self.root_path.as_ref();
 
         for (_, records_vec) in &self.backup_records {
-            // Renamed records to records_vec to avoid conflict
-            stats.folder_count += 1; // This counts folders in backup_records map, not file system folders.
+                       stats.folder_count += 1; // This counts folders in backup_records map, not file system folders.
             stats.record_count += records_vec.len() as u32;
 
             for generic_record in records_vec {
@@ -707,8 +705,7 @@ fn collect_blob_locations_from_node(
 
 /// Helper function for metadata extraction
 fn count_files_in_node(
-    node: &crate::node::Node, // Changed to crate::node::Node
-    backup_set_dir: &Path,
+    node: &crate::node::Node,    backup_set_dir: &Path,
     keyset: Option<&EncryptedKeySet>,
 ) -> Result<(u32, u64)> {
     if !node.is_tree {
