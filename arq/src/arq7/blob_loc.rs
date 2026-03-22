@@ -130,7 +130,7 @@ impl BlobLoc {
                 reader.seek(SeekFrom::Start(0))?;
                 let encrypted_obj = EncryptedObject::new(&mut reader)?;
                 encrypted_obj.validate(&keyset.hmac_key)?;
-                encrypted_obj.decrypt(&keyset.encryption_key[..32])?
+                encrypted_obj.decrypt(&keyset.encryption_key)?
             } else {
                 // Not encrypted, read normally
                 reader.seek(SeekFrom::Start(0))?;
@@ -204,7 +204,7 @@ impl BlobLoc {
                 let mut cursor = std::io::Cursor::new(&blob_data);
                 let encrypted_obj = EncryptedObject::new(&mut cursor)?;
                 encrypted_obj.validate(&keyset.hmac_key)?;
-                encrypted_obj.decrypt(&keyset.encryption_key[..32])?
+                encrypted_obj.decrypt(&keyset.encryption_key)?
             } else {
                 // Not encrypted
                 blob_data
