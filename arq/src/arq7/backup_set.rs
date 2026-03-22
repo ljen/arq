@@ -556,7 +556,12 @@ impl BackupSet {
                         .creation_date
                         .map(|ts| {
                             let secs = ts as i64;
-                            let nanos = ((ts.fract()) * 1_000_000_000.0) as u32;
+                            let fract = ts.fract();
+                            let nanos = if fract >= 0.0 {
+                                (fract * 1_000_000_000.0) as u32
+                            } else {
+                                0
+                            };
                             match DateTime::from_timestamp(secs, nanos) {
                                 Some(datetime_utc) => {
                                     datetime_utc.format("%Y-%m-%dT%H-%M-%S").to_string()
