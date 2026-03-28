@@ -5,30 +5,27 @@ use arq::node::Node;
 use chrono::DateTime;
 use std::path::Path;
 
-/// Safely convert an f64 timestamp (seconds since epoch) to a formatted string.
-fn format_timestamp(ts_f64: f64) -> String {
+/// Convert f64 timestamp to a chrono DateTime, handling fractional seconds.
+fn datetime_from_f64(ts_f64: f64) -> Option<DateTime<chrono::Utc>> {
     let secs = ts_f64 as i64;
-    let fract = ts_f64.fract();
-    let nanos = if fract >= 0.0 {
-        (fract * 1_000_000_000.0) as u32
+    let nanos = if ts_f64.fract() >= 0.0 {
+        (ts_f64.fract() * 1_000_000_000.0) as u32
     } else {
         0
     };
     DateTime::from_timestamp(secs, nanos)
+}
+
+/// Safely convert an f64 timestamp (seconds since epoch) to a formatted string.
+fn format_timestamp(ts_f64: f64) -> String {
+    datetime_from_f64(ts_f64)
         .map(|dt| dt.format("%Y-%m-%d %H:%M:%S UTC").to_string())
         .unwrap_or_else(|| ts_f64.to_string())
 }
 
 /// Safely convert an f64 timestamp to RFC3339 format.
 fn format_timestamp_rfc3339(ts_f64: f64) -> String {
-    let secs = ts_f64 as i64;
-    let fract = ts_f64.fract();
-    let nanos = if fract >= 0.0 {
-        (fract * 1_000_000_000.0) as u32
-    } else {
-        0
-    };
-    DateTime::from_timestamp(secs, nanos)
+    datetime_from_f64(ts_f64)
         .map(|dt| dt.to_rfc3339())
         .unwrap_or_else(|| ts_f64.to_string())
 }
@@ -64,18 +61,78 @@ fn find_record_by_identifier<'a>(
                     // For now, sticking to creation_date field.
                 }
                 arq::arq7::GenericBackupRecord::Arq5(arq5_record) => {
-                    // If Arq5 records also need to be identifiable by a similar timestamp,
-                    // this logic would need to be adapted. For now, focusing on Arq7.
                     if let Some(creation_date_val) = arq5_record.creation_date {
                         if creation_date_val.to_string().starts_with(identifier) {
-                            // Cannot return arq5_record as Arq7BackupRecord.
-                            // This function is now specific to finding Arq7 records.
+                            eprintln!(
+                                "Warning: Record '{}' is an Arq5 record (timestamp: {}). \
+                                 Arq5 records within Arq7 backup sets are not yet supported for restore.",
+                                identifier, format_timestamp(creation_date_val)
+                            );
                         }
                     }
                 }            }
         }
     }
     None
+}
+
+/// Compute the effective path parts for navigating into a record's tree.
+///
+/// The user-supplied path may be absolute (e.g. `/Users/foo/Documents/file.txt`), but the
+/// record's tree is rooted at the record's `local_path` (e.g. `/Users/foo/Documents`).
+/// This function strips the common prefix to produce the relative path parts the tree
+/// walker needs.
+///
+/// Falls back to `backup_folder_configs` if the record has no `local_path`.
+fn compute_effective_path_parts<'a>(
+    user_path: &'a str,
+    record_local_path: &str,
+    folder_uuid: &str,
+    backup_folder_configs: &std::collections::HashMap<String, arq::arq7::BackupFolder>,
+    allow_root: bool,
+) -> Vec<&'a str> {
+    let raw_parts: Vec<&str> = user_path.split('/').filter(|s| !s.is_empty()).collect();
+
+    // Handle root/empty path requests
+    if allow_root && (user_path == "/" || user_path.is_empty()) {
+        return Vec::new();
+    }
+
+    // Try stripping the record's local_path prefix
+    if !record_local_path.is_empty() && user_path.starts_with(record_local_path) {
+        let relative = user_path
+            .strip_prefix(record_local_path)
+            .unwrap_or(user_path);
+        let trimmed = relative.trim_start_matches('/');
+        let parts: Vec<&str> = trimmed.split('/').filter(|s| !s.is_empty()).collect();
+        if parts.is_empty() && allow_root {
+            return Vec::new();
+        }
+        if !parts.is_empty() {
+            return parts;
+        }
+    }
+
+    // Fallback: try stripping the backup folder config's local_path
+    if record_local_path.is_empty() {
+        if let Some(bf_config) = backup_folder_configs.get(folder_uuid) {
+            if user_path.starts_with(&bf_config.local_path) {
+                let relative = user_path
+                    .strip_prefix(&bf_config.local_path)
+                    .unwrap_or(user_path);
+                let trimmed = relative.trim_start_matches('/');
+                let parts: Vec<&str> = trimmed.split('/').filter(|s| !s.is_empty()).collect();
+                if parts.is_empty() && allow_root {
+                    return Vec::new();
+                }
+                if !parts.is_empty() {
+                    return parts;
+                }
+            }
+        }
+    }
+
+    raw_parts
 }
 
 // Helper function to find a node (file or folder) within a record's tree
@@ -347,53 +404,21 @@ pub fn list_file_versions(
             match gen_record {
                 arq::arq7::GenericBackupRecord::Arq7(record) => {
                     let record_local_path_str = record.local_path.as_deref().unwrap_or("");
-                    let mut effective_path_parts = path_parts.clone();
-
-                    // Path adjustment logic (remains largely the same, uses record.local_path)
-                    if !record_local_path_str.is_empty()
-                        && file_path_in_backup.starts_with(record_local_path_str)
-                    {
-                        let relative_file_path = file_path_in_backup
-                            .strip_prefix(record_local_path_str)
-                            .unwrap_or(file_path_in_backup);
-                        let relative_file_path_trimmed = relative_file_path.trim_start_matches('/');
-                        effective_path_parts = relative_file_path_trimmed
-                            .split('/')
-                            .filter(|s| !s.is_empty())
-                            .collect();
-                        if effective_path_parts.is_empty() && !relative_file_path_trimmed.is_empty()
-                        {
-                            effective_path_parts = vec![relative_file_path_trimmed];
-                        }
-                    } else if record_local_path_str.is_empty()
-                        && backup_set.backup_folder_configs.get(folder_uuid).is_some()
-                    {
-                        if let Some(bf_config) = backup_set.backup_folder_configs.get(folder_uuid) {
-                            if file_path_in_backup.starts_with(&bf_config.local_path) {
-                                let relative_file_path = file_path_in_backup
-                                    .strip_prefix(&bf_config.local_path)
-                                    .unwrap_or(file_path_in_backup);
-                                let relative_file_path_trimmed =
-                                    relative_file_path.trim_start_matches('/');
-                                effective_path_parts = relative_file_path_trimmed
-                                    .split('/')
-                                    .filter(|s| !s.is_empty())
-                                    .collect();
-                                if effective_path_parts.is_empty()
-                                    && !relative_file_path_trimmed.is_empty()
-                                {
-                                    effective_path_parts = vec![relative_file_path_trimmed];
-                                }
-                            }
-                        }
-                    }
+                    let effective_path_parts = compute_effective_path_parts(
+                        file_path_in_backup,
+                        record_local_path_str,
+                        folder_uuid,
+                        &backup_set.backup_folder_configs,
+                        false,
+                    );
 
                     if effective_path_parts.is_empty() {
                         continue;
                     }
 
                     match find_node_in_record_tree(
-                        &record.node,                        &effective_path_parts,
+                        &record.node,
+                        &effective_path_parts,
                         0,
                         backup_set_path,
                         keyset,
@@ -458,10 +483,6 @@ pub fn list_folder_versions(
     println!("Versions for folder: {}", folder_path_in_backup);
     println!("--------------------------------------");
 
-    let path_parts: Vec<&str> = folder_path_in_backup
-        .split('/')
-        .filter(|s| !s.is_empty())
-        .collect();
     let mut found_versions = 0;
 
     for (folder_uuid, records_vec) in &backup_set.backup_records {
@@ -469,61 +490,22 @@ pub fn list_folder_versions(
             match gen_record {
                 arq::arq7::GenericBackupRecord::Arq7(record) => {
                     let record_local_path_str = record.local_path.as_deref().unwrap_or("");
-                    let mut effective_path_parts = path_parts.clone();
-
                     debug_eprintln!(
                         "DEBUG list_folder_versions: Folder: '{}', Record LocalPath: '{}'",
                         folder_path_in_backup, record_local_path_str
                     );
 
-                    // Path adjustment logic
-                    if folder_path_in_backup == "/" || folder_path_in_backup.is_empty() {
-                        effective_path_parts = Vec::new();
-                    } else if !record_local_path_str.is_empty()
-                        && folder_path_in_backup.starts_with(record_local_path_str)
-                    {
-                        let relative_folder_path = folder_path_in_backup
-                            .strip_prefix(record_local_path_str)
-                            .unwrap_or(folder_path_in_backup);
-                        let relative_folder_path_trimmed =
-                            relative_folder_path.trim_start_matches('/');
-                        effective_path_parts = relative_folder_path_trimmed
-                            .split('/')
-                            .filter(|s| !s.is_empty())
-                            .collect();
-                        if relative_folder_path_trimmed.is_empty()
-                            && !relative_folder_path.is_empty()
-                            && folder_path_in_backup != "/"
-                        {
-                            effective_path_parts = Vec::new();
-                        }
-                    } else if record_local_path_str.is_empty()
-                        && backup_set.backup_folder_configs.get(folder_uuid).is_some()
-                    {
-                        if let Some(bf_config) = backup_set.backup_folder_configs.get(folder_uuid) {
-                            if folder_path_in_backup.starts_with(&bf_config.local_path) {
-                                let relative_folder_path = folder_path_in_backup
-                                    .strip_prefix(&bf_config.local_path)
-                                    .unwrap_or(folder_path_in_backup);
-                                let relative_folder_path_trimmed =
-                                    relative_folder_path.trim_start_matches('/');
-                                effective_path_parts = relative_folder_path_trimmed
-                                    .split('/')
-                                    .filter(|s| !s.is_empty())
-                                    .collect();
-                                if relative_folder_path_trimmed.is_empty()
-                                    && !relative_folder_path.is_empty()
-                                    && folder_path_in_backup != "/"
-                                {
-                                    effective_path_parts = Vec::new();
-                                }
-                            }
-                        }
-                    }
-                    // End of path adjustment logic
+                    let effective_path_parts = compute_effective_path_parts(
+                        folder_path_in_backup,
+                        record_local_path_str,
+                        folder_uuid,
+                        &backup_set.backup_folder_configs,
+                        true,
+                    );
 
                     match find_node_in_record_tree(
-                        &record.node,                        &effective_path_parts,
+                        &record.node,
+                        &effective_path_parts,
                         0,
                         backup_set_path,
                         keyset,
@@ -652,47 +634,18 @@ pub fn restore_specific_file_from_record(
             ))
         })?;
 
-    let path_parts: Vec<&str> = file_path_in_backup
-        .split('/')
-        .filter(|s| !s.is_empty())
-        .collect();
-    if path_parts.is_empty() {
+    if file_path_in_backup.split('/').filter(|s| !s.is_empty()).count() == 0 {
         return Err(Error::Generic("File path cannot be empty".to_string()));
     }
 
-    let record_local_path_str = arq7_record.local_path.as_deref().unwrap_or("");    let mut effective_path_parts = path_parts.clone();
-    if !record_local_path_str.is_empty() && file_path_in_backup.starts_with(record_local_path_str) {
-        let relative_file_path = file_path_in_backup
-            .strip_prefix(record_local_path_str)
-            .unwrap_or(file_path_in_backup);
-        let relative_file_path_trimmed = relative_file_path.trim_start_matches('/');
-        effective_path_parts = relative_file_path_trimmed
-            .split('/')
-            .filter(|s| !s.is_empty())
-            .collect();
-        if effective_path_parts.is_empty() && !relative_file_path_trimmed.is_empty() {
-            effective_path_parts = vec![relative_file_path_trimmed];
-        }
-    } else if record_local_path_str.is_empty() {
-        if let Some(bf_config) = backup_set
-            .backup_folder_configs
-            .get(&arq7_record.backup_folder_uuid)
-               {
-            if file_path_in_backup.starts_with(&bf_config.local_path) {
-                let relative_file_path = file_path_in_backup
-                    .strip_prefix(&bf_config.local_path)
-                    .unwrap_or(file_path_in_backup);
-                let relative_file_path_trimmed = relative_file_path.trim_start_matches('/');
-                effective_path_parts = relative_file_path_trimmed
-                    .split('/')
-                    .filter(|s| !s.is_empty())
-                    .collect();
-                if effective_path_parts.is_empty() && !relative_file_path_trimmed.is_empty() {
-                    effective_path_parts = vec![relative_file_path_trimmed];
-                }
-            }
-        }
-    }
+    let record_local_path_str = arq7_record.local_path.as_deref().unwrap_or("");
+    let effective_path_parts = compute_effective_path_parts(
+        file_path_in_backup,
+        record_local_path_str,
+        &arq7_record.backup_folder_uuid,
+        &backup_set.backup_folder_configs,
+        false,
+    );
     if effective_path_parts.is_empty() {
         return Err(Error::NotFound(format!(
             "Adjusted file path is empty for '{}' relative to record's local path '{}'. Cannot restore directory root as a file.",
@@ -701,7 +654,8 @@ pub fn restore_specific_file_from_record(
     }
 
     let target_node = find_node_in_record_tree(
-        &arq7_record.node,        &effective_path_parts,
+        &arq7_record.node,
+        &effective_path_parts,
         0,
         backup_set_path,
         keyset,
@@ -765,57 +719,18 @@ pub fn restore_specific_folder_from_record(
             ))
         })?;
 
-    let path_parts: Vec<&str> = folder_path_in_backup
-        .split('/')
-        .filter(|s| !s.is_empty())
-        .collect();
-    let mut effective_path_parts = path_parts.clone();
     let record_local_path_str = arq7_record.local_path.as_deref().unwrap_or("");
-    if folder_path_in_backup == "/" || folder_path_in_backup.is_empty() {
-        effective_path_parts = Vec::new();
-    } else if !record_local_path_str.is_empty()
-        && folder_path_in_backup.starts_with(record_local_path_str)
-    {
-        let relative_path = folder_path_in_backup
-            .strip_prefix(record_local_path_str)
-            .unwrap_or(folder_path_in_backup);
-        let trimmed_relative_path = relative_path.trim_start_matches('/');
-        effective_path_parts = trimmed_relative_path
-            .split('/')
-            .filter(|s| !s.is_empty())
-            .collect();
-        if trimmed_relative_path.is_empty()
-            && !relative_path.is_empty()
-            && folder_path_in_backup != "/"
-        {
-            effective_path_parts = Vec::new();
-        }
-    } else if record_local_path_str.is_empty() {
-        if let Some(bf_config) = backup_set
-            .backup_folder_configs
-            .get(&arq7_record.backup_folder_uuid)
-               {
-            if folder_path_in_backup.starts_with(&bf_config.local_path) {
-                let relative_path = folder_path_in_backup
-                    .strip_prefix(&bf_config.local_path)
-                    .unwrap_or(folder_path_in_backup);
-                let trimmed_relative_path = relative_path.trim_start_matches('/');
-                effective_path_parts = trimmed_relative_path
-                    .split('/')
-                    .filter(|s| !s.is_empty())
-                    .collect();
-                if trimmed_relative_path.is_empty()
-                    && !relative_path.is_empty()
-                    && folder_path_in_backup != "/"
-                {
-                    effective_path_parts = Vec::new();
-                }
-            }
-        }
-    }
+    let effective_path_parts = compute_effective_path_parts(
+        folder_path_in_backup,
+        record_local_path_str,
+        &arq7_record.backup_folder_uuid,
+        &backup_set.backup_folder_configs,
+        true,
+    );
 
     let target_node = find_node_in_record_tree(
-        &arq7_record.node,        &effective_path_parts,
+        &arq7_record.node,
+        &effective_path_parts,
         0,
         backup_set_path,
         keyset,
@@ -904,10 +819,6 @@ pub fn restore_all_folder_versions(
         destination_root.display()
     );
 
-    let path_parts: Vec<&str> = folder_path_in_backup
-        .split('/')
-        .filter(|s| !s.is_empty())
-        .collect();
     let mut versions_restored_count = 0;
 
     for (folder_uuid, gen_records_vec) in &backup_set.backup_records {
@@ -926,50 +837,17 @@ pub fn restore_all_folder_versions(
                         timestamp_str
                     );
                     let record_local_path_str = arq7_record.local_path.as_deref().unwrap_or("");
-                    let mut effective_path_parts = path_parts.clone();
-
-                    if folder_path_in_backup == "/" || folder_path_in_backup.is_empty() {
-                        effective_path_parts = Vec::new();
-                    } else if !record_local_path_str.is_empty()
-                        && folder_path_in_backup.starts_with(record_local_path_str)
-                    {
-                        let relative_path = folder_path_in_backup
-                            .strip_prefix(record_local_path_str)
-                            .unwrap_or(folder_path_in_backup);
-                        let trimmed_relative_path = relative_path.trim_start_matches('/');
-                        effective_path_parts = trimmed_relative_path
-                            .split('/')
-                            .filter(|s| !s.is_empty())
-                            .collect();
-                        if trimmed_relative_path.is_empty()
-                            && !relative_path.is_empty()
-                            && folder_path_in_backup != "/"
-                        {
-                            effective_path_parts = Vec::new();
-                        }
-                    } else if record_local_path_str.is_empty() {
-                        if let Some(bf_config) = backup_set.backup_folder_configs.get(folder_uuid) {
-                            if folder_path_in_backup.starts_with(&bf_config.local_path) {
-                                let relative_path = folder_path_in_backup
-                                    .strip_prefix(&bf_config.local_path)
-                                    .unwrap_or(folder_path_in_backup);
-                                let trimmed_relative_path = relative_path.trim_start_matches('/');
-                                effective_path_parts = trimmed_relative_path
-                                    .split('/')
-                                    .filter(|s| !s.is_empty())
-                                    .collect();
-                                if trimmed_relative_path.is_empty()
-                                    && !relative_path.is_empty()
-                                    && folder_path_in_backup != "/"
-                                {
-                                    effective_path_parts = Vec::new();
-                                }
-                            }
-                        }
-                    }
+                    let effective_path_parts = compute_effective_path_parts(
+                        folder_path_in_backup,
+                        record_local_path_str,
+                        folder_uuid,
+                        &backup_set.backup_folder_configs,
+                        true,
+                    );
 
                     if let Ok(Some(target_node)) = find_node_in_record_tree(
-                        &arq7_record.node,                        &effective_path_parts,
+                        &arq7_record.node,
+                        &effective_path_parts,
                         0,
                         backup_set_path,
                         keyset,

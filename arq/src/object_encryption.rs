@@ -295,11 +295,12 @@ impl EncryptedObject {
     }
 
     pub fn validate(&self, master_key: &[u8]) -> Result<()> {
-        let mut master_iv_and_data = self.master_iv.clone();
-        master_iv_and_data.append(&mut self.encrypted_data_iv_session.clone());
-        master_iv_and_data.append(&mut self.ciphertext.clone());
-        let calculated_hmacsha256 = calculate_hmacsha256(master_key, &master_iv_and_data)?;
-        if calculated_hmacsha256 != self.hmac_sha256 {
+        let mut mac = Hmac::<Sha256>::new_from_slice(master_key)?;
+        mac.update(&self.master_iv);
+        mac.update(&self.encrypted_data_iv_session);
+        mac.update(&self.ciphertext);
+        let calculated = mac.finalize().into_bytes().to_vec();
+        if calculated != self.hmac_sha256 {
             return Err(Error::InvalidFormat(
                 "HMAC-SHA256 validation failed: data may be corrupted".to_string(),
             ));

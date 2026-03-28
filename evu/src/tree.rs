@@ -8,31 +8,6 @@ use arq::arq7::EncryptedKeySet;
 use arq::packset;
 use arq::tree;
 use arq::commit::Commit;
-#[allow(dead_code)]
-fn show_commit(commit: &Commit) {
-    println!(
-        "   - author: {}, comment: {}, version: {}, location: {}",
-        &commit.author, &commit.comment, &commit.version, &commit.folder_path
-    );
-    println!("   - failed files count: {}", &commit.failed_files.len());
-    println!("   - has missing nodes: {}", &commit.has_missing_nodes);
-    println!("   - is complete: {}", &commit.is_complete);
-    println!("   - arq version: {}", &commit.arq_version);
-    println!("   - tree sha1: {}", &commit.tree_sha1);
-    println!(
-        "   - date: {}",
-        &commit
-            .creation_date
-            .map_or("N/A".to_string(), |d| d.to_rfc3339())
-    );
-    println!("   - tree compression: {:?}", &commit.tree_compression_type);
-    if !commit.parent_commits.is_empty() {
-        println!("   ::Parent commits::");
-        for parent_commit in commit.parent_commits.keys() {
-            println!("    - {}", parent_commit);
-        }
-    }
-}
 
 pub fn show(path: &str, computer: &str, folder: &str, password: Option<&str>) -> Result<()> {
     println!("Tree for folder {}\n----------------", folder);
@@ -62,8 +37,6 @@ fn render_tree(
 ) -> Result<()> {
     let data = packset::restore_blob_with_sha(path, sha, keyset)?;
     let commit = Commit::new(Cursor::new(data))?;
-    //show_commit(&commit);
-
     let tree_blob = packset::restore_blob_with_sha(path, &commit.tree_sha1, keyset)?;
     let tree = tree::Tree::new_arq5(&tree_blob, commit.tree_compression_type)?;
     render_internal_tree(prefix, &path, tree, keyset)?;
@@ -78,18 +51,18 @@ fn render_internal_tree(
 ) -> Result<()> {
     for (k, v) in tr.nodes {
         if v.is_tree {
-            if v.data_blob_locs.is_empty() {
-                // Changed data_blob_keys to data_blob_locs
-                continue;
-            }
+            let tree_blob_loc = match v.tree_blob_loc.as_ref() {
+                Some(loc) => loc,
+                None => continue, // Skip trees with no tree blob reference
+            };
             let data =
-                packset::restore_blob_with_sha(&path, &v.data_blob_locs[0].blob_identifier, &keyset)?; // Changed to data_blob_locs and blob_identifier
+                packset::restore_blob_with_sha(path, &tree_blob_loc.blob_identifier, keyset)?;
             let tree = tree::Tree::new_arq5(
                 &data,
                 v.arq5_data_compression_type
                     .unwrap_or(arq::compression::CompressionType::None),
-            )?; // Changed to arq5_data_compression_type
-            render_internal_tree(prefix.join(k).as_path(), &path, tree, &keyset)?;
+            )?;
+            render_internal_tree(prefix.join(k).as_path(), path, tree, keyset)?;
         } else {
             println!("{}", prefix.join(k).as_os_str().to_str().unwrap());
         }

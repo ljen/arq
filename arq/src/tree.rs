@@ -106,45 +106,6 @@ use crate::type_utils::ArqRead;
 ///         [Data:xattr_data]
 ///     )
 /// ```
-pub struct Node {
-    pub is_tree: bool,
-    pub tree_contains_missing_items: bool,
-    pub data_compression_type: CompressionType,
-    pub xattrs_compression_type: CompressionType,
-    pub acl_compression_type: CompressionType,
-    pub data_blob_keys: Vec<blob::BlobKey>,
-    pub data_size: u64,
-    pub xattrs_blob_key: Option<blob::BlobKey>,
-    pub xattrs_size: u64,
-    pub acl_blob_key: Option<blob::BlobKey>,
-    pub uid: i32,
-    pub gid: i32,
-    pub mode: i32,
-    pub mtime_sec: i64,
-    pub mtime_nsec: i64,
-    pub flags: i64,
-    pub finder_flags: i32,
-    pub extended_finder_flags: i32,
-    pub finder_file_type: String,
-    pub finder_file_creator: String,
-    pub is_file_extension_hidden: bool,
-    pub st_dev: i32,
-    pub st_ino: i32,
-    pub st_nlink: u32,
-    pub st_rdev: i32,
-    pub ctime_sec: i64,
-    pub ctime_nsec: i64,
-    pub create_time_sec: i64,
-    pub create_time_nsec: i64,
-    pub st_blocks: i64,
-    pub st_blksize: u32,
-}
-
-// The old arq::tree::Node struct and its impl Node::new have been removed.
-// The unified node is now crate::node::Node.
-// The parsing logic from the old Node::new is incorporated into
-// crate::node::Node::from_binary_reader_arq5.
-
 /// Tree
 ///
 /// A tree contains the following bytes:

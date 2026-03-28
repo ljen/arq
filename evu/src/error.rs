@@ -7,7 +7,6 @@ pub enum Error {
     ArqError(arq::error::Error),
     OsError(std::ffi::OsString),
     IoError(std::io::Error),
-    OptionError, // Consider removing if not used, or make more specific
     NotFound(String),
     Generic(String), // Added for general errors
     CliInputError(String), // Added for CLI argument errors
@@ -20,7 +19,6 @@ impl fmt::Display for Error {
             Error::ArqError(err) => write!(f, "Arq library error: {}", err),
             Error::OsError(os_str) => write!(f, "OS error: {:?}", os_str),
             Error::IoError(err) => write!(f, "IO error: {}", err),
-            Error::OptionError => write!(f, "Option error: value was None"), // Or more specific message
             Error::NotFound(msg) => write!(f, "Not found: {}", msg),
             Error::Generic(msg) => write!(f, "Error: {}", msg),
             Error::CliInputError(msg) => write!(f, "CLI input error: {}", msg),
@@ -57,8 +55,3 @@ impl std::convert::From<arq::error::Error> for Error {
     }
 }
 
-// impl std::convert::From<std::option::NoneError> for Error {
-//     fn from(_error: std::option::NoneError) -> Error {
-//         Error::OptionError
-//     }
-// }
