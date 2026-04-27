@@ -21,7 +21,7 @@ github = { workflow = "CI", repository = "nlopes/arq" }
 [dependencies]
 aes = "0.8"
 byteorder = "1.4"
-cbc = "0.1"
+cbc = "0.2"
 chrono = { version = "0.4", features = ["serde"] }
 digest = "0.10"
 hex-literal = "0.4"
@@ -44,11 +44,11 @@ rayon = "1.10.0"
 tempfile = "3.10.0"
 
 [[bench]]
-name = "backup_set_bench"
+name = "bench"
 harness = false
 
 [[bench]]
-name = "bench_tree"
+name = "bench"
 harness = false
 
 [[bench]]
