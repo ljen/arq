@@ -5,9 +5,9 @@ use crate::error::Result;
 use crate::utils;
 
 use arq::arq7::EncryptedKeySet;
+use arq::commit::Commit;
 use arq::packset;
 use arq::tree;
-use arq::commit::Commit;
 #[allow(dead_code)]
 fn show_commit(commit: &Commit) {
     println!(
@@ -82,8 +82,11 @@ fn render_internal_tree(
                 // Changed data_blob_keys to data_blob_locs
                 continue;
             }
-            let data =
-                packset::restore_blob_with_sha(&path, &v.data_blob_locs[0].blob_identifier, &keyset)?; // Changed to data_blob_locs and blob_identifier
+            let data = packset::restore_blob_with_sha(
+                &path,
+                &v.data_blob_locs[0].blob_identifier,
+                &keyset,
+            )?; // Changed to data_blob_locs and blob_identifier
             let tree = tree::Tree::new_arq5(
                 &data,
                 v.arq5_data_compression_type

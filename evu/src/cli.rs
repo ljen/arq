@@ -50,8 +50,8 @@ pub fn parse_flags<'a>() -> clap::ArgMatches<'a> {
             clap::SubCommand::with_name("restore")
                 .about("Restore file from Arq backup")
                 .args_from_usage(
-                    "-f, --folder <folder>       'Folder UUID (Arq 5)'
-                     <FILEPATH>                 'Absolute path to restore (Arq 5)'"
+                    "-f, --folder [folder]       'Folder UUID (Arq 5)'
+                     [FILEPATH]                 'Absolute path to restore (Arq 5)'"
                 )
                 .subcommand(
                     clap::SubCommand::with_name("record")

@@ -1,5 +1,21 @@
 # BlobLoc ParseError Fixes - Comprehensive Summary
 
+## Current Status
+
+This document is a historical investigation log. The current implementation no
+longer has separate Arq 7 BlobLoc parsers or a `blob_format_detector.rs` module.
+`arq::arq7::BlobLoc` now re-exports the canonical `crate::blob_location::BlobLoc`.
+Binary parsing accepts Haystack's documented Arq 7 `BlobLoc` field order first, then
+falls back to the observed fixture layout that includes an extra `isLargePack` bool
+before `relativePath`.
+
+Current relevant files:
+
+- `src/blob_location.rs`: canonical `BlobLoc` type, binary parsing, blob loading, decompression, and decryption.
+- `src/arq7/blob_loc.rs`: compatibility re-export for `arq::arq7::BlobLoc`.
+- `src/node.rs`: Arq 7 Node parsing, including Tree version 2 reparse fields and Tree version 4 metadata.
+- `src/tree.rs`: Arq 7 Tree parsing.
+
 ## Overview
 
 This document summarizes the comprehensive fixes implemented to resolve BlobLoc ParseError issues in the Arq backup reader library. The fixes address multiple underlying problems that were causing parsing failures, memory allocation issues, and data corruption during tree traversal.
@@ -14,13 +30,13 @@ This document summarizes the comprehensive fixes implemented to resolve BlobLoc 
 - This caused subsequent offset/length fields to be misread as enormous values (e.g., 7885894706840955694)
 
 **Solution**: 
-- Implemented enhanced path recovery mechanisms in both `arq7::BlobLoc` and `blob_location::BlobLoc`
-- Added `try_simple_path_recovery()` methods that attempt to read and validate potential path data
-- Added validation to prevent abnormal offset/length values (> 1TB) from being accepted
+- Consolidated duplicate BlobLoc implementations so Arq 7 code uses one canonical type.
+- Binary `BlobLoc` parsing supports the official field order and the observed fixture order with an undocumented `isLargePack` byte.
+- Added validation to prevent abnormal offset/length values from being accepted when loading blob content.
 
 **Files Modified**:
-- `src/arq7.rs` - Enhanced BlobLoc parsing with recovery
-- `src/blob_location.rs` - Synchronized recovery mechanisms
+- `src/blob_location.rs` - Canonical BlobLoc parsing and loading.
+- `src/arq7/blob_loc.rs` - Compatibility re-export.
 
 ### 2. Abnormal Blob Count Validation
 
@@ -30,13 +46,13 @@ This document summarizes the comprehensive fixes implemented to resolve BlobLoc 
 - Indicate corrupted pack file data
 
 **Solution**:
-- Added `validate_blob_count()` function with reasonable limits (max 1,000,000 blobs)
-- Updated `Node::from_binary_reader_arq7()` to validate blob counts before allocation
-- Return appropriate `InvalidFormat` errors for excessive counts
+- Blob length is bounded before allocation when loading packed and standalone blobs.
+- The binary parser now follows the documented `UInt64` count fields so valid xattr counts are not misread.
+- Return appropriate `InvalidFormat` errors for excessive blob payload lengths.
 
 **Files Modified**:
-- `src/blob_format_detector.rs` - New validation utilities
-- `src/node.rs` - Added blob count validation before memory allocation
+- `src/blob_location.rs` - Blob payload length validation before allocation.
+- `src/node.rs` - Correct Arq 7 binary count parsing.
 
 ### 3. Enhanced Format Detection and Recovery
 
@@ -47,13 +63,11 @@ This document summarizes the comprehensive fixes implemented to resolve BlobLoc 
 - Legacy formats with different field ordering
 
 **Solution**:
-- Created comprehensive `blob_format_detector.rs` module
-- Implemented `BlobLocFormat` enum to identify different format variants
-- Added `BlobLocParser` with automatic format detection
-- Created `unified_parsing` module for consistent parsing across implementations
+- Removed the need for parallel parsers by using one canonical BlobLoc implementation.
+- Kept JSON support for `isLargePack`; binary values set it only when the observed fixture layout is detected.
 
 **Files Added**:
-- `src/blob_format_detector.rs` - Complete format detection and recovery system
+- None. The current fix reduces surface area instead of adding a separate detector layer.
 
 ### 4. Path Validation Improvements
 
@@ -63,7 +77,7 @@ This document summarizes the comprehensive fixes implemented to resolve BlobLoc 
 - Non-path binary data being treated as valid paths
 
 **Solution**:
-- Enhanced `is_valid_path()` validation in both BlobLoc implementations
+- `BlobLoc::is_valid_path()` provides validation for callers that need to screen recovered or externally supplied paths.
 - Added checks for:
   - Control character rejection
   - Reasonable path length limits (< 4KB)
@@ -71,8 +85,7 @@ This document summarizes the comprehensive fixes implemented to resolve BlobLoc 
   - Valid character sets for filesystem paths
 
 **Files Modified**:
-- `src/arq7.rs` - Enhanced path validation
-- `src/blob_location.rs` - Synchronized validation logic
+- `src/blob_location.rs` - Canonical path validation helper.
 
 ### 5. Memory Safety Improvements
 
@@ -94,13 +107,12 @@ This document summarizes the comprehensive fixes implemented to resolve BlobLoc 
 
 ### Unified Parsing Strategy
 
-Both `arq7::BlobLoc` and `blob_location::BlobLoc` now use the unified parsing approach:
+`arq7::BlobLoc` and `blob_location::BlobLoc` now refer to the same type. The parser uses this strategy:
 
-1. **Primary Parsing**: Attempt standard format parsing
-2. **Format Detection**: If primary fails, detect the specific format variant
-3. **Recovery Parsing**: Apply appropriate recovery mechanisms for detected format
-4. **Validation**: Validate all parsed values for reasonableness
-5. **Fallback**: Use safe default values if recovery fails
+1. **Standard Parsing**: Parse the documented binary format.
+2. **Validation**: Reject implausible parsed fields such as invalid compression types or non-path data.
+3. **Fallback Parsing**: Rewind and parse the observed `isLargePack` binary variant when documented parsing does not validate.
+4. **Allocation Bounds**: Bound blob lengths before allocating buffers.
 
 ### Error Handling Improvements
 
@@ -120,18 +132,16 @@ Both `arq7::BlobLoc` and `blob_location::BlobLoc` now use the unified parsing ap
 
 Created extensive test suites to validate all fixes:
 
-1. **Format Variation Tests** (`tests/blob_format_analysis.rs`):
-   - Standard format parsing
-   - Misaligned path recovery
-   - Pack format handling
-   - Legacy format support
+1. **Unit tests** (`src/blob_location.rs` and `src/node.rs`):
+   - Official binary BlobLoc parsing without an undocumented `isLargePack` field.
+   - Arq 7 Node xattr BlobLoc count parsing as `UInt64`.
+   - Tree version 2 reparse field parsing.
+   - Tree version 4 metadata parsing.
 
-2. **Fix Validation Tests** (`tests/blob_loc_fixes_validation.rs`):
-   - Blob count validation
-   - Misaligned path recovery
-   - Memory safety with malformed data
-   - Regression testing for valid data
-   - Path validation robustness
+2. **Integration tests** (`tests/arq7_test.rs`, `tests/tree_parsing_fix_test.rs`):
+   - Encrypted and unencrypted Arq 7 backup loading.
+   - File restoration from encrypted Arq 7 backup data.
+   - Treepack parsing for old and new Arq 7 fixtures.
 
 3. **Memory Safety Tests**:
    - Large memory allocation claims

@@ -1,10 +1,10 @@
 use flate2::read::GzDecoder;
 use std::io::Read;
 
+use crate::error::Error;
 use crate::error::Result;
 use crate::lz4;
 use crate::type_utils::ArqRead;
-use crate::error::Error;
 
 #[derive(PartialEq, Eq, Debug, Clone, Copy, Serialize, Deserialize)]
 pub enum CompressionType {

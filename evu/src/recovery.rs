@@ -6,9 +6,9 @@ use crate::error::{Error, Result};
 use crate::utils;
 
 use arq::arq7::EncryptedKeySet;
+use arq::commit::Commit;
 use arq::packset;
 use arq::tree;
-use arq::commit::{Commit};
 
 pub fn restore_file(
     path: &str,
@@ -16,7 +16,7 @@ pub fn restore_file(
     folder: &str,
     absolute_filepath: &str,
 ) -> Result<()> {
-use rpassword;
+    use rpassword;
 
     let trees_path = Path::new(path)
         .join(computer)
@@ -56,12 +56,21 @@ fn restore_file_in_tree(
         if !node.is_tree {
             let inner = prefix.join(name);
             if inner.as_os_str().to_str().unwrap() == absolute_filepath {
-                restore_object(path, folder, &node, absolute_filepath, &keyset.encryption_key)?;
+                restore_object(
+                    path,
+                    folder,
+                    &node,
+                    absolute_filepath,
+                    &keyset.encryption_key,
+                )?;
                 // Passed node as reference
             }
         } else {
-            let data =
-                packset::restore_blob_with_sha(path, &node.data_blob_locs[0].blob_identifier, keyset)?; // Changed to data_blob_locs and blob_identifier
+            let data = packset::restore_blob_with_sha(
+                path,
+                &node.data_blob_locs[0].blob_identifier,
+                keyset,
+            )?; // Changed to data_blob_locs and blob_identifier
             let inner_tree = tree::Tree::new_arq5(
                 &data,
                 node.arq5_data_compression_type
@@ -97,9 +106,12 @@ fn restore_object(
         .file_name()
         .ok_or_else(|| Error::OsError(std::ffi::OsString::from("not a valid restore path")))?;
 
-    let compression = node.arq5_data_compression_type.unwrap_or(arq::compression::CompressionType::None); // Changed to arq5_data_compression_type
+    let compression = node
+        .arq5_data_compression_type
+        .unwrap_or(arq::compression::CompressionType::None); // Changed to arq5_data_compression_type
 
-    for blob in &node.data_blob_locs { // Iterate over a reference to avoid moving
+    for blob in &node.data_blob_locs {
+        // Iterate over a reference to avoid moving
         for entry in std::fs::read_dir(&path)? {
             let fname = entry?.file_name().to_str().unwrap().to_string();
             if fname.ends_with(".index") {
@@ -107,7 +119,8 @@ fn restore_object(
                 let mut reader = utils::get_file_reader(&index_path)?;
                 let index = packset::PackIndex::new(&mut reader)?;
                 for obj in index.objects {
-                    if obj.sha1 == blob.blob_identifier { // Changed blob.sha1 to blob.blob_identifier
+                    if obj.sha1 == blob.blob_identifier {
+                        // Changed blob.sha1 to blob.blob_identifier
                         let pack_path = path.join(&fname.replace(".index", ".pack"));
                         let mut reader = utils::get_file_reader(&pack_path)?;
                         reader.seek(SeekFrom::Start(obj.offset as u64))?;

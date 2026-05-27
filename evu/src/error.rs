@@ -9,7 +9,7 @@ pub enum Error {
     IoError(std::io::Error),
     OptionError, // Consider removing if not used, or make more specific
     NotFound(String),
-    Generic(String), // Added for general errors
+    Generic(String),       // Added for general errors
     CliInputError(String), // Added for CLI argument errors
     UnknownArqVersion(String),
 }
@@ -24,7 +24,9 @@ impl fmt::Display for Error {
             Error::NotFound(msg) => write!(f, "Not found: {}", msg),
             Error::Generic(msg) => write!(f, "Error: {}", msg),
             Error::CliInputError(msg) => write!(f, "CLI input error: {}", msg),
-            Error::UnknownArqVersion(path) => write!(f, "Could not determine Arq version at path: {}", path),
+            Error::UnknownArqVersion(path) => {
+                write!(f, "Could not determine Arq version at path: {}", path)
+            }
         }
     }
 }

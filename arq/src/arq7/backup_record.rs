@@ -14,8 +14,36 @@ pub struct BackupRecordError {
     pub error_message: String,
     #[serde(rename = "localPath")]
     pub local_path: String,
+    #[serde(
+        rename = "relativePath",
+        skip_serializing_if = "Option::is_none",
+        default
+    )]
+    pub relative_path: Option<String>,
+    #[serde(
+        rename = "volumeName",
+        skip_serializing_if = "Option::is_none",
+        default
+    )]
+    pub volume_name: Option<String>,
+    #[serde(
+        rename = "diskIdentifier",
+        skip_serializing_if = "Option::is_none",
+        default
+    )]
+    pub disk_identifier: Option<String>,
     #[serde(rename = "pathIsDirectory")]
     pub path_is_directory: bool,
+    #[serde(default)]
+    pub severity: u32,
+    #[serde(
+        rename = "errorDomain",
+        skip_serializing_if = "Option::is_none",
+        default
+    )]
+    pub error_domain: Option<String>,
+    #[serde(rename = "errorCode", skip_serializing_if = "Option::is_none", default)]
+    pub error_code: Option<i64>,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -47,7 +75,8 @@ pub struct Arq5BackupRecord {
     #[serde(rename = "copiedFromCommit")]
     pub copied_from_commit: bool,
     #[serde(rename = "arq5TreeBlobKey")]
-    pub arq5_tree_blob_key: Option<crate::blob::BlobKey>,    pub archived: Option<bool>, // Matches example, though original top-level was not optional
+    pub arq5_tree_blob_key: Option<crate::blob::BlobKey>,
+    pub archived: Option<bool>, // Matches example, though original top-level was not optional
     #[serde(rename = "relativePath")]
     pub relative_path: Option<String>,
 }
@@ -70,7 +99,8 @@ pub struct Arq7BackupRecord {
     pub copied_from_snapshot: bool,
     #[serde(rename = "copiedFromCommit")]
     pub copied_from_commit: bool,
-    pub node: crate::node::Node,    #[serde(rename = "arqVersion")]
+    pub node: crate::node::Node,
+    #[serde(rename = "arqVersion")]
     pub arq_version: Option<String>,
     pub archived: Option<bool>,
     #[serde(rename = "backupPlanJSON")]
@@ -150,7 +180,7 @@ impl GenericBackupRecord {
         path: P,
         keyset: Option<&EncryptedKeySet>,
     ) -> Result<Self> {
-               let path_ref = path.as_ref();
+        let path_ref = path.as_ref();
         let file = File::open(path_ref)?;
         let mut reader = std::io::BufReader::new(file);
 
@@ -167,7 +197,7 @@ impl GenericBackupRecord {
         mut reader: R,
         keyset: Option<&EncryptedKeySet>,
     ) -> Result<Self> {
-               let data = if let Some(keyset) = keyset {
+        let data = if let Some(keyset) = keyset {
             // Check if this is an encrypted file by peeking at the header
             let mut header = [0u8; 4];
             reader.read_exact(&mut header)?;
@@ -221,5 +251,43 @@ impl GenericBackupRecord {
         let json_str = String::from_utf8(data)?;
         // println!("BackupRecord Json:\n{}", json_str);
         Ok(serde_json::from_str(&json_str)?)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn backup_record_error_parses_v101_fields_and_defaults_missing_severity() {
+        let v101 = r#"{
+            "errorMessage": "Permission denied",
+            "localPath": "/Users/example/locked.txt",
+            "relativePath": "locked.txt",
+            "volumeName": "Macintosh HD",
+            "diskIdentifier": "ROOT",
+            "pathIsDirectory": false,
+            "severity": 3,
+            "errorDomain": "NSPOSIXErrorDomain",
+            "errorCode": 13
+        }"#;
+
+        let error: BackupRecordError = serde_json::from_str(v101).unwrap();
+        assert_eq!(error.severity, 3);
+        assert_eq!(error.error_domain.as_deref(), Some("NSPOSIXErrorDomain"));
+        assert_eq!(error.error_code, Some(13));
+        assert_eq!(error.relative_path.as_deref(), Some("locked.txt"));
+        assert_eq!(error.volume_name.as_deref(), Some("Macintosh HD"));
+        assert_eq!(error.disk_identifier.as_deref(), Some("ROOT"));
+
+        let pre_v101 = r#"{
+            "errorMessage": "Permission denied",
+            "localPath": "/Users/example/locked.txt",
+            "pathIsDirectory": false
+        }"#;
+        let error: BackupRecordError = serde_json::from_str(pre_v101).unwrap();
+        assert_eq!(error.severity, 0);
+        assert!(error.error_domain.is_none());
+        assert!(error.error_code.is_none());
     }
 }

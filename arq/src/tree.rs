@@ -401,7 +401,16 @@ impl Tree {
             };
             // Use the unified Node's Arq7 binary parser
             // The `tree_version` here is the version of the BinaryTree structure itself.
-            let node = crate::node::Node::from_binary_reader_arq7(&mut cursor, Some(version))?;
+            let node = crate::node::Node::from_binary_reader_arq7_with_recovery(
+                &mut cursor,
+                Some(version),
+            )
+            .map_err(|e| {
+                crate::error::Error::InvalidFormat(format!(
+                    "Failed to parse child node '{}': {}",
+                    name, e
+                ))
+            })?;
             child_nodes_map.insert(name, node);
         }
 

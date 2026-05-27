@@ -81,6 +81,15 @@
 //! - Binary pack files contain multiple objects at specific offsets
 //! - All timestamps are Unix epoch seconds
 //! - UUIDs are used extensively for identifying backup plans, folders, and objects
+//! - Binary `BlobLoc` parsing supports both Haystack's documented binary layout and the
+//!   observed fixture layout that includes an extra `isLargePack` bool before `relativePath`.
+//! - `encryptedkeyset.dat` fixtures currently contain 32-byte plaintext keys even though
+//!   Haystack's public Arq 7 data-format page describes 64-byte plaintext key entries.
+//! - Arq 7 Tree version 4 appends added-time, document-id, sparse-file, and sparse-hole
+//!   metadata to each Node. Readers must use the containing Tree version to decide whether
+//!   those fields are present.
+//! - Some older Tree version 2 fixtures omit the documented Windows reparse fields, so the
+//!   Node parser detects the next child-name string marker and rewinds instead of consuming it.
 
 pub mod backup_config;
 pub mod backup_folder;

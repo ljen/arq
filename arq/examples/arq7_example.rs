@@ -265,19 +265,15 @@ fn print_backup_records(backup_set: &BackupSet, backup_set_path: &str) -> Option
                                 }
                             };
 
-
                             let packset = PackSet::new(&trees_path);
-                            let data = match packset.restore_blob_with_sha(
-                                &sha,
-                                keyset_ref,
-                            ) {
+                            let data = match packset.restore_blob_with_sha(&sha, keyset_ref) {
                                 Ok(d) => d.unwrap(),
                                 Err(e) => {
                                     println!(
                                         "      ❌ Error restoring blob with SHA {}: {}",
                                         sha, e
                                     );
-                                    return None
+                                    return None;
                                 }
                             };
                             // let commit = tree::Commit::new(Cursor::new(data)).ok()?;
