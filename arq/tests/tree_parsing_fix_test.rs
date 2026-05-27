@@ -27,7 +27,12 @@ fn load_treepacks_from_dir(dir: &str) {
             } else {
                 // Assume Arq7 if not Arq5
                 let tree = Tree::from_arq7_binary_data(&data);
-                assert!(tree.is_ok(), "Failed to parse Arq7 tree at {:?}", path);
+                assert!(
+                    tree.is_ok(),
+                    "Failed to parse Arq7 tree at {:?}: {:?}",
+                    path,
+                    tree.err()
+                );
             }
         }
     }

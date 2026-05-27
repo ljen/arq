@@ -25,7 +25,15 @@ Position 120-127: 0x00 0x00 0x00 0x00 0x00 0x00 0x00 0x5A  // Path length = 90
 Position 128+: "/FD5575D9-B7E1-43D9-B29C-B54ACC9BC2A9/blobpacks/..."  // Actual path data
 ```
 
-## Solution Implementation
+## Current Implementation Note
+
+The current parser follows Haystack's documented Arq 7 binary `BlobLoc` layout and
+does not use the older recovery functions named below. Those names are retained in
+this historical note because they describe an earlier investigation, not the current
+source layout. Current Arq 7 binary parsing lives in `src/blob_location.rs`,
+`src/node.rs`, and `src/tree.rs`.
+
+## Historical Solution Investigation
 
 ### Core Fix Strategy
 Implemented a **recovery mechanism** in `BinaryBlobLoc::read_relative_path_with_recovery()` that:
@@ -143,13 +151,15 @@ All tests pass successfully, confirming the fix handles the specific data charac
 ## Code Changes
 
 ### Files Modified
-- `src/arq7/binary.rs`: Enhanced blob location and node parsing with recovery mechanisms
-- `tests/tree_parsing_fix_test.rs`: New comprehensive test suite for the fix
+- `src/blob_location.rs`: Canonical BlobLoc parsing and blob loading.
+- `src/node.rs`: Unified Arq 5 and Arq 7 Node parsing.
+- `src/tree.rs`: Arq 5 and Arq 7 Tree parsing.
+- `tests/tree_parsing_fix_test.rs`: Regression coverage for treepack parsing.
 
-### Key Functions Added
-- `BinaryBlobLoc::read_relative_path_with_recovery()`: Core recovery mechanism
-- Enhanced error handling in `BinaryNode::from_reader()`
-- Resilient parsing in `BinaryTree::from_reader()`
+### Key Current Functions
+- `BlobLoc::from_binary_reader()`: Parses the documented Arq 7 binary BlobLoc layout.
+- `Node::from_binary_reader_arq7()`: Parses Arq 7 Nodes using the containing Tree version.
+- `Tree::from_arq7_binary_data()`: Parses Arq 7 binary Trees.
 
 ## Conclusion
 

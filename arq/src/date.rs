@@ -26,7 +26,11 @@ impl std::fmt::Display for Date {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
         match DateTime::from_timestamp_millis(self.milliseconds_since_epoch as i64) {
             Some(datetime) => write!(f, "{}", datetime),
-            None => write!(f, "<invalid timestamp: {}ms>", self.milliseconds_since_epoch),
+            None => write!(
+                f,
+                "<invalid timestamp: {}ms>",
+                self.milliseconds_since_epoch
+            ),
         }
     }
 }

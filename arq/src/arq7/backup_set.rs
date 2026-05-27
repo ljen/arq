@@ -17,7 +17,8 @@ pub struct BackupSet {
     pub backup_folders: BackupFolders,
     pub backup_plan: BackupPlan,
     pub backup_folder_configs: HashMap<String, BackupFolder>,
-    pub backup_records: HashMap<String, Vec<GenericBackupRecord>>,    pub encryption_keyset: Option<EncryptedKeySet>,
+    pub backup_records: HashMap<String, Vec<GenericBackupRecord>>,
+    pub encryption_keyset: Option<EncryptedKeySet>,
     pub root_path: PathBuf,
 }
 
@@ -193,7 +194,8 @@ impl BackupSet {
     /// Recursively load backup record files from a directory
     fn load_backup_records_recursive(
         dir: &std::path::Path,
-        records: &mut Vec<GenericBackupRecord>,    ) -> Result<()> {
+        records: &mut Vec<GenericBackupRecord>,
+    ) -> Result<()> {
         for entry in std::fs::read_dir(dir)? {
             let entry = entry?;
             let path = entry.path();
@@ -204,7 +206,7 @@ impl BackupSet {
             } else if path.extension().and_then(|s| s.to_str()) == Some("backuprecord") {
                 // Try to parse backup record file
                 match GenericBackupRecord::from_file(&path) {
-                                       Ok(record) => records.push(record),
+                    Ok(record) => records.push(record),
                     Err(e) => {
                         // Log error but continue processing other files
                         eprintln!("Warning: Failed to parse backup record {:?}: {}", path, e);
@@ -219,7 +221,7 @@ impl BackupSet {
         backupfolders_dir: &Path,
         keyset: Option<&EncryptedKeySet>,
     ) -> Result<HashMap<String, Vec<GenericBackupRecord>>> {
-               let mut backup_records = HashMap::new();
+        let mut backup_records = HashMap::new();
 
         if !backupfolders_dir.exists() {
             return Ok(backup_records);
@@ -237,7 +239,8 @@ impl BackupSet {
                     // Recursively traverse backup records directories
                     fn collect_records(
                         dir: &Path,
-                        records: &mut Vec<GenericBackupRecord>,                        keyset: Option<&EncryptedKeySet>,
+                        records: &mut Vec<GenericBackupRecord>,
+                        keyset: Option<&EncryptedKeySet>,
                     ) -> Result<()> {
                         for entry in std::fs::read_dir(dir)? {
                             let entry = entry?;
@@ -372,7 +375,8 @@ impl BackupSet {
     // collect_files_recursive remains largely the same.
     fn collect_files_recursive(
         &self,
-        node: &crate::node::Node,        current_path: String,
+        node: &crate::node::Node,
+        current_path: String,
         files: &mut Vec<String>,
         backup_set_dir: &Path,
     ) -> Result<()> {
@@ -403,7 +407,7 @@ impl BackupSet {
         let backup_set_dir_ref = self.root_path.as_ref();
 
         for (_, records_vec) in &self.backup_records {
-                       stats.folder_count += 1; // This counts folders in backup_records map, not file system folders.
+            stats.folder_count += 1; // This counts folders in backup_records map, not file system folders.
             stats.record_count += records_vec.len() as u32;
 
             for generic_record in records_vec {
@@ -644,7 +648,7 @@ impl BackupSet {
     /// Find real blob locations for files in the backup records
     /// This can be used when binary parsing produces fake blob paths
     pub fn find_all_blob_locations(&self) -> Vec<crate::blob_location::BlobLoc> {
-               let mut blob_locations = Vec::new();
+        let mut blob_locations = Vec::new();
 
         for (_, records_vec) in &self.backup_records {
             for generic_record in records_vec {
@@ -656,7 +660,7 @@ impl BackupSet {
                         if let Some(key) = &record.arq5_tree_blob_key {
                             // Convert crate::blob::BlobKey to crate::blob_location::BlobLoc.
                             blob_locations.push(crate::blob_location::BlobLoc {
-                                                               blob_identifier: key.sha1.clone(),
+                                blob_identifier: key.sha1.clone(),
                                 compression_type: key.compression_type,
                                 is_packed: false,
                                 length: key.archive_size, // From unified BlobKey
@@ -681,7 +685,7 @@ fn collect_blob_locations_from_node(
     node: &crate::node::Node,
     blob_locations: &mut Vec<crate::blob_location::BlobLoc>,
 ) {
-       // Add data blob locations from this node
+    // Add data blob locations from this node
     for blob_loc in &node.data_blob_locs {
         blob_locations.push(blob_loc.clone().into());
     }
@@ -705,7 +709,8 @@ fn collect_blob_locations_from_node(
 
 /// Helper function for metadata extraction
 fn count_files_in_node(
-    node: &crate::node::Node,    backup_set_dir: &Path,
+    node: &crate::node::Node,
+    backup_set_dir: &Path,
     keyset: Option<&EncryptedKeySet>,
 ) -> Result<(u32, u64)> {
     if !node.is_tree {

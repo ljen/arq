@@ -25,18 +25,18 @@
 //! It also stores an index of the SHA1s contained in the pack as:
 //!
 //! `/<computer_uuid>/packsets/<folder_uuid>-(blobs|trees)/<sha1>.index`
-use byteorder::{NetworkEndian, ReadBytesExt};
-use std::io::{BufRead, BufReader, Cursor, Seek, SeekFrom};
-use std::path::PathBuf;
-use std::path::Path;
-use std::fs;
-use std::fs::File;
+use crate::arq7::EncryptedKeySet;
 use crate::compression::CompressionType;
 use crate::error::{Error, Result};
 use crate::object_encryption::{calculate_sha1sum, EncryptedObject};
 use crate::type_utils::ArqRead;
 use crate::utils::convert_to_hex_string;
-use crate::arq7::EncryptedKeySet;
+use byteorder::{NetworkEndian, ReadBytesExt};
+use std::fs;
+use std::fs::File;
+use std::io::{BufRead, BufReader, Cursor, Seek, SeekFrom};
+use std::path::Path;
+use std::path::PathBuf;
 
 pub struct PackSet {
     path: PathBuf,
@@ -445,12 +445,7 @@ impl PackObject {
     }
 }
 
-
-pub fn restore_blob_with_sha(
-    path: &Path,
-    sha: &str,
-    keyset: &EncryptedKeySet,
-) -> Result<Vec<u8>> {
+pub fn restore_blob_with_sha(path: &Path, sha: &str, keyset: &EncryptedKeySet) -> Result<Vec<u8>> {
     for entry_result in fs::read_dir(path)? {
         let entry = entry_result?;
 

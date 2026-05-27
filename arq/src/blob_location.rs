@@ -9,6 +9,8 @@ use crate::arq7::EncryptedKeySet; // For encryption/decryption
 use crate::error::{Error, Result};
 use crate::object_encryption::EncryptedObject; // For decryption logic
 
+const MAX_BLOB_SIZE: u64 = 4 * 1024 * 1024 * 1024; // 4 GB
+
 /// BlobLoc describes the location of a blob
 #[derive(Debug, Clone, Deserialize, Serialize, PartialEq)]
 pub struct BlobLoc {
@@ -30,50 +32,103 @@ pub struct BlobLoc {
 }
 
 impl BlobLoc {
-    /// Parse a BlobLoc from binary data according to Arq 7 format with enhanced error recovery.
+    /// Parse a BlobLoc from binary data according to the documented Arq 7 format.
     pub fn from_binary_reader<R: ArqBinaryReader>(reader: &mut R) -> Result<Self> {
         let blob_identifier = reader.read_arq_string_required()?;
         let is_packed = reader.read_arq_bool()?;
-        let is_large_pack_binary = reader.read_arq_bool()?;
+        let loc = Self::read_binary_fields(reader, None)?;
 
-        let relative_path_opt = reader.read_arq_string();
+        Ok(BlobLoc {
+            blob_identifier,
+            is_packed,
+            ..loc
+        })
+    }
 
-        // TODO: Handle potential misaligned relativePath data.
-        // The test `arq::tests::tree_parsing_fix_test::test_misaligned_relative_path_parsing`
-        // is designed to check a scenario where `relativePath.isNotNull` is false (0x00),
-        // but the subsequent bytes actually contain path data (e.g., starting with 0x01 for
-        // an isNotNull=true flag for this "hidden" path).
-        // The current implementation calls `read_arq_string` once. If it returns None
-        // due to the initial 0x00 flag, `relative_path` becomes empty. The subsequent
-        // reads for `offset`, `length`, etc., would then consume the bytes of the
-        // "hidden" path, leading to incorrect parsing of those fields.
-        // A robust fix would require the reader `R` to support peeking or seeking,
-        // or a more complex read-ahead buffering strategy within `read_arq_string` or here,
-        // to detect and recover from this specific misalignment.
-        // For now, this simpler parsing is maintained. The aforementioned test will likely
-        // fail or report incorrect values if the misalignment occurs and is not handled
-        // by a higher-level process or a specifically crafted reader.
-        let relative_path = match relative_path_opt {
-            Ok(Some(path)) => path,
-            Ok(None) => String::new(), // Default to empty if None
-            Err(e) => return Err(e), // Propagate error if string read failed
+    /// Parse a BlobLoc with fallback for observed Arq 7 data that includes an extra isLargePack flag.
+    pub(crate) fn from_binary_reader_with_recovery<R: ArqBinaryReader + Seek>(
+        reader: &mut R,
+    ) -> Result<Self> {
+        let blob_identifier = reader.read_arq_string_required()?;
+        let is_packed = reader.read_arq_bool()?;
+        let layout_start = reader.stream_position()?;
+
+        let official = match Self::read_binary_fields(reader, None) {
+            Ok(loc) => Some((loc, reader.stream_position()?)),
+            Err(_) => None,
         };
 
+        if let Some((loc, _)) = &official {
+            if loc.has_valid_binary_fields() {
+                return Ok(BlobLoc {
+                    blob_identifier,
+                    is_packed,
+                    ..loc.clone()
+                });
+            }
+        }
+
+        reader.seek(SeekFrom::Start(layout_start))?;
+        let fallback_error = match reader.read_arq_bool() {
+            Ok(is_large_pack) => match Self::read_binary_fields(reader, Some(is_large_pack)) {
+                Ok(loc) if loc.has_valid_binary_fields() => {
+                    return Ok(BlobLoc {
+                        blob_identifier,
+                        is_packed,
+                        ..loc
+                    });
+                }
+                Ok(loc) if official.is_none() => {
+                    return Ok(BlobLoc {
+                        blob_identifier,
+                        is_packed,
+                        ..loc
+                    });
+                }
+                Ok(_) => None,
+                Err(e) => Some(e),
+            },
+            Err(e) => Some(e),
+        };
+
+        if let Some((loc, end)) = official {
+            reader.seek(SeekFrom::Start(end))?;
+            return Ok(BlobLoc {
+                blob_identifier,
+                is_packed,
+                ..loc
+            });
+        }
+
+        Err(fallback_error.unwrap_or(Error::ParseError))
+    }
+
+    fn read_binary_fields<R: ArqBinaryReader>(
+        reader: &mut R,
+        is_large_pack: Option<bool>,
+    ) -> Result<Self> {
+        let relative_path = reader.read_arq_string()?.unwrap_or_default();
         let offset = reader.read_arq_u64()?;
         let length = reader.read_arq_u64()?;
         let stretch_encryption_key = reader.read_arq_bool()?;
         let compression_type = reader.read_arq_u32()?;
 
         Ok(BlobLoc {
-            blob_identifier,
-            is_packed,
-            is_large_pack: Some(is_large_pack_binary),
+            blob_identifier: String::new(),
+            is_packed: false,
+            is_large_pack,
             relative_path,
             offset,
             length,
             stretch_encryption_key,
             compression_type,
         })
+    }
+
+    fn has_valid_binary_fields(&self) -> bool {
+        self.compression_type <= 2
+            && self.length <= MAX_BLOB_SIZE
+            && (self.relative_path.is_empty() || Self::is_valid_path(&self.relative_path))
     }
 
     /// Validate if a string looks like a reasonable file path
@@ -193,7 +248,6 @@ impl BlobLoc {
         file.seek(SeekFrom::Start(self.offset))
             .map_err(Error::IoError)?;
 
-        const MAX_BLOB_SIZE: u64 = 4 * 1024 * 1024 * 1024; // 4 GB
         if self.length > MAX_BLOB_SIZE {
             return Err(Error::InvalidFormat(format!(
                 "Blob length {} exceeds maximum allowed size",
@@ -297,5 +351,72 @@ impl BlobLoc {
         keyset: Option<&EncryptedKeySet>,
     ) -> Result<Vec<u8>> {
         self.load_data(backup_set_path, keyset)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::io::{Cursor, Read};
+
+    struct NonSeekReader {
+        inner: Cursor<Vec<u8>>,
+    }
+
+    impl Read for NonSeekReader {
+        fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
+            self.inner.read(buf)
+        }
+    }
+
+    fn arq_string(value: &str) -> Vec<u8> {
+        let mut bytes = vec![1];
+        bytes.extend_from_slice(&(value.len() as u64).to_be_bytes());
+        bytes.extend_from_slice(value.as_bytes());
+        bytes
+    }
+
+    #[test]
+    fn parses_official_arq7_binary_blobloc_without_large_pack_flag() {
+        let mut data = Vec::new();
+        data.extend(arq_string("abc123"));
+        data.push(1);
+        data.extend(arq_string("/PLAN/blobpacks/AA/example.pack"));
+        data.extend_from_slice(&12u64.to_be_bytes());
+        data.extend_from_slice(&34u64.to_be_bytes());
+        data.push(1);
+        data.extend_from_slice(&2u32.to_be_bytes());
+
+        let mut cursor = Cursor::new(data);
+        let loc = BlobLoc::from_binary_reader(&mut cursor).unwrap();
+
+        assert_eq!(loc.blob_identifier, "abc123");
+        assert!(loc.is_packed);
+        assert_eq!(loc.is_large_pack, None);
+        assert_eq!(loc.relative_path, "/PLAN/blobpacks/AA/example.pack");
+        assert_eq!(loc.offset, 12);
+        assert_eq!(loc.length, 34);
+        assert!(loc.stretch_encryption_key);
+        assert_eq!(loc.compression_type, 2);
+    }
+
+    #[test]
+    fn parses_official_arq7_binary_blobloc_from_non_seek_reader() {
+        let mut data = Vec::new();
+        data.extend(arq_string("abc123"));
+        data.push(1);
+        data.extend(arq_string("/PLAN/blobpacks/AA/example.pack"));
+        data.extend_from_slice(&12u64.to_be_bytes());
+        data.extend_from_slice(&34u64.to_be_bytes());
+        data.push(1);
+        data.extend_from_slice(&2u32.to_be_bytes());
+
+        let mut reader = NonSeekReader {
+            inner: Cursor::new(data),
+        };
+        let loc = BlobLoc::from_binary_reader(&mut reader).unwrap();
+
+        assert_eq!(loc.blob_identifier, "abc123");
+        assert_eq!(loc.relative_path, "/PLAN/blobpacks/AA/example.pack");
     }
 }

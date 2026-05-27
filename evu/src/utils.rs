@@ -30,10 +30,7 @@ pub fn read_arq_folder(
 }
 
 pub fn find_latest_folder_sha(path: &str, _computer: &str, folder: &str) -> Result<String> {
-    let refs_path = Path::new(path)
-        .join("bucketdata")
-        .join(folder)
-        .join("refs");
+    let refs_path = Path::new(path).join("bucketdata").join(folder).join("refs");
 
     let folder_data_path = get_latest_folder_data_path(&refs_path.join("logs").join("master"))?;
     let master_sha_path = refs_path.join("heads").join("master");
@@ -48,7 +45,11 @@ pub fn get_file_reader(filename: &Path) -> IoResult<BufReader<File>> {
     Ok(BufReader::new(file))
 }
 
-pub fn get_master_keys(path: &str, _computer: &str, password: Option<&str>) -> Result<Vec<Vec<u8>>> {
+pub fn get_master_keys(
+    path: &str,
+    _computer: &str,
+    password: Option<&str>,
+) -> Result<Vec<Vec<u8>>> {
     let enc_path = Path::new(path).join("encryptionv3.dat");
     let mut reader = get_file_reader(&enc_path)?;
     let password = match password {

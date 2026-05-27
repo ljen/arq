@@ -27,6 +27,7 @@ use crate::blob_location::BlobLoc;
 use crate::compression::CompressionType; // For legacy fields
 use crate::error::Result;
 use crate::type_utils::ArqRead; // For Arq7 binary parsing
+use std::io::{Cursor, SeekFrom};
 
 /// Represents a file system node (a file or a directory) in a unified way,
 /// accommodating fields from different Arq backup formats (Arq 5/6 legacy and Arq 7).
@@ -49,6 +50,12 @@ use crate::type_utils::ArqRead; // For Arq7 binary parsing
 /// - Arq5-specific fields like `arq5_data_compression_type` or `arq5_finder_flags` are stored
 ///   optionally to preserve information when parsing older formats. These are typically not
 ///   serialized to JSON.
+#[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]
+pub struct SparseHole {
+    pub offset: u64,
+    pub length: u64,
+}
+
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct Node {
     // Common fields (mostly from Arq7 structure for JSON compatibility)
@@ -125,6 +132,41 @@ pub struct Node {
         default
     )]
     pub reparse_point_is_directory: Option<bool>,
+
+    #[serde(
+        rename = "addedTime_sec",
+        skip_serializing_if = "Option::is_none",
+        default
+    )]
+    pub added_time_sec: Option<i64>,
+    #[serde(
+        rename = "addedTime_nsec",
+        skip_serializing_if = "Option::is_none",
+        default
+    )]
+    pub added_time_nsec: Option<i64>,
+    #[serde(
+        rename = "documentID",
+        skip_serializing_if = "Option::is_none",
+        default
+    )]
+    pub document_id: Option<u32>,
+    #[serde(
+        rename = "hasDocumentID",
+        skip_serializing_if = "Option::is_none",
+        default
+    )]
+    pub has_document_id: Option<bool>,
+    #[serde(rename = "isSparse", skip_serializing_if = "Option::is_none", default)]
+    pub is_sparse: Option<bool>,
+    #[serde(
+        rename = "sparseLogicalSize",
+        skip_serializing_if = "Option::is_none",
+        default
+    )]
+    pub sparse_logical_size: Option<u64>,
+    #[serde(rename = "sparseHoles", skip_serializing_if = "Vec::is_empty", default)]
+    pub sparse_holes: Vec<SparseHole>,
 
     // Counts (Arq7)
     #[serde(
@@ -213,9 +255,19 @@ impl Node {
         reader: &mut R,
         tree_version: Option<u32>, // Arq7 tree version (e.g., from BinaryTree header)
     ) -> Result<Self> {
+        let mut data = Vec::new();
+        reader.read_to_end(&mut data)?;
+        let mut cursor = Cursor::new(data);
+        Self::from_binary_reader_arq7_with_recovery(&mut cursor, tree_version)
+    }
+
+    pub(crate) fn from_binary_reader_arq7_with_recovery<R: ArqBinaryReader + std::io::Seek>(
+        reader: &mut R,
+        tree_version: Option<u32>, // Arq7 tree version (e.g., from BinaryTree header)
+    ) -> Result<Self> {
         let is_tree = reader.read_arq_bool()?;
         let tree_blob_loc = if is_tree {
-            BlobLoc::from_binary_reader(reader).ok()
+            BlobLoc::from_binary_reader_with_recovery(reader).ok()
         } else {
             None
         };
@@ -224,26 +276,46 @@ impl Node {
         let data_blob_locs_count = reader.read_arq_u64()?;
         let mut data_blob_locs = Vec::new();
         for _i in 0..data_blob_locs_count {
-            data_blob_locs.push(BlobLoc::from_binary_reader(reader).map_err(|e| {
-                crate::error::Error::InvalidFormat(format!("Failed to parse data BlobLoc: {}", e))
-            })?);
+            data_blob_locs.push(BlobLoc::from_binary_reader_with_recovery(reader).map_err(
+                |e| {
+                    crate::error::Error::InvalidFormat(format!(
+                        "Failed to parse data BlobLoc: {}",
+                        e
+                    ))
+                },
+            )?);
         }
 
         let acl_blob_loc = match reader.read_arq_bool()? {
-            true => Some(BlobLoc::from_binary_reader(reader).map_err(|e| {
-                crate::error::Error::InvalidFormat(format!("Failed to parse acl BlobLoc: {}", e))
-                // Changed to InvalidFormat
-            })?),
+            true => Some(
+                BlobLoc::from_binary_reader_with_recovery(reader).map_err(|e| {
+                    crate::error::Error::InvalidFormat(format!(
+                        "Failed to parse acl BlobLoc: {}",
+                        e
+                    ))
+                    // Changed to InvalidFormat
+                })?,
+            ),
             false => None,
         };
 
-        let xattrs_blob_locs_count = reader.read_arq_u32().unwrap_or(0);
+        let xattrs_count_start = reader.stream_position()?;
+        let mut xattrs_blob_locs_count = reader.read_arq_u64().unwrap_or(0);
+        if xattrs_blob_locs_count > 1_000_000 {
+            reader.seek(SeekFrom::Start(xattrs_count_start))?;
+            xattrs_blob_locs_count = reader.read_arq_u32().map(u64::from).unwrap_or(0);
+        }
 
         let mut parsed_xattrs_blob_locs = Vec::new();
         for _ in 0..xattrs_blob_locs_count {
-            parsed_xattrs_blob_locs.push(BlobLoc::from_binary_reader(reader).map_err(|e| {
-                crate::error::Error::InvalidFormat(format!("Failed to parse xattrs BlobLoc: {}", e))
-            })?);
+            parsed_xattrs_blob_locs.push(
+                BlobLoc::from_binary_reader_with_recovery(reader).map_err(|e| {
+                    crate::error::Error::InvalidFormat(format!(
+                        "Failed to parse xattrs BlobLoc: {}",
+                        e
+                    ))
+                })?,
+            );
         }
         let xattrs_blob_locs = if parsed_xattrs_blob_locs.is_empty() {
             None
@@ -251,9 +323,15 @@ impl Node {
             Some(parsed_xattrs_blob_locs)
         };
 
-        let _unknown_u32 = reader.read_arq_u32();
-        let item_size = reader.read_arq_u64()?;
-        let contained_files_count = reader.read_arq_u64().ok();
+        let size_fields_start = reader.stream_position()?;
+        let mut item_size = reader.read_arq_u64()?;
+        let mut contained_files_count = reader.read_arq_u64().ok();
+        if contained_files_count.is_some_and(|count| count > 1_000_000_000) {
+            reader.seek(std::io::SeekFrom::Start(size_fields_start))?;
+            let _legacy_padding = reader.read_arq_u32()?;
+            item_size = reader.read_arq_u64()?;
+            contained_files_count = reader.read_arq_u64().ok();
+        }
 
         let modification_time_sec = reader.read_arq_i64().unwrap_or(0);
         let modification_time_nsec = reader.read_arq_i64().unwrap_or(0);
@@ -284,14 +362,38 @@ impl Node {
         let mut reparse_tag = None;
         let mut reparse_point_is_directory = None;
 
-        // Arq 7 binary Node format has versioning for reparse points based on Tree version,
-        // but the provided `arq::arq7::Node::from_binary_reader` uses tree_version >= 3.
-        // The `arq::arq7::binary::BinaryTree` itself has a version.
-        // We assume `tree_version` passed here corresponds to the version of the containing tree.
-        if tree_version.unwrap_or(0) >= 3 {
-            // Default to 0 if no tree_version, won't read these
+        if tree_version.unwrap_or(0) >= 2 {
+            let reparse_start = reader.stream_position()?;
             reparse_tag = reader.read_arq_u32().ok();
             reparse_point_is_directory = reader.read_arq_bool().ok();
+            if reparse_tag == Some(0x0100_0000) && reparse_point_is_directory == Some(false) {
+                reader.seek(std::io::SeekFrom::Start(reparse_start))?;
+                reparse_tag = None;
+                reparse_point_is_directory = None;
+            }
+        }
+
+        let mut added_time_sec = None;
+        let mut added_time_nsec = None;
+        let mut document_id = None;
+        let mut has_document_id = None;
+        let mut is_sparse = None;
+        let mut sparse_logical_size = None;
+        let mut sparse_holes = Vec::new();
+
+        if tree_version.unwrap_or(0) >= 4 {
+            added_time_sec = Some(reader.read_arq_i64()?);
+            added_time_nsec = Some(reader.read_arq_i64()?);
+            document_id = Some(reader.read_arq_u32()?);
+            has_document_id = Some(reader.read_arq_bool()?);
+            is_sparse = Some(reader.read_arq_bool()?);
+            sparse_logical_size = Some(reader.read_arq_u64()?);
+            let hole_count = reader.read_arq_u64()?;
+            for _ in 0..hole_count {
+                let offset = reader.read_arq_u64()?;
+                let length = reader.read_arq_u64()?;
+                sparse_holes.push(SparseHole { offset, length });
+            }
         }
 
         Ok(Node {
@@ -323,6 +425,13 @@ impl Node {
             acl_blob_loc,
             reparse_tag,
             reparse_point_is_directory,
+            added_time_sec,
+            added_time_nsec,
+            document_id,
+            has_document_id,
+            is_sparse,
+            sparse_logical_size,
+            sparse_holes,
             // Arq5 specific fields are None when parsing from Arq7
             arq5_tree_contains_missing_items: None,
             arq5_data_compression_type: None,
@@ -527,6 +636,13 @@ impl Node {
             win_attrs: None, // No Windows specific attributes in Arq5 node format
             reparse_tag: None,
             reparse_point_is_directory: None,
+            added_time_sec: None,
+            added_time_nsec: None,
+            document_id: None,
+            has_document_id: None,
+            is_sparse: None,
+            sparse_logical_size: None,
+            sparse_holes: Vec::new(),
 
             contained_files_count: None, // Arq5 Node doesn't store this directly; Tree does.
 
@@ -689,5 +805,206 @@ impl Node {
         std::fs::write(output_path.as_ref(), file_data)
             .map_err(|e| crate::error::Error::IoError(e))?; // Map std::io::Error to crate::error::Error
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::io::{Cursor, Read};
+
+    struct NonSeekReader {
+        inner: Cursor<Vec<u8>>,
+    }
+
+    impl Read for NonSeekReader {
+        fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
+            self.inner.read(buf)
+        }
+    }
+
+    fn arq_string(value: &str) -> Vec<u8> {
+        let mut bytes = vec![1];
+        bytes.extend_from_slice(&(value.len() as u64).to_be_bytes());
+        bytes.extend_from_slice(value.as_bytes());
+        bytes
+    }
+
+    fn arq_null_string() -> Vec<u8> {
+        vec![0]
+    }
+
+    fn official_blob_loc(identifier: &str) -> Vec<u8> {
+        let mut data = Vec::new();
+        data.extend(arq_string(identifier));
+        data.push(1);
+        data.extend(arq_string("/PLAN/blobpacks/AA/example.pack"));
+        data.extend_from_slice(&12u64.to_be_bytes());
+        data.extend_from_slice(&34u64.to_be_bytes());
+        data.push(1);
+        data.extend_from_slice(&2u32.to_be_bytes());
+        data
+    }
+
+    fn official_minimal_file_node_prefix() -> Vec<u8> {
+        let mut data = Vec::new();
+        data.push(0); // isTree
+        data.extend_from_slice(&1u32.to_be_bytes()); // computerOSType
+        data.extend_from_slice(&0u64.to_be_bytes()); // dataBlobLocsCount
+        data.push(0); // aclBlobLocIsNotNil
+        data.extend_from_slice(&0u64.to_be_bytes()); // xattrsBlobLocCount
+        data.extend_from_slice(&42u64.to_be_bytes()); // itemSize
+        data.extend_from_slice(&0u64.to_be_bytes()); // containedFilesCount
+        for value in [10i64, 11, 12, 13, 14, 15] {
+            data.extend_from_slice(&value.to_be_bytes());
+        }
+        data.extend(arq_null_string()); // username
+        data.extend(arq_null_string()); // groupName
+        data.push(0); // deleted
+        data.extend_from_slice(&1i32.to_be_bytes());
+        data.extend_from_slice(&2u64.to_be_bytes());
+        data.extend_from_slice(&0o100644u32.to_be_bytes());
+        data.extend_from_slice(&1u32.to_be_bytes());
+        data.extend_from_slice(&501u32.to_be_bytes());
+        data.extend_from_slice(&20u32.to_be_bytes());
+        data.extend_from_slice(&0i32.to_be_bytes());
+        data.extend_from_slice(&0i32.to_be_bytes());
+        data.extend_from_slice(&32u32.to_be_bytes()); // winAttrs
+        data.extend_from_slice(&0u32.to_be_bytes()); // win_reparse_tag
+        data.push(0); // win_reparse_point_is_directory
+        data
+    }
+
+    #[test]
+    fn parses_official_arq7_node_xattrs_and_tree_v2_reparse_fields() {
+        let mut data = Vec::new();
+        data.push(0); // isTree
+        data.extend_from_slice(&1u32.to_be_bytes()); // computerOSType
+        data.extend_from_slice(&0u64.to_be_bytes()); // dataBlobLocsCount
+        data.push(0); // aclBlobLocIsNotNil
+        data.extend_from_slice(&1u64.to_be_bytes()); // xattrsBlobLocCount
+        data.extend(official_blob_loc("xattr-blob"));
+        data.extend_from_slice(&42u64.to_be_bytes()); // itemSize
+        data.extend_from_slice(&0u64.to_be_bytes()); // containedFilesCount
+        for value in [10i64, 11, 12, 13, 14, 15] {
+            data.extend_from_slice(&value.to_be_bytes());
+        }
+        data.extend(arq_null_string()); // username
+        data.extend(arq_null_string()); // groupName
+        data.push(0); // deleted
+        data.extend_from_slice(&1i32.to_be_bytes());
+        data.extend_from_slice(&2u64.to_be_bytes());
+        data.extend_from_slice(&0o100644u32.to_be_bytes());
+        data.extend_from_slice(&1u32.to_be_bytes());
+        data.extend_from_slice(&501u32.to_be_bytes());
+        data.extend_from_slice(&20u32.to_be_bytes());
+        data.extend_from_slice(&0i32.to_be_bytes());
+        data.extend_from_slice(&0i32.to_be_bytes());
+        data.extend_from_slice(&32u32.to_be_bytes()); // winAttrs
+        data.extend_from_slice(&99u32.to_be_bytes()); // win_reparse_tag for Tree version >= 2
+        data.push(1); // win_reparse_point_is_directory
+
+        let mut cursor = Cursor::new(data);
+        let node = Node::from_binary_reader_arq7(&mut cursor, Some(2)).unwrap();
+
+        assert_eq!(node.item_size, 42);
+        assert_eq!(node.xattrs_blob_locs.as_ref().unwrap().len(), 1);
+        assert_eq!(
+            node.xattrs_blob_locs.as_ref().unwrap()[0].blob_identifier,
+            "xattr-blob"
+        );
+        assert_eq!(node.reparse_tag, Some(99));
+        assert_eq!(node.reparse_point_is_directory, Some(true));
+    }
+
+    #[test]
+    fn parses_official_arq7_tree_v4_node_metadata() {
+        let mut data = official_minimal_file_node_prefix();
+        data.extend_from_slice(&100i64.to_be_bytes()); // added_time_sec
+        data.extend_from_slice(&200i64.to_be_bytes()); // added_time_nsec
+        data.extend_from_slice(&1234u32.to_be_bytes()); // document_id
+        data.push(1); // has_document_id
+        data.push(1); // is_sparse
+        data.extend_from_slice(&4096u64.to_be_bytes()); // sparse_logical_size
+        data.extend_from_slice(&1u64.to_be_bytes()); // hole_count
+        data.extend_from_slice(&1024u64.to_be_bytes()); // hole_offset
+        data.extend_from_slice(&512u64.to_be_bytes()); // hole_length
+
+        let mut cursor = Cursor::new(data);
+        let node = Node::from_binary_reader_arq7(&mut cursor, Some(4)).unwrap();
+
+        assert_eq!(node.added_time_sec, Some(100));
+        assert_eq!(node.added_time_nsec, Some(200));
+        assert_eq!(node.document_id, Some(1234));
+        assert_eq!(node.has_document_id, Some(true));
+        assert_eq!(node.is_sparse, Some(true));
+        assert_eq!(node.sparse_logical_size, Some(4096));
+        assert_eq!(node.sparse_holes.len(), 1);
+        assert_eq!(node.sparse_holes[0].offset, 1024);
+        assert_eq!(node.sparse_holes[0].length, 512);
+    }
+
+    #[test]
+    fn parses_official_arq7_node_from_non_seek_reader() {
+        let data = official_minimal_file_node_prefix();
+        let mut reader = NonSeekReader {
+            inner: Cursor::new(data),
+        };
+
+        let node = Node::from_binary_reader_arq7(&mut reader, Some(2)).unwrap();
+
+        assert_eq!(node.item_size, 42);
+        assert_eq!(node.reparse_tag, Some(0));
+        assert_eq!(node.reparse_point_is_directory, Some(false));
+    }
+
+    #[test]
+    fn parses_legacy_arq7_node_with_nonzero_xattrs_count() {
+        let mut data = Vec::new();
+        data.push(0); // isTree
+        data.extend_from_slice(&1u32.to_be_bytes()); // computerOSType
+        data.extend_from_slice(&0u64.to_be_bytes()); // dataBlobLocsCount
+        data.push(0); // aclBlobLocIsNotNil
+        data.extend_from_slice(&1u32.to_be_bytes()); // legacy xattrsBlobLocCount
+        data.extend(official_blob_loc("legacy-xattr"));
+        data.extend_from_slice(&0u32.to_be_bytes()); // legacy padding before itemSize
+        data.extend_from_slice(&42u64.to_be_bytes()); // itemSize
+        data.extend_from_slice(&0u64.to_be_bytes()); // containedFilesCount
+        for value in [10i64, 11, 12, 13, 14, 15] {
+            data.extend_from_slice(&value.to_be_bytes());
+        }
+        data.extend(arq_null_string()); // username
+        data.extend(arq_null_string()); // groupName
+        data.push(0); // deleted
+        data.extend_from_slice(&1i32.to_be_bytes());
+        data.extend_from_slice(&2u64.to_be_bytes());
+        data.extend_from_slice(&0o100644u32.to_be_bytes());
+        data.extend_from_slice(&1u32.to_be_bytes());
+        data.extend_from_slice(&501u32.to_be_bytes());
+        data.extend_from_slice(&20u32.to_be_bytes());
+        data.extend_from_slice(&0i32.to_be_bytes());
+        data.extend_from_slice(&0i32.to_be_bytes());
+        data.extend_from_slice(&32u32.to_be_bytes()); // winAttrs
+
+        let mut cursor = Cursor::new(data);
+        let node = Node::from_binary_reader_arq7(&mut cursor, Some(1)).unwrap();
+
+        assert_eq!(node.item_size, 42);
+        assert_eq!(node.xattrs_blob_locs.as_ref().unwrap().len(), 1);
+        assert_eq!(
+            node.xattrs_blob_locs.as_ref().unwrap()[0].blob_identifier,
+            "legacy-xattr"
+        );
+    }
+
+    #[test]
+    fn rejects_truncated_arq7_tree_v4_metadata() {
+        let mut data = official_minimal_file_node_prefix();
+        data.extend_from_slice(&100i64.to_be_bytes()); // added_time_sec
+
+        let mut cursor = Cursor::new(data);
+        let err = Node::from_binary_reader_arq7(&mut cursor, Some(4)).unwrap_err();
+
+        assert!(err.to_string().contains("failed to fill whole buffer"));
     }
 }

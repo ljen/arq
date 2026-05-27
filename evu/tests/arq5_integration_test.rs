@@ -22,9 +22,13 @@ fn test_arq5_show_folders() {
 
     cmd.assert()
         .success()
-        .stdout(predicate::str::contains("Folders for computer AA16A39F-AEDC-42A5-A15B-DAA09EA22E1D"))
+        .stdout(predicate::str::contains(
+            "Folders for computer AA16A39F-AEDC-42A5-A15B-DAA09EA22E1D",
+        ))
         .stdout(predicate::str::contains("Bucket: company"))
-        .stdout(predicate::str::contains("408E376B-ECF7-4688-902A-1E7671BC5B9A"));
+        .stdout(predicate::str::contains(
+            "408E376B-ECF7-4688-902A-1E7671BC5B9A",
+        ));
 }
 
 #[test]
@@ -41,6 +45,8 @@ fn test_arq5_show_tree() {
 
     cmd.assert()
         .success()
-        .stdout(predicate::str::contains("Tree for folder 408E376B-ECF7-4688-902A-1E7671BC5B9A"))
+        .stdout(predicate::str::contains(
+            "Tree for folder 408E376B-ECF7-4688-902A-1E7671BC5B9A",
+        ))
         .stdout(predicate::str::contains("my-file.txt"));
 }

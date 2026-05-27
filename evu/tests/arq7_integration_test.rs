@@ -426,6 +426,29 @@ fn test_arq7_restore_full_record_unencrypted() {
 }
 
 #[test]
+fn test_arq7_restore_record_accepts_displayed_raw_timestamp() {
+    let record_id = "1751139835.0";
+    let output_dir = tempfile::Builder::new()
+        .prefix("evu_test_restore_raw_")
+        .tempdir()
+        .unwrap();
+
+    let mut cmd = get_evu_cmd();
+    cmd.arg("restore")
+        .arg("--path")
+        .arg(ARQ7_UNENCRYPTED_PATH)
+        .arg("record")
+        .arg("--record")
+        .arg(record_id)
+        .arg("--destination")
+        .arg(output_dir.path().to_str().unwrap());
+
+    cmd.assert().success();
+
+    assert!(output_dir.path().join("record_1751139835").exists());
+}
+
+#[test]
 fn test_arq7_restore_all_folder_versions_unencrypted() {
     let backup_path_str = ARQ7_UNENCRYPTED_PATH;
     let folder_to_restore =
