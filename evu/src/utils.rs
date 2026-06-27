@@ -175,4 +175,10 @@ mod tests {
         let result = get_file_reader(&non_existent_path);
         assert!(result.is_err(), "Expected an error when opening non-existent file");
     }
+
+    #[test]
+    fn test_is_debug_enabled_default() {
+        // By default, the IS_DEBUG atomic bool should be initialized to false.
+        assert_eq!(is_debug_enabled(), false);
+    }
 }
