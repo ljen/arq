@@ -13,10 +13,6 @@ pub fn parse_flags<'a>() -> clap::ArgMatches<'a> {
             clap::Arg::from_usage("-p --path [path] 'Path to the Arq backup data (computer UUID folder for Arq5, backup set root for Arq7)'")
                 .global(true)
         )
-        .arg( // Added global password argument
-            clap::Arg::from_usage("--password [password] 'Password for encrypted Arq backups (optional)'")
-                .global(true)
-        )
         .subcommand(
             clap::SubCommand::with_name("show")
                 .about("Display Arq 5 resources")
