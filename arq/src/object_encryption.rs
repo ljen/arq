@@ -263,7 +263,7 @@ impl EncryptionDat {
 /// 3. Decrypt "encrypted data IV + session key" using the first "master key" from the Encryption Dat File and the "master IV".
 /// 4. Decrypt the ciphertext using the session key and data IV.
 pub struct EncryptedObject {
-    hmac_sha256: Vec<u8>, //TODO: can we make this [u8; size?]
+    hmac_sha256: [u8; 32],
     master_iv: Vec<u8>,
     encrypted_data_iv_session: Vec<u8>,
     ciphertext: Vec<u8>,
@@ -273,7 +273,7 @@ impl EncryptedObject {
     pub fn new<R: ArqRead + BufRead>(mut reader: R) -> Result<EncryptedObject> {
         let header = reader.read_bytes(4)?.to_vec();
         assert_eq!(header, [65, 82, 81, 79]); // ARQO
-        let hmac_sha256 = reader.read_bytes(32)?.to_vec();
+        let hmac_sha256: [u8; 32] = reader.read_bytes(32)?.try_into().unwrap();
         let master_iv = reader.read_bytes(16)?.to_vec();
         let encrypted_data_iv_session = reader.read_bytes(64)?.to_vec();
         let mut ciphertext: Vec<u8> = Vec::new();
