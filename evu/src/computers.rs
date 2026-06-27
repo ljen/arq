@@ -25,3 +25,14 @@ pub fn show(path: &str) -> Result<()> {
     }
     Ok(())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_get_computers_invalid_path() {
+        let result = get_computers("/nonexistent/path/that/should/fail");
+        assert!(result.is_err(), "Expected an error for an invalid path");
+    }
+}
