@@ -341,10 +341,21 @@ mod tests {
     #[test]
     fn test_calculate_sha1sum() {
         let message = "message".as_bytes();
-        println!("{:#?}", calculate_sha1sum(message));
         assert_eq!(
             hex!("6f9b9af3cd6e8b8a73c2cdced37fe9f59226e27d"),
             calculate_sha1sum(message)[..]
+        );
+
+        let empty = "".as_bytes();
+        assert_eq!(
+            hex!("da39a3ee5e6b4b0d3255bfef95601890afd80709"),
+            calculate_sha1sum(empty)[..]
+        );
+
+        let fox = "The quick brown fox jumps over the lazy dog".as_bytes();
+        assert_eq!(
+            hex!("2fd4e1c67a2d28fced849ee1bb76e7391b93eb12"),
+            calculate_sha1sum(fox)[..]
         );
     }
 }
