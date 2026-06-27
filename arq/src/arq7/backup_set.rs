@@ -348,17 +348,7 @@ impl BackupSet {
         if !node.is_tree {
             return Ok(None);
         }
-        // TODO: This method needs to be implemented on crate::node::Node
-        // For now, assume it returns Ok(None) to allow compilation.
-        // This will affect functionality until `crate::node::Node::load_tree_with_encryption` is implemented.
-        // if let Some(tree) =
-        //     node.load_tree_with_encryption(backup_set_dir_ref, self.encryption_keyset.as_ref())?
-        // {
-        //     let target_name = path_parts[depth];
-        //     if let Some(child_node) = tree.child_nodes.get(target_name) {
-        //         return self.find_node_recursive(child_node, path_parts, depth + 1);
-        //     }
-        // }
+
         // Use the Node's own method now
         if let Some(tree) =
             node.load_tree_with_encryption(backup_set_dir_ref, self.encryption_keyset.as_ref())?
