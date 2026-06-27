@@ -251,8 +251,7 @@ pub struct PackIndex {
     pub objects: Vec<PackIndexObject>,
 
     pub glacier_archive_id_present: bool,
-    // TODO(nlopes): maybe this should be String
-    pub glacier_archive_id: Vec<u8>,
+    pub glacier_archive_id: String,
     pub glacier_pack_size: usize,
 }
 
@@ -308,7 +307,7 @@ impl PackIndex {
         }
 
         let mut glacier_archive_id_present: bool = false;
-        let mut glacier_archive_id: Vec<u8> = Vec::new();
+        let mut glacier_archive_id: String = String::new();
         let mut glacier_pack_size = 0;
 
         // TODO(nlopes): This is ugly. I don't have a current position due to using a
@@ -326,9 +325,8 @@ impl PackIndex {
             if glacier_archive_id_flag[0] == 0x01 {
                 glacier_archive_id_present = true;
                 let glacier_archive_id_strlen = reader.read_u64::<NetworkEndian>()?;
-                glacier_archive_id = reader
-                    .read_bytes(glacier_archive_id_strlen as usize)?
-                    .to_vec();
+                let archive_id_bytes = reader.read_bytes(glacier_archive_id_strlen as usize)?;
+                glacier_archive_id = String::from_utf8(archive_id_bytes.to_vec())?;
                 glacier_pack_size = reader.read_u64::<NetworkEndian>()?;
             }
         }
