@@ -263,7 +263,7 @@ impl EncryptionDat {
 /// 3. Decrypt "encrypted data IV + session key" using the first "master key" from the Encryption Dat File and the "master IV".
 /// 4. Decrypt the ciphertext using the session key and data IV.
 pub struct EncryptedObject {
-    hmac_sha256: Vec<u8>, //TODO: can we make this [u8; size?]
+    hmac_sha256: [u8; 32],
     master_iv: Vec<u8>,
     encrypted_data_iv_session: Vec<u8>,
     ciphertext: Vec<u8>,
@@ -273,7 +273,7 @@ impl EncryptedObject {
     pub fn new<R: ArqRead + BufRead>(mut reader: R) -> Result<EncryptedObject> {
         let header = reader.read_bytes(4)?.to_vec();
         assert_eq!(header, [65, 82, 81, 79]); // ARQO
-        let hmac_sha256 = reader.read_bytes(32)?.to_vec();
+        let hmac_sha256: [u8; 32] = reader.read_bytes(32)?.try_into().unwrap();
         let master_iv = reader.read_bytes(16)?.to_vec();
         let encrypted_data_iv_session = reader.read_bytes(64)?.to_vec();
         let mut ciphertext: Vec<u8> = Vec::new();
@@ -339,12 +339,56 @@ mod tests {
     }
 
     #[test]
+    fn test_calculate_hmacsha256_empty_secret_and_message() {
+        let secret = b"";
+        let message = b"";
+        let result = hex!("b613679a0814d9ec772f95d778c35fc5ff1697c493715653c6c712144292c5ad");
+        assert_eq!(result, calculate_hmacsha256(secret, message).unwrap()[..]);
+    }
+
+    #[test]
+    fn test_calculate_hmacsha256_empty_message() {
+        let secret = b"key";
+        let message = b"";
+        let result = hex!("5d5d139563c95b5967b9bd9a8c9b233a9dedb45072794cd232dc1b74832607d0");
+        assert_eq!(result, calculate_hmacsha256(secret, message).unwrap()[..]);
+    }
+
+    #[test]
+    fn test_calculate_hmacsha256_empty_secret() {
+        let secret = b"";
+        let message = b"message";
+        let result = hex!("eb08c1f56d5ddee07f7bdf80468083da06b64cf4fac64fe3a90883df5feacae4");
+        assert_eq!(result, calculate_hmacsha256(secret, message).unwrap()[..]);
+    }
+
+    #[test]
+    fn test_calculate_hmacsha256_rfc4231_tc1() {
+        // RFC 4231 Test Case 1
+        let secret = [0x0b; 20];
+        let message = b"Hi There";
+        let result = hex!("b0344c61d8db38535ca8afceaf0bf12b881dc200c9833da726e9376c2e32cff7");
+        assert_eq!(result, calculate_hmacsha256(&secret, message).unwrap()[..]);
+    }
+
+    #[test]
     fn test_calculate_sha1sum() {
         let message = "message".as_bytes();
-        println!("{:#?}", calculate_sha1sum(message));
         assert_eq!(
             hex!("6f9b9af3cd6e8b8a73c2cdced37fe9f59226e27d"),
             calculate_sha1sum(message)[..]
+        );
+
+        let empty = "".as_bytes();
+        assert_eq!(
+            hex!("da39a3ee5e6b4b0d3255bfef95601890afd80709"),
+            calculate_sha1sum(empty)[..]
+        );
+
+        let fox = "The quick brown fox jumps over the lazy dog".as_bytes();
+        assert_eq!(
+            hex!("2fd4e1c67a2d28fced849ee1bb76e7391b93eb12"),
+            calculate_sha1sum(fox)[..]
         );
     }
 }
