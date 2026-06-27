@@ -22,7 +22,7 @@ pub fn get_latest_folder_data_path(path: &Path) -> Result<PathBuf> {
         Err(e) => return Err(e.into()),
     };
     for entry in read_dir_result {
-        let filename = entry?.file_name().to_str().unwrap().to_string();
+        let filename = entry?.file_name().to_string_lossy().to_string();
         if filename > newest {
             newest = filename;
         }
@@ -61,7 +61,7 @@ pub fn get_file_reader(filename: PathBuf) -> BufReader<File> {
         Ok(f) => f,
         Err(err) => panic!(
             "Could not open file {}: {}",
-            filename.as_path().to_str().unwrap(),
+            filename.display(),
             err
         ),
     };
