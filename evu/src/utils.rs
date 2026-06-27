@@ -13,7 +13,7 @@ pub fn get_latest_folder_data_path(path: &Path) -> Result<PathBuf> {
     let mut newest = "0".to_string();
     // TODO(nlopes): what if the path doesn't exist? Provide nicer output.
     for entry in std::fs::read_dir(path)? {
-        let filename = entry?.file_name().to_str().unwrap().to_string();
+        let filename = entry?.file_name().to_string_lossy().to_string();
         if filename > newest {
             newest = filename;
         }
@@ -52,7 +52,7 @@ pub fn get_file_reader(filename: PathBuf) -> BufReader<File> {
         Ok(f) => f,
         Err(err) => panic!(
             "Could not open file {}: {}",
-            filename.as_path().to_str().unwrap(),
+            filename.as_path().to_string_lossy(),
             err
         ),
     };
