@@ -88,3 +88,14 @@ macro_rules! debug_eprintln {
         }
     };
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_is_debug_enabled_default() {
+        // By default, the IS_DEBUG atomic bool should be initialized to false.
+        assert_eq!(is_debug_enabled(), false);
+    }
+}
