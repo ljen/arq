@@ -58,6 +58,7 @@ impl BackupSet {
         let backupfolders_dir = path.join("backupfolders");
 
         if backupfolders_dir.exists() {
+            let mut folder_records = Vec::new();
             for entry in std::fs::read_dir(backupfolders_dir)? {
                 let entry = entry?;
                 if entry.file_type()?.is_dir() {
@@ -72,10 +73,12 @@ impl BackupSet {
                     // Load backup records for this folder
                     let records_dir = entry.path().join("backuprecords");
                     if records_dir.exists() {
-                        let mut folder_records = Vec::new();
+                        folder_records.clear();
                         Self::load_backup_records_recursive(&records_dir, &mut folder_records)?;
                         if !folder_records.is_empty() {
-                            backup_records.insert(folder_uuid, folder_records);
+                            let mut final_records = Vec::with_capacity(folder_records.len());
+                            final_records.append(&mut folder_records);
+                            backup_records.insert(folder_uuid, final_records);
                         }
                     }
                 }
@@ -229,6 +232,7 @@ impl BackupSet {
             return Ok(backup_records);
         }
 
+        let mut folder_records = Vec::new();
         for entry in std::fs::read_dir(backupfolders_dir)? {
             let entry = entry?;
             if entry.file_type()?.is_dir() {
@@ -236,7 +240,7 @@ impl BackupSet {
                 let records_dir = entry.path().join("backuprecords");
 
                 if records_dir.exists() {
-                    let mut folder_records = Vec::new();
+                    folder_records.clear();
 
                     // Recursively traverse backup records directories
                     fn collect_records(
@@ -275,7 +279,9 @@ impl BackupSet {
                     }
 
                     if !folder_records.is_empty() {
-                        backup_records.insert(folder_uuid, folder_records);
+                        let mut final_records = Vec::with_capacity(folder_records.len());
+                        final_records.append(&mut folder_records);
+                        backup_records.insert(folder_uuid, final_records);
                     }
                 }
             }
