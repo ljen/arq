@@ -10,14 +10,8 @@ use arq::folder::{Folder, FolderData};
 use arq::object_encryption;
 
 pub fn get_latest_folder_data_path(path: &Path) -> Result<PathBuf> {
-    if !path.exists() {
-        return Err(crate::error::Error::NotFound(format!(
-            "Backup path does not exist: {}",
-            path.display()
-        )));
-    }
-
     let mut newest = "0".to_string();
+    // TODO(nlopes): what if the path doesn't exist? Provide nicer output.
     for entry in std::fs::read_dir(path)? {
         let filename = entry?.file_name().to_string_lossy().to_string();
         if filename > newest {
@@ -58,26 +52,17 @@ pub fn get_file_reader(filename: PathBuf) -> BufReader<File> {
         Ok(f) => f,
         Err(err) => panic!(
             "Could not open file {}: {}",
-            filename.as_path().to_string_lossy(),
+            filename.display(),
             err
         ),
     };
     BufReader::new(file)
 }
 
-pub fn get_password() -> Result<String> {
-    if let Ok(password) = std::env::var("ARQ_PASSWORD") {
-        Ok(password)
-    } else {
-        rpassword::prompt_password("Enter encryption password: ")
-            .map_err(|e| crate::error::Error::Generic(e.to_string()))
-    }
-}
-
 pub fn get_master_keys(path: &str, computer: &str) -> Result<Vec<Vec<u8>>> {
     let enc_path = Path::new(path).join(computer).join("encryptionv3.dat");
     let mut reader = get_file_reader(enc_path);
-    let password = get_password()?;
+    let password = rpassword::prompt_password("Enter encryption password: ")?;
     let enc_data = object_encryption::EncryptionDat::new(&mut reader, &password)?;
     Ok(enc_data.master_keys)
 }
@@ -102,16 +87,4 @@ macro_rules! debug_eprintln {
             eprintln!($($arg)*);
         }
     };
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    #[should_panic]
-    fn test_get_file_reader_non_existent() {
-        let non_existent_path = PathBuf::from("non_existent_file.txt");
-        get_file_reader(non_existent_path);
-    }
 }

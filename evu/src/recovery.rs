@@ -52,7 +52,7 @@ fn restore_file_in_tree(
     for (name, node) in tree.nodes {
         if !node.is_tree {
             let inner = prefix.join(name);
-            if inner.as_os_str().to_str().unwrap_or("") == absolute_filepath {
+            if inner.as_os_str().to_string_lossy() == absolute_filepath {
                 restore_object(path, folder, &node, absolute_filepath, &keyset.encryption_key)?;
                 // Passed node as reference
             }
