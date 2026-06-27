@@ -2,35 +2,36 @@ use arq::compression::CompressionType;
 use arq::tree::Tree;
 use std::fs;
 use std::path::Path;
+use rayon::prelude::*;
 
 fn load_treepacks_from_dir(dir: &str) {
     let treepacks_dir = Path::new(dir);
-    let paths = fs::read_dir(treepacks_dir).unwrap();
+    let paths: Vec<_> = fs::read_dir(treepacks_dir).unwrap()
+        .map(|r| r.unwrap().path())
+        .filter(|p| p.is_file())
+        .collect();
 
-    for path in paths {
-        let path = path.unwrap().path();
-        if path.is_file() {
-            let data = fs::read(&path).unwrap();
+    paths.into_par_iter().for_each(|path| {
+        let data = fs::read(&path).unwrap();
 
-            // Check the first few bytes to determine format
-            // Arq5 trees start with "TreeV"
-            if data.len() >= 5 && &data[0..5] == b"TreeV" {
-                let mut parsed = false;
-                // Try parsing as Arq5 with no compression
-                if let Ok(_tree) = Tree::new_arq5(&data, CompressionType::None) {
-                    parsed = true;
-                } else if let Ok(_tree) = Tree::new_arq5(&data, CompressionType::Gzip) {
-                    // If no compression fails, try Gzip
-                    parsed = true;
-                }
-                assert!(parsed, "Failed to parse Arq5 tree at {:?}", path);
-            } else {
-                // Assume Arq7 if not Arq5
-                let tree = Tree::from_arq7_binary_data(&data);
-                assert!(tree.is_ok(), "Failed to parse Arq7 tree at {:?}", path);
+        // Check the first few bytes to determine format
+        // Arq5 trees start with "TreeV"
+        if data.len() >= 5 && &data[0..5] == b"TreeV" {
+            let mut parsed = false;
+            // Try parsing as Arq5 with no compression
+            if let Ok(_tree) = Tree::new_arq5(&data, CompressionType::None) {
+                parsed = true;
+            } else if let Ok(_tree) = Tree::new_arq5(&data, CompressionType::Gzip) {
+                // If no compression fails, try Gzip
+                parsed = true;
             }
+            assert!(parsed, "Failed to parse Arq5 tree at {:?}", path);
+        } else {
+            // Assume Arq7 if not Arq5
+            let tree = Tree::from_arq7_binary_data(&data);
+            assert!(tree.is_ok(), "Failed to parse Arq7 tree at {:?}", path);
         }
-    }
+    });
 }
 
 #[test]
