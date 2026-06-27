@@ -40,8 +40,7 @@ fn test_arq7_show_records_encrypted_with_password() {
     cmd.arg("arq7")
         .arg("--path")
         .arg(ARQ7_ENCRYPTED_PATH)
-        .arg("--password")
-        .arg(ARQ7_ENCRYPTED_PASSWORD)
+        .env("ARQ_PASSWORD", ARQ7_ENCRYPTED_PASSWORD)
         .arg("show-records");
 
     cmd.assert()
@@ -69,7 +68,7 @@ fn test_arq7_show_records_encrypted_no_password() {
     // The arq library should return an error that we propagate.
     // The exact error message might vary, but it should indicate a problem.
     cmd.assert().failure().stderr(predicate::str::contains(
-        "Encrypted backup requires password",
+        "WrongPassword",
     ));
 }
 
@@ -133,8 +132,7 @@ fn test_arq7_show_file_versions_encrypted_found() {
     cmd.arg("arq7")
         .arg("--path")
         .arg(ARQ7_ENCRYPTED_PATH)
-        .arg("--password")
-        .arg(ARQ7_ENCRYPTED_PASSWORD)
+        .env("ARQ_PASSWORD", ARQ7_ENCRYPTED_PASSWORD)
         .arg("show-file-versions")
         .arg("--file")
         // Path adjusted to the flawed LocalPath from test data for stripping logic to work
@@ -215,8 +213,7 @@ fn test_arq7_show_folder_versions_encrypted_found() {
     cmd.arg("arq7")
         .arg("--path")
         .arg(ARQ7_ENCRYPTED_PATH)
-        .arg("--password")
-        .arg(ARQ7_ENCRYPTED_PASSWORD)
+        .env("ARQ_PASSWORD", ARQ7_ENCRYPTED_PASSWORD)
         .arg("show-folder-versions")
         .arg("--folder")
         // Path adjusted to the flawed LocalPath from test data
@@ -314,8 +311,7 @@ fn test_arq7_restore_file_encrypted() {
     cmd.arg("arq7")
         .arg("--path")
         .arg(backup_path_str)
-        .arg("--password")
-        .arg(ARQ7_ENCRYPTED_PASSWORD)
+        .env("ARQ_PASSWORD", ARQ7_ENCRYPTED_PASSWORD)
         .arg("restore-file")
         .arg("--record")
         .arg(record_id)

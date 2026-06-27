@@ -6,8 +6,15 @@ use chrono::DateTime;
 use std::path::Path;
 
 // Helper function to load the backup set
-fn load_backup_set(backup_set_path: &Path, password: Option<&str>) -> Result<BackupSet> {
-    BackupSet::from_directory_with_password(backup_set_path, password).map_err(Error::ArqError) // Convert arq::Error to local Error type
+fn load_backup_set(backup_set_path: &Path) -> Result<BackupSet> {
+    match BackupSet::from_directory_with_password(backup_set_path, None) {
+        Ok(set) => Ok(set),
+        Err(arq::error::Error::InvalidFormat(msg)) if msg == "Encrypted backup requires password" => {
+            let password = crate::utils::get_password()?;
+            BackupSet::from_directory_with_password(backup_set_path, Some(&password)).map_err(Error::ArqError)
+        }
+        Err(e) => Err(Error::ArqError(e)),
+    }
 }
 
 // Helper function to find a record by a unique identifier (e.g., timestamp string)
@@ -99,8 +106,8 @@ fn find_node_in_record_tree(
     Ok(None)
 }
 
-pub fn list_backup_records(backup_set_path: &Path, password: Option<&str>) -> Result<()> {
-    let backup_set = load_backup_set(backup_set_path, password)?;
+pub fn list_backup_records(backup_set_path: &Path) -> Result<()> {
+    let backup_set = load_backup_set(backup_set_path)?;
     println!("Arq 7 Backup Records:");
     println!("---------------------");
 
@@ -205,11 +212,10 @@ pub fn list_backup_records(backup_set_path: &Path, password: Option<&str>) -> Re
 
 pub fn list_files(
     backup_set_path: &Path,
-    password: Option<&str>,
     record_identifier: Option<&str>,
     folder_path_in_backup: Option<&str>,
 ) -> Result<()> {
-    let backup_set = load_backup_set(backup_set_path, password)?;
+    let backup_set = load_backup_set(backup_set_path)?;
     let keyset = backup_set.encryption_keyset();
 
     let records_to_process: Vec<&arq::arq7::Arq7BackupRecord> =
@@ -327,9 +333,8 @@ fn list_node_contents_recursive(
 pub fn list_file_versions(
     backup_set_path: &Path,
     file_path_in_backup: &str,
-    password: Option<&str>,
 ) -> Result<()> {
-    let backup_set = load_backup_set(backup_set_path, password)?;
+    let backup_set = load_backup_set(backup_set_path)?;
     let keyset = backup_set.encryption_keyset();
     println!("Versions for file: {}", file_path_in_backup);
     println!("------------------------------------");
@@ -474,9 +479,8 @@ pub fn list_file_versions(
 pub fn list_folder_versions(
     backup_set_path: &Path,
     folder_path_in_backup: &str,
-    password: Option<&str>,
 ) -> Result<()> {
-    let backup_set = load_backup_set(backup_set_path, password)?;
+    let backup_set = load_backup_set(backup_set_path)?;
     let keyset = backup_set.encryption_keyset();
     println!("Versions for folder: {}", folder_path_in_backup);
     println!("--------------------------------------");
@@ -618,9 +622,8 @@ pub fn restore_full_record(
     backup_set_path: &Path,
     record_identifier: &str,
     destination: &Path,
-    password: Option<&str>,
 ) -> Result<()> {
-    let backup_set = load_backup_set(backup_set_path, password)?;
+    let backup_set = load_backup_set(backup_set_path)?;
     let keyset = backup_set.encryption_keyset();
 
     if !destination.exists() {
@@ -682,9 +685,8 @@ pub fn restore_specific_file_from_record(
     record_identifier: &str,
     file_path_in_backup: &str,
     destination: &Path,
-    password: Option<&str>,
 ) -> Result<()> {
-    let backup_set = load_backup_set(backup_set_path, password)?;
+    let backup_set = load_backup_set(backup_set_path)?;
     let keyset = backup_set.encryption_keyset();
 
     let arq7_record =
@@ -800,9 +802,8 @@ pub fn restore_specific_folder_from_record(
     record_identifier: &str,
     folder_path_in_backup: &str,
     destination: &Path,
-    password: Option<&str>,
 ) -> Result<()> {
-    let backup_set = load_backup_set(backup_set_path, password)?;
+    let backup_set = load_backup_set(backup_set_path)?;
     let keyset = backup_set.encryption_keyset();
 
     let arq7_record =
@@ -936,9 +937,8 @@ pub fn restore_all_folder_versions(
     backup_set_path: &Path,
     folder_path_in_backup: &str,
     destination_root: &Path,
-    password: Option<&str>,
 ) -> Result<()> {
-    let backup_set = load_backup_set(backup_set_path, password)?;
+    let backup_set = load_backup_set(backup_set_path)?;
     let keyset = backup_set.encryption_keyset();
 
     if !destination_root.exists() {
