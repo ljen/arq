@@ -12,7 +12,6 @@ fn main() -> Result<(), evu::error::Error> {
         .value_of("path")
         .ok_or_else(|| evu::error::Error::CliInputError("Path is required.".to_string()))?;
     let global_path = Path::new(global_path_str);
-    let global_password = matches.value_of("password");
 
     let version = detect_version(global_path)?;
 
@@ -24,31 +23,28 @@ fn main() -> Result<(), evu::error::Error> {
                     ("folders", Some(_)) => evu::folders::show(
                         global_path_str,
                         computer_uuid,
-                        matches.value_of("password"),
                     )?,
                     ("tree", Some(c)) => evu::tree::show(
                         global_path_str,
                         computer_uuid,
                         c.value_of("folder").unwrap(),
-                        matches.value_of("password"),
                     )?,
                     _ => println!("Invalid 'show' subcommand for Arq 5. Use --help for details."),
                 }
             }
             ArqVersion::Arq7 => match cmd.subcommand() {
                 ("records", Some(_)) => {
-                    evu::arq7_handler::list_backup_records(global_path, global_password)?;
+                    evu::arq7_handler::list_backup_records(global_path)?;
                 }
                 ("file-versions", Some(sub_matches)) => {
                     let file_path = sub_matches.value_of("file").unwrap();
-                    evu::arq7_handler::list_file_versions(global_path, file_path, global_password)?;
+                    evu::arq7_handler::list_file_versions(global_path, file_path)?;
                 }
                 ("folder-versions", Some(sub_matches)) => {
                     let folder_path = sub_matches.value_of("folder").unwrap();
                     evu::arq7_handler::list_folder_versions(
                         global_path,
                         folder_path,
-                        global_password,
                     )?;
                 }
                 _ => println!("Invalid 'show' subcommand for Arq 7. Use --help for details."),
@@ -77,7 +73,6 @@ fn main() -> Result<(), evu::error::Error> {
                         global_path,
                         record_id,
                         Path::new(dest_str),
-                        global_password,
                     )?;
                 }
                 ("file", Some(sub_matches)) => {
@@ -89,7 +84,6 @@ fn main() -> Result<(), evu::error::Error> {
                         record_id,
                         file_path,
                         Path::new(dest_str),
-                        global_password,
                     )?;
                 }
                 ("folder", Some(sub_matches)) => {
@@ -101,7 +95,6 @@ fn main() -> Result<(), evu::error::Error> {
                         record_id,
                         folder_path,
                         Path::new(dest_str),
-                        global_password,
                     )?;
                 }
                 ("all-folder-versions", Some(sub_matches)) => {
@@ -111,7 +104,6 @@ fn main() -> Result<(), evu::error::Error> {
                         global_path,
                         folder_path,
                         Path::new(dest_root_str),
-                        global_password,
                     )?;
                 }
                 _ => println!("Invalid 'restore' subcommand for Arq 7. Use --help for details."),
@@ -123,7 +115,6 @@ fn main() -> Result<(), evu::error::Error> {
                 let folder_path = cmd.value_of("folder");
                 evu::arq7_handler::list_files(
                     global_path,
-                    global_password,
                     record_id,
                     folder_path,
                 )?;
