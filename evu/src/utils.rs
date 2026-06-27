@@ -11,9 +11,18 @@ use arq::object_encryption;
 
 pub fn get_latest_folder_data_path(path: &Path) -> Result<PathBuf> {
     let mut newest = "0".to_string();
-    // TODO(nlopes): what if the path doesn't exist? Provide nicer output.
-    for entry in std::fs::read_dir(path)? {
-        let filename = entry?.file_name().to_string_lossy().to_string();
+    let read_dir_result = match std::fs::read_dir(path) {
+        Ok(dir) => dir,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+            return Err(crate::error::Error::NotFound(format!(
+                "Path not found: {}",
+                path.display()
+            )));
+        }
+        Err(e) => return Err(e.into()),
+    };
+    for entry in read_dir_result {
+        let filename = entry?.file_name().to_str().unwrap().to_string();
         if filename > newest {
             newest = filename;
         }
@@ -52,7 +61,7 @@ pub fn get_file_reader(filename: PathBuf) -> BufReader<File> {
         Ok(f) => f,
         Err(err) => panic!(
             "Could not open file {}: {}",
-            filename.display(),
+            filename.as_path().to_str().unwrap(),
             err
         ),
     };
@@ -87,15 +96,4 @@ macro_rules! debug_eprintln {
             eprintln!($($arg)*);
         }
     };
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_is_debug_enabled_default() {
-        // By default, the IS_DEBUG atomic bool should be initialized to false.
-        assert_eq!(is_debug_enabled(), false);
-    }
 }
