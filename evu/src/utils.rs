@@ -8,6 +8,13 @@ use arq::folder::{Folder, FolderData};
 use arq::object_encryption;
 
 pub fn get_latest_folder_data_path(path: &Path) -> Result<PathBuf> {
+    if !path.exists() {
+        return Err(crate::error::Error::NotFound(format!(
+            "Backup path does not exist: {}",
+            path.display()
+        )));
+    }
+
     let mut newest = "0".to_string();
     for entry in std::fs::read_dir(path)? {
         let filename = entry?.file_name().to_str().unwrap().to_string();
