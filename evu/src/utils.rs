@@ -8,14 +8,8 @@ use arq::folder::{Folder, FolderData};
 use arq::object_encryption;
 
 pub fn get_latest_folder_data_path(path: &Path) -> Result<PathBuf> {
-    if !path.exists() {
-        return Err(crate::error::Error::NotFound(format!(
-            "Backup path does not exist: {}",
-            path.display()
-        )));
-    }
-
     let mut newest = "0".to_string();
+    // TODO(nlopes): what if the path doesn't exist? Provide nicer output.
     for entry in std::fs::read_dir(path)? {
         let filename = entry?.file_name().to_string_lossy().to_string();
         if filename > newest {
