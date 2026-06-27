@@ -23,8 +23,7 @@ pub fn restore_file(
         .join("packsets")
         .join(format!("{}-trees", folder));
 
-    let password = rpassword::prompt_password("Enter encryption password: ")?;
-    let master_keys = utils::get_master_keys(&path, &computer, Some(&password))?;
+    let master_keys = utils::get_master_keys(&path, &computer)?;
     let keyset = EncryptedKeySet::from_master_keys(master_keys.clone())?;
     let head_sha = utils::find_latest_folder_sha(path, computer, folder)?;
 
@@ -55,7 +54,7 @@ fn restore_file_in_tree(
     for (name, node) in tree.nodes {
         if !node.is_tree {
             let inner = prefix.join(name);
-            if inner.as_os_str().to_str().unwrap() == absolute_filepath {
+            if inner.as_os_str().to_str().unwrap_or("") == absolute_filepath {
                 restore_object(
                     path,
                     folder,
@@ -113,7 +112,7 @@ fn restore_object(
     for blob in &node.data_blob_locs {
         // Iterate over a reference to avoid moving
         for entry in std::fs::read_dir(&path)? {
-            let fname = entry?.file_name().to_str().unwrap().to_string();
+            let fname = entry?.file_name().to_string_lossy().to_string();
             if fname.ends_with(".index") {
                 let index_path = path.join(&fname);
                 let mut reader = utils::get_file_reader(&index_path)?;
