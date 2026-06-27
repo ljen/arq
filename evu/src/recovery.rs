@@ -52,7 +52,7 @@ fn restore_file_in_tree(
     for (name, node) in tree.nodes {
         if !node.is_tree {
             let inner = prefix.join(name);
-            if inner.as_os_str().to_str().unwrap() == absolute_filepath {
+            if inner.as_os_str().to_string_lossy() == absolute_filepath {
                 restore_object(path, folder, &node, absolute_filepath, &keyset.encryption_key)?;
                 // Passed node as reference
             }
@@ -98,7 +98,7 @@ fn restore_object(
 
     for blob in &node.data_blob_locs { // Iterate over a reference to avoid moving
         for entry in std::fs::read_dir(&path)? {
-            let fname = entry?.file_name().to_str().unwrap().to_string();
+            let fname = entry?.file_name().to_string_lossy().to_string();
             if fname.ends_with(".index") {
                 let index_path = path.join(&fname);
                 let mut reader = utils::get_file_reader(index_path);
