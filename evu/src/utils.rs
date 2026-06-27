@@ -88,3 +88,32 @@ macro_rules! debug_eprintln {
         }
     };
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::io::Read;
+    use tempfile::NamedTempFile;
+
+    #[test]
+    fn test_get_file_reader_success() {
+        use std::io::Write;
+
+        let mut temp_file = NamedTempFile::new().expect("Failed to create temp file");
+        let test_data = b"Hello, world!";
+        temp_file.write_all(test_data).expect("Failed to write to temp file");
+
+        let mut reader = get_file_reader(temp_file.path().to_path_buf());
+        let mut buffer = Vec::new();
+        reader.read_to_end(&mut buffer).expect("Failed to read from file");
+
+        assert_eq!(buffer, test_data);
+    }
+
+    #[test]
+    #[should_panic(expected = "Could not open file")]
+    fn test_get_file_reader_failure() {
+        let non_existent_path = PathBuf::from("does_not_exist.txt");
+        get_file_reader(non_existent_path);
+    }
+}
