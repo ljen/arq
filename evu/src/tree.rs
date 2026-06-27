@@ -34,14 +34,14 @@ fn show_commit(commit: &Commit) {
     }
 }
 
-pub fn show(path: &str, computer: &str, folder: &str, password: Option<&str>) -> Result<()> {
+pub fn show(path: &str, computer: &str, folder: &str) -> Result<()> {
     println!("Tree for folder {}\n----------------", folder);
 
     let computer_path = Path::new(path);
     let trees_path = computer_path
         .join("packsets")
         .join(format!("{}-trees", folder));
-    let master_keys = utils::get_master_keys(&path, &computer, password)?;
+    let master_keys = utils::get_master_keys(&path, &computer)?;
     let keyset = EncryptedKeySet::from_master_keys(master_keys.clone())?;
     let arq_folder = utils::read_arq_folder(path, computer, folder, master_keys.clone())?;
     let head_sha = utils::find_latest_folder_sha(path, computer, folder)?;

@@ -52,17 +52,22 @@ pub fn get_file_reader(filename: &Path) -> IoResult<BufReader<File>> {
     Ok(BufReader::new(file))
 }
 
+pub fn get_password() -> Result<String> {
+    if let Ok(password) = std::env::var("ARQ_PASSWORD") {
+        Ok(password)
+    } else {
+        rpassword::prompt_password("Enter encryption password: ")
+            .map_err(|e| crate::error::Error::Generic(e.to_string()))
+    }
+}
+
 pub fn get_master_keys(
     path: &str,
     _computer: &str,
-    password: Option<&str>,
 ) -> Result<Vec<Vec<u8>>> {
     let enc_path = Path::new(path).join("encryptionv3.dat");
     let mut reader = get_file_reader(&enc_path)?;
-    let password = match password {
-        Some(p) => p.to_string(),
-        None => rpassword::prompt_password("Enter encryption password: ")?,
-    };
+    let password = get_password()?;
     let enc_data = object_encryption::EncryptionDat::new(&mut reader, &password)?;
     Ok(enc_data.master_keys)
 }
