@@ -688,9 +688,9 @@ fn extract_tree_node(
             for (child_name, child_node_ref) in &tree.nodes {
                 let _child_path = if relative_path.is_empty() {
                     // Prefixed with _
-                    child_name.clone()
+                    std::borrow::Cow::Borrowed(child_name.as_str())
                 } else {
-                    format!("{}/{}", relative_path, child_name)
+                    std::borrow::Cow::Owned(format!("{}/{}", relative_path, child_name))
                 };
 
                 if child_node_ref.is_tree {
