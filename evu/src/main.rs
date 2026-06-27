@@ -9,7 +9,6 @@ fn main() -> Result<(), evu::error::Error> {
 
     // Global arguments (relevant for Arq7 or if we make Arq5 path/password global too)
     let global_path_opt = matches.value_of("path");
-    let global_password_opt = matches.value_of("password");
 
     match matches.subcommand() {
         ("show", Some(cmd)) => {
@@ -44,48 +43,45 @@ fn main() -> Result<(), evu::error::Error> {
                 .ok_or_else(|| evu::error::Error::CliInputError("Path to Arq7 backup set is required.".to_string()))?;
             let arq7_path = Path::new(arq7_path_str);
 
-            let arq7_password = arq7_matches.value_of("password")
-                .or(global_password_opt); // Fallback to global password
-
 
             match arq7_matches.subcommand() {
                 ("show-records", Some(_)) => {
-                    evu::arq7_handler::list_backup_records(arq7_path, arq7_password)?;
+                    evu::arq7_handler::list_backup_records(arq7_path)?;
                 }
                 ("show-file-versions", Some(sub_matches)) => {
                     let file_path = sub_matches.value_of("file").unwrap();
-                    evu::arq7_handler::list_file_versions(arq7_path, file_path, arq7_password)?;
+                    evu::arq7_handler::list_file_versions(arq7_path, file_path)?;
                 }
                 ("show-folder-versions", Some(sub_matches)) => {
                     let folder_path = sub_matches.value_of("folder").unwrap();
-                    evu::arq7_handler::list_folder_versions(arq7_path, folder_path, arq7_password)?;
+                    evu::arq7_handler::list_folder_versions(arq7_path, folder_path)?;
                 }
                 ("restore-record", Some(sub_matches)) => {
                     let record_id = sub_matches.value_of("record").unwrap();
                     let dest_str = sub_matches.value_of("destination").unwrap();
-                    evu::arq7_handler::restore_full_record(arq7_path, record_id, Path::new(dest_str), arq7_password)?;
+                    evu::arq7_handler::restore_full_record(arq7_path, record_id, Path::new(dest_str))?;
                 }
                 ("restore-file", Some(sub_matches)) => {
                     let record_id = sub_matches.value_of("record").unwrap();
                     let file_path = sub_matches.value_of("file").unwrap();
                     let dest_str = sub_matches.value_of("destination").unwrap();
-                    evu::arq7_handler::restore_specific_file_from_record(arq7_path, record_id, file_path, Path::new(dest_str), arq7_password)?;
+                    evu::arq7_handler::restore_specific_file_from_record(arq7_path, record_id, file_path, Path::new(dest_str))?;
                 }
                 ("restore-folder", Some(sub_matches)) => {
                     let record_id = sub_matches.value_of("record").unwrap();
                     let folder_path = sub_matches.value_of("folder").unwrap();
                     let dest_str = sub_matches.value_of("destination").unwrap();
-                    evu::arq7_handler::restore_specific_folder_from_record(arq7_path, record_id, folder_path, Path::new(dest_str), arq7_password)?;
+                    evu::arq7_handler::restore_specific_folder_from_record(arq7_path, record_id, folder_path, Path::new(dest_str))?;
                 }
                 ("restore-all-folder-versions", Some(sub_matches)) => {
                     let folder_path = sub_matches.value_of("folder").unwrap();
                     let dest_root_str = sub_matches.value_of("destination-root").unwrap();
-                    evu::arq7_handler::restore_all_folder_versions(arq7_path, folder_path, Path::new(dest_root_str), arq7_password)?;
+                    evu::arq7_handler::restore_all_folder_versions(arq7_path, folder_path, Path::new(dest_root_str))?;
                 }
                 ("list-files", Some(sub_matches)) => {
                     let record_id = sub_matches.value_of("record");
                     let folder_path = sub_matches.value_of("folder");
-                    evu::arq7_handler::list_files(arq7_path, arq7_password, record_id, folder_path)?;
+                    evu::arq7_handler::list_files(arq7_path, record_id, folder_path)?;
                 }
                 _ => println!("Invalid 'arq7' subcommand. Use --help for details."),
             }
