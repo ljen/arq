@@ -81,3 +81,15 @@ macro_rules! debug_eprintln {
         }
     };
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    #[should_panic]
+    fn test_get_file_reader_non_existent() {
+        let non_existent_path = PathBuf::from("non_existent_file.txt");
+        get_file_reader(non_existent_path);
+    }
+}
