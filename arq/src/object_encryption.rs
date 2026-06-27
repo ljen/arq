@@ -339,6 +339,39 @@ mod tests {
     }
 
     #[test]
+    fn test_calculate_hmacsha256_empty_secret_and_message() {
+        let secret = b"";
+        let message = b"";
+        let result = hex!("b613679a0814d9ec772f95d778c35fc5ff1697c493715653c6c712144292c5ad");
+        assert_eq!(result, calculate_hmacsha256(secret, message).unwrap()[..]);
+    }
+
+    #[test]
+    fn test_calculate_hmacsha256_empty_message() {
+        let secret = b"key";
+        let message = b"";
+        let result = hex!("5d5d139563c95b5967b9bd9a8c9b233a9dedb45072794cd232dc1b74832607d0");
+        assert_eq!(result, calculate_hmacsha256(secret, message).unwrap()[..]);
+    }
+
+    #[test]
+    fn test_calculate_hmacsha256_empty_secret() {
+        let secret = b"";
+        let message = b"message";
+        let result = hex!("eb08c1f56d5ddee07f7bdf80468083da06b64cf4fac64fe3a90883df5feacae4");
+        assert_eq!(result, calculate_hmacsha256(secret, message).unwrap()[..]);
+    }
+
+    #[test]
+    fn test_calculate_hmacsha256_rfc4231_tc1() {
+        // RFC 4231 Test Case 1
+        let secret = [0x0b; 20];
+        let message = b"Hi There";
+        let result = hex!("b0344c61d8db38535ca8afceaf0bf12b881dc200c9833da726e9376c2e32cff7");
+        assert_eq!(result, calculate_hmacsha256(&secret, message).unwrap()[..]);
+    }
+
+    #[test]
     fn test_calculate_sha1sum() {
         let message = "message".as_bytes();
         println!("{:#?}", calculate_sha1sum(message));
