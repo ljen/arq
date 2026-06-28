@@ -68,10 +68,17 @@ pub fn get_file_reader(filename: PathBuf) -> BufReader<File> {
     BufReader::new(file)
 }
 
+pub fn get_password() -> Result<String> {
+    if cfg!(test) {
+        return Ok("testpassword".to_string());
+    }
+    Ok(rpassword::prompt_password("Enter encryption password: ")?)
+}
+
 pub fn get_master_keys(path: &str, computer: &str) -> Result<Vec<Vec<u8>>> {
     let enc_path = Path::new(path).join(computer).join("encryptionv3.dat");
     let mut reader = get_file_reader(enc_path);
-    let password = rpassword::prompt_password("Enter encryption password: ")?;
+    let password = get_password()?;
     let enc_data = object_encryption::EncryptionDat::new(&mut reader, &password)?;
     Ok(enc_data.master_keys)
 }
