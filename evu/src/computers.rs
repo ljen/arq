@@ -25,3 +25,36 @@ pub fn show(path: &str) -> Result<()> {
     }
     Ok(())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use tempfile::tempdir;
+    use std::io::Write;
+
+    #[test]
+    fn test_get_computers_invalid_path() {
+        let result = get_computers("/nonexistent/path/that/should/fail");
+        assert!(result.is_err(), "Expected an error for an invalid path");
+    }
+
+    #[test]
+    fn test_show_invalid_path() {
+        let result = show("/nonexistent/path/that/should/fail");
+        assert!(result.is_err(), "Expected an error for an invalid path in show");
+    }
+
+    #[test]
+    fn test_show_valid_path() {
+        let temp_dir = tempdir().unwrap();
+        let computer_dir = temp_dir.path().join("1234-5678");
+        std::fs::create_dir(&computer_dir).unwrap();
+
+        let mut file = std::fs::File::create(computer_dir.join("computerinfo")).unwrap();
+        let raw = "<plist><dict><key>userName</key><string>testuser</string><key>computerName</key><string>testcomputer</string></dict></plist>";
+        file.write_all(raw.as_bytes()).unwrap();
+
+        let result = show(temp_dir.path().to_str().unwrap());
+        assert!(result.is_ok(), "Expected Ok for a valid path");
+    }
+}

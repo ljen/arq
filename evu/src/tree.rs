@@ -9,6 +9,7 @@ use arq::packset;
 use arq::tree;
 use arq::commit::{Commit};
 
+#[allow(dead_code)]
 fn show_commit(commit: &Commit) {
     println!(
         "   - author: {}, comment: {}, version: {}, location: {}",
@@ -92,7 +93,7 @@ fn render_internal_tree(
             )?; // Changed to arq5_data_compression_type
             render_internal_tree(prefix.join(k).as_path(), &path, tree, &keyset)?;
         } else {
-            println!("{}", prefix.join(k).display());
+            println!("{}", prefix.join(k).as_os_str().to_string_lossy());
         }
     }
     Ok(())
