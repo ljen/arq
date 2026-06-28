@@ -96,7 +96,6 @@ macro_rules! debug_eprintln {
         }
     };
 }
-<<<<<<< HEAD
 
 #[cfg(test)]
 mod tests {
