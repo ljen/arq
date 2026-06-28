@@ -345,6 +345,7 @@ impl BackupSet {
         if !node.is_tree {
             return Ok(None);
         }
+
         if let Some(tree) =
             node.load_tree_with_encryption(backup_set_dir_ref, self.encryption_keyset.as_ref())?
         {
