@@ -13,7 +13,7 @@ pub fn show(path: &str, computer: &str) -> Result<()> {
     println!("Folders\n-------");
     for entry in std::fs::read_dir(computers_path.join("buckets"))? {
         let filename = entry?.path();
-        let mut reader = utils::get_file_reader(filename);
+        let mut reader = utils::get_file_reader(filename)?;
         let folder = Folder::new(&mut reader, &master_keys)?;
         println!(
             "> [{}] ({}) Computer: {}",
