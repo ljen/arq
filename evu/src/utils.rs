@@ -28,7 +28,7 @@ pub fn read_arq_folder(
     master_keys: Vec<Vec<u8>>,
 ) -> Result<Folder> {
     let path = Path::new(path).join(computer).join("buckets").join(folder);
-    let mut reader = get_file_reader(path);
+    let mut reader = get_file_reader(path)?;
     Ok(Folder::new(&mut reader, &master_keys)?)
 }
 
@@ -42,26 +42,31 @@ pub fn find_latest_folder_sha(path: &str, computer: &str, folder: &str) -> Resul
     let folder_data_path = get_latest_folder_data_path(&refs_path.join("logs").join("master"))?;
     let master_sha_path = refs_path.join("heads").join("master");
     let master_sha = std::fs::read(&master_sha_path)?;
-    let mut reader = get_file_reader(folder_data_path);
+    let mut reader = get_file_reader(folder_data_path)?;
     let fd = FolderData::new(&mut reader, &master_sha)?;
     Ok(fd.new_head_sha1)
 }
 
-pub fn get_file_reader(filename: PathBuf) -> BufReader<File> {
+pub fn get_file_reader(filename: PathBuf) -> Result<BufReader<File>> {
     let file = match File::open(&filename) {
         Ok(f) => f,
-        Err(err) => panic!(
-            "Could not open file {}: {}",
-            filename.as_path().to_str().unwrap(),
-            err
-        ),
+        Err(err) => {
+            return Err(crate::error::Error::IoError(std::io::Error::new(
+                std::io::ErrorKind::Other,
+                format!(
+                    "Could not open file {}: {}",
+                    filename.as_path().to_str().unwrap(),
+                    err
+                ),
+            )))
+        }
     };
-    BufReader::new(file)
+    Ok(BufReader::new(file))
 }
 
 pub fn get_master_keys(path: &str, computer: &str) -> Result<Vec<Vec<u8>>> {
     let enc_path = Path::new(path).join(computer).join("encryptionv3.dat");
-    let mut reader = get_file_reader(enc_path);
+    let mut reader = get_file_reader(enc_path)?;
     let password = rpassword::prompt_password("Enter encryption password: ")?;
     let enc_data = object_encryption::EncryptionDat::new(&mut reader, &password)?;
     Ok(enc_data.master_keys)
