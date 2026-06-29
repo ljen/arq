@@ -9,7 +9,7 @@ use arq::commit::Commit;
 use arq::packset;
 use arq::tree;
 
-#[allow(dead_code)]
+#[cfg(debug_assertions)]
 fn show_commit(commit: &Commit) {
     println!(
         "   - author: {}, comment: {}, version: {}, location: {}",
@@ -63,7 +63,8 @@ fn render_tree(
 ) -> Result<()> {
     let data = packset::restore_blob_with_sha(path, sha, keyset)?;
     let commit = Commit::new(Cursor::new(data))?;
-    //show_commit(&commit);
+    #[cfg(debug_assertions)]
+    show_commit(&commit);
 
     let tree_blob = packset::restore_blob_with_sha(path, &commit.tree_sha1, keyset)?;
     let tree = tree::Tree::new_arq5(&tree_blob, commit.tree_compression_type)?;
