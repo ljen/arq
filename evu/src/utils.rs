@@ -109,7 +109,67 @@ macro_rules! debug_eprintln {
 mod tests {
     use super::*;
     use std::io::Read;
-    use tempfile::NamedTempFile;
+    use std::fs;
+    use tempfile::{NamedTempFile, TempDir};
+    use plist;
+
+    #[test]
+    fn test_find_latest_folder_sha_not_found() {
+        let temp_dir = TempDir::new().expect("Failed to create temp dir");
+        let base_path = temp_dir.path();
+
+        let result = find_latest_folder_sha(
+            base_path.to_str().unwrap(),
+            "test_computer",
+            "test_folder",
+        );
+
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_find_latest_folder_sha_success() {
+        let temp_dir = TempDir::new().expect("Failed to create temp dir");
+        let base_path = temp_dir.path();
+        let computer = "test_computer";
+        let folder = "test_folder";
+
+        let refs_path = base_path
+            .join(computer)
+            .join("bucketdata")
+            .join(folder)
+            .join("refs");
+
+        let logs_master_path = refs_path.join("logs").join("master");
+        fs::create_dir_all(&logs_master_path).expect("Failed to create logs/master dir");
+
+        let heads_path = refs_path.join("heads");
+        fs::create_dir_all(&heads_path).expect("Failed to create heads dir");
+
+        let master_sha_path = heads_path.join("master");
+        fs::write(&master_sha_path, b"test_master_sha_short").expect("Failed to write master sha");
+
+        let folder_data_path = logs_master_path.join("1");
+        let mut file = File::create(&folder_data_path).expect("Failed to create folder data file");
+
+        let mut dict = plist::Dictionary::new();
+        dict.insert("newHeadSHA1".into(), plist::Value::String("test_new_head_sha".into()));
+        dict.insert("oldHeadSHA1".into(), plist::Value::String("test_old_head_sha".into()));
+        dict.insert("packSHA1".into(), plist::Value::String("test_pack_sha".into()));
+        dict.insert("old_head_stretch_key".into(), plist::Value::Boolean(false));
+        dict.insert("new_head_stretch_key".into(), plist::Value::Boolean(false));
+        dict.insert("is_rewrite".into(), plist::Value::Boolean(false));
+
+        plist::to_writer_xml(&mut file, &dict).expect("Failed to write plist");
+
+        let result = find_latest_folder_sha(
+            base_path.to_str().unwrap(),
+            computer,
+            folder,
+        ).expect("find_latest_folder_sha failed");
+
+        assert_eq!(result, "test_new_head_sha");
+    }
 
     #[test]
     fn test_get_file_reader_success() {
