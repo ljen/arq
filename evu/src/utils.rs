@@ -102,7 +102,7 @@ mod tests {
     use super::*;
     use std::io::Read;
     use std::fs;
-    use tempfile::{NamedTempFile, TempDir};
+    use tempfile::{NamedTempFile, TempDir, tempdir};
     use plist;
 
     #[test]
@@ -189,5 +189,41 @@ mod tests {
     fn test_is_debug_enabled_default() {
         // By default, the IS_DEBUG atomic bool should be initialized to false.
         assert_eq!(is_debug_enabled(), false);
+    }
+
+    #[test]
+    fn test_get_latest_folder_data_path_success() {
+        let dir = tempdir().expect("Failed to create temp dir");
+        let path = dir.path();
+
+        fs::File::create(path.join("001")).expect("Failed to create file");
+        fs::File::create(path.join("003")).expect("Failed to create file");
+        fs::File::create(path.join("002")).expect("Failed to create file");
+
+        let latest = get_latest_folder_data_path(path).expect("Failed to get latest path");
+        assert_eq!(latest, path.join("003"));
+    }
+
+    #[test]
+    fn test_get_latest_folder_data_path_empty_dir() {
+        let dir = tempdir().expect("Failed to create temp dir");
+        let path = dir.path();
+
+        let latest = get_latest_folder_data_path(path).expect("Failed to get latest path");
+        assert_eq!(latest, path.join("0"));
+    }
+
+    #[test]
+    fn test_get_latest_folder_data_path_missing_dir() {
+        let path = PathBuf::from("does_not_exist_dir");
+
+        let result = get_latest_folder_data_path(&path);
+        assert!(result.is_err());
+
+        if let Err(crate::error::Error::NotFound(msg)) = result {
+            assert_eq!(msg, format!("Backup path does not exist: {}", path.display()));
+        } else {
+            panic!("Expected NotFound error");
+        }
     }
 }
