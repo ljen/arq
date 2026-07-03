@@ -398,21 +398,6 @@ impl BackupSet {
             return Ok(());
         }
 
-        // TODO: This method needs to be implemented on crate::node::Node
-        // For now, assume it returns Ok(None) to allow compilation.
-        // This will affect functionality until `crate::node::Node::load_tree_with_encryption` is implemented.
-        // if let Some(tree) =
-        //     node.load_tree_with_encryption(backup_set_dir, self.encryption_keyset.as_ref())?
-        // {
-        //     for (name, child_node) in &tree.child_nodes {
-        //         let child_path = if current_path.is_empty() {
-        //             name.clone()
-        //         } else {
-        //             format!("{}/{}", current_path, name)
-        //         };
-        //         self.collect_files_recursive(child_node, child_path, files, backup_set_dir)?;
-        //     }
-        // }
         if let Some(tree) =
             node.load_tree_with_encryption(backup_set_dir, self.encryption_keyset.as_ref())?
         {
@@ -753,16 +738,6 @@ fn count_files_in_node(
     let mut file_count = 0u32;
     let mut total_size = 0u64;
 
-    // TODO: This method needs to be implemented on crate::node::Node
-    // For now, assume it returns Ok(None) to allow compilation.
-    // if let Some(tree) = node.load_tree_with_encryption(backup_set_dir, keyset)? {
-    //     for (_, child_node) in &tree.child_nodes {
-    //         let (child_files, child_size) =
-    //             count_files_in_node(child_node, backup_set_dir, keyset)?;
-    //         file_count += child_files;
-    //         total_size += child_size;
-    //     }
-    // }
     if let Some(tree) = node.load_tree_with_encryption(backup_set_dir, keyset)? {
         for (_, child_node_entry) in &tree.nodes {
             // Use tree.nodes
