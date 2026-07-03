@@ -109,7 +109,8 @@ macro_rules! debug_eprintln {
 mod tests {
     use super::*;
     use std::io::Read;
-    use tempfile::NamedTempFile;
+    use tempfile::{NamedTempFile, tempdir};
+    use std::fs;
 
     #[test]
     fn test_get_file_reader_success() {
@@ -131,5 +132,41 @@ mod tests {
     fn test_get_file_reader_failure() {
         let non_existent_path = PathBuf::from("does_not_exist.txt");
         get_file_reader(non_existent_path);
+    }
+
+    #[test]
+    fn test_get_latest_folder_data_path_success() {
+        let dir = tempdir().expect("Failed to create temp dir");
+        let path = dir.path();
+
+        fs::File::create(path.join("001")).expect("Failed to create file");
+        fs::File::create(path.join("003")).expect("Failed to create file");
+        fs::File::create(path.join("002")).expect("Failed to create file");
+
+        let latest = get_latest_folder_data_path(path).expect("Failed to get latest path");
+        assert_eq!(latest, path.join("003"));
+    }
+
+    #[test]
+    fn test_get_latest_folder_data_path_empty_dir() {
+        let dir = tempdir().expect("Failed to create temp dir");
+        let path = dir.path();
+
+        let latest = get_latest_folder_data_path(path).expect("Failed to get latest path");
+        assert_eq!(latest, path.join("0"));
+    }
+
+    #[test]
+    fn test_get_latest_folder_data_path_missing_dir() {
+        let path = PathBuf::from("does_not_exist_dir");
+
+        let result = get_latest_folder_data_path(&path);
+        assert!(result.is_err());
+
+        if let Err(crate::error::Error::NotFound(msg)) = result {
+            assert_eq!(msg, format!("Path not found: {}", path.display()));
+        } else {
+            panic!("Expected NotFound error");
+        }
     }
 }
