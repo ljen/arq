@@ -264,8 +264,8 @@ impl EncryptionDat {
 /// 4. Decrypt the ciphertext using the session key and data IV.
 pub struct EncryptedObject {
     hmac_sha256: [u8; 32],
-    master_iv: Vec<u8>,
-    encrypted_data_iv_session: Vec<u8>,
+    master_iv: [u8; 16],
+    encrypted_data_iv_session: [u8; 64],
     ciphertext: Vec<u8>,
 }
 
@@ -274,8 +274,8 @@ impl EncryptedObject {
         let header = reader.read_bytes(4)?.to_vec();
         assert_eq!(header, [65, 82, 81, 79]); // ARQO
         let hmac_sha256: [u8; 32] = reader.read_bytes(32)?.try_into().unwrap();
-        let master_iv = reader.read_bytes(16)?.to_vec();
-        let encrypted_data_iv_session = reader.read_bytes(64)?.to_vec();
+        let master_iv: [u8; 16] = reader.read_bytes(16)?.try_into().unwrap();
+        let encrypted_data_iv_session: [u8; 64] = reader.read_bytes(64)?.try_into().unwrap();
         let mut ciphertext: Vec<u8> = Vec::new();
         reader.read_to_end(&mut ciphertext)?;
 
@@ -288,17 +288,18 @@ impl EncryptedObject {
     }
 
     pub fn validate(&self, master_key: &[u8]) -> Result<()> {
-        let mut master_iv_and_data = self.master_iv.clone();
-        master_iv_and_data.append(&mut self.encrypted_data_iv_session.clone());
-        master_iv_and_data.append(&mut self.ciphertext.clone());
+        let mut master_iv_and_data = Vec::with_capacity(16 + 64 + self.ciphertext.len());
+        master_iv_and_data.extend_from_slice(&self.master_iv);
+        master_iv_and_data.extend_from_slice(&self.encrypted_data_iv_session);
+        master_iv_and_data.extend_from_slice(&self.ciphertext);
         let calculated_hmacsha256 = calculate_hmacsha256(master_key, &master_iv_and_data)?;
         assert_eq!(calculated_hmacsha256, self.hmac_sha256);
         Ok(())
     }
 
     pub fn decrypt(&self, master_key: &[u8]) -> Result<Vec<u8>> {
-        let mut enc_data_iv_session = self.encrypted_data_iv_session.clone();
-        let master_iv = self.master_iv.clone();
+        let mut enc_data_iv_session = self.encrypted_data_iv_session;
+        let master_iv = self.master_iv;
 
         let data_iv_session = Aes256CbcDec::new_from_slices(master_key, &master_iv)?
             .decrypt_padded_mut::<Pkcs7>(&mut enc_data_iv_session)?;
