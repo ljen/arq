@@ -21,3 +21,4 @@ assert_cmd = "2.0"
 predicates = "3.0"
 tempfile = "3.3"
 serde_json = "1.0" # Added for temp test
+plist = "1.9.0"
