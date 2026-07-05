@@ -11,7 +11,9 @@ const ARQ7_ENCRYPTED_PATH: &str =
 const ARQ7_ENCRYPTED_PASSWORD: &str = "asdfasdf1234";
 
 fn get_evu_cmd() -> Command {
-    Command::cargo_bin("evu").unwrap()
+    let mut cmd = Command::cargo_bin("evu").unwrap();
+    cmd.env("ARQ_PASSWORD", "evu");
+    cmd
 }
 
 #[test]
@@ -57,18 +59,15 @@ fn test_arq7_show_records_encrypted_with_password() {
 }
 
 #[test]
-fn test_arq7_show_records_encrypted_no_password() {
+fn test_arq7_show_records_encrypted_wrong_password() {
     let mut cmd = get_evu_cmd();
     cmd.arg("show")
         .arg("--path")
         .arg(ARQ7_ENCRYPTED_PATH)
         .arg("records");
 
-    // Expect failure because password is required for encrypted backups
-    // The arq library should return an error that we propagate.
-    // The exact error message might vary, but it should indicate a problem.
     cmd.assert().failure().stderr(predicate::str::contains(
-        "Encrypted backup requires password",
+        "WrongPassword",
     ));
 }
 
