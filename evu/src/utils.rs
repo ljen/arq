@@ -127,7 +127,6 @@ mod tests {
         let folder = "test_folder";
 
         let refs_path = base_path
-            .join(computer)
             .join("bucketdata")
             .join(folder)
             .join("refs");
@@ -221,7 +220,7 @@ mod tests {
         assert!(result.is_err());
 
         if let Err(crate::error::Error::NotFound(msg)) = result {
-            assert_eq!(msg, format!("Backup path does not exist: {}", path.display()));
+            assert_eq!(msg, format!("Path not found: {}", path.display()));
         } else {
             panic!("Expected NotFound error");
         }
