@@ -121,7 +121,7 @@ fn restore_object(
                     if obj.sha1 == blob.blob_identifier {
                         // Changed blob.sha1 to blob.blob_identifier
                         let pack_path = path.join(&fname.replace(".index", ".pack"));
-                        let mut reader = utils::get_file_reader(&pack_path)?;
+                        let mut reader = std::io::BufReader::new(utils::get_file_reader(&pack_path)?);
                         reader.seek(SeekFrom::Start(obj.offset as u64))?;
                         let ob = packset::PackObject::new(&mut reader)?;
                         let mut f = File::create(filename)?;
