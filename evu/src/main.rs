@@ -20,10 +20,7 @@ fn main() -> Result<(), evu::error::Error> {
             ArqVersion::Arq5 => {
                 let computer_uuid = global_path.file_name().unwrap().to_str().unwrap();
                 match cmd.subcommand() {
-                    ("folders", Some(_)) => evu::folders::show(
-                        global_path_str,
-                        computer_uuid,
-                    )?,
+                    ("folders", Some(_)) => evu::folders::show(global_path_str, computer_uuid)?,
                     ("tree", Some(c)) => evu::tree::show(
                         global_path_str,
                         computer_uuid,
@@ -42,10 +39,7 @@ fn main() -> Result<(), evu::error::Error> {
                 }
                 ("folder-versions", Some(sub_matches)) => {
                     let folder_path = sub_matches.value_of("folder").unwrap();
-                    evu::arq7_handler::list_folder_versions(
-                        global_path,
-                        folder_path,
-                    )?;
+                    evu::arq7_handler::list_folder_versions(global_path, folder_path)?;
                 }
                 _ => println!("Invalid 'show' subcommand for Arq 7. Use --help for details."),
             },
@@ -113,11 +107,7 @@ fn main() -> Result<(), evu::error::Error> {
             ArqVersion::Arq7 => {
                 let record_id = cmd.value_of("record");
                 let folder_path = cmd.value_of("folder");
-                evu::arq7_handler::list_files(
-                    global_path,
-                    record_id,
-                    folder_path,
-                )?;
+                evu::arq7_handler::list_files(global_path, record_id, folder_path)?;
             }
             ArqVersion::Arq5 => {
                 println!("'list-files' is not supported for Arq 5 backups.");

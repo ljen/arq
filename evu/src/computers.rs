@@ -29,8 +29,8 @@ pub fn show(path: &str) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use tempfile::tempdir;
     use std::io::Write;
+    use tempfile::tempdir;
 
     #[test]
     fn test_get_computers_invalid_path() {
@@ -41,7 +41,10 @@ mod tests {
     #[test]
     fn test_show_invalid_path() {
         let result = show("/nonexistent/path/that/should/fail");
-        assert!(result.is_err(), "Expected an error for an invalid path in show");
+        assert!(
+            result.is_err(),
+            "Expected an error for an invalid path in show"
+        );
     }
 
     #[test]
