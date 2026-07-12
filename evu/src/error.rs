@@ -58,9 +58,3 @@ impl std::convert::From<arq::error::Error> for Error {
         Error::ArqError(error)
     }
 }
-
-// impl std::convert::From<std::option::NoneError> for Error {
-//     fn from(_error: std::option::NoneError) -> Error {
-//         Error::OptionError
-//     }
-// }
