@@ -69,7 +69,7 @@ impl PackSet {
             if fname_str.ends_with(".index") {
                 let index_path = entry.path();
                 let mut reader = get_file_reader_for_restore(&index_path)
-                    .map_err(|e| crate::error::Error::IoError(e))?;
+                    .map_err(crate::error::Error::IoError)?;
 
                 let index = PackIndex::new(&mut reader)?;
 
@@ -80,11 +80,11 @@ impl PackSet {
                             continue;
                         }
                         let mut pack_reader = get_file_reader_for_restore(&pack_path)
-                            .map_err(|e| crate::error::Error::IoError(e))?;
+                            .map_err(crate::error::Error::IoError)?;
 
                         pack_reader
                             .seek(SeekFrom::Start(obj.offset as u64))
-                            .map_err(|e| crate::error::Error::IoError(e))?;
+                            .map_err(crate::error::Error::IoError)?;
 
                         let pack = PackObject::new(&mut pack_reader)?;
 
@@ -458,7 +458,7 @@ pub fn restore_blob_with_sha(path: &Path, sha: &str, keyset: &EncryptedKeySet) -
         if fname_str.ends_with(".index") {
             let index_path = entry.path();
             let mut reader =
-                get_file_reader_for_restore(&index_path).map_err(|e| Error::IoError(e))?;
+                get_file_reader_for_restore(&index_path).map_err(Error::IoError)?;
 
             let index = PackIndex::new(&mut reader)?;
 
@@ -469,11 +469,11 @@ pub fn restore_blob_with_sha(path: &Path, sha: &str, keyset: &EncryptedKeySet) -
                         continue;
                     }
                     let mut pack_reader =
-                        get_file_reader_for_restore(&pack_path).map_err(|e| Error::IoError(e))?;
+                        get_file_reader_for_restore(&pack_path).map_err(Error::IoError)?;
 
                     pack_reader
                         .seek(SeekFrom::Start(obj.offset as u64))
-                        .map_err(|e| Error::IoError(e))?;
+                        .map_err(Error::IoError)?;
 
                     let pack = PackObject::new(&mut pack_reader)?;
 

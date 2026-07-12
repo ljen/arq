@@ -1,12 +1,13 @@
 use arq::compression::CompressionType;
 use arq::tree::Tree;
+use rayon::prelude::*;
 use std::fs;
 use std::path::Path;
-use rayon::prelude::*;
 
 fn load_treepacks_from_dir(dir: &str) {
     let treepacks_dir = Path::new(dir);
-    let paths: Vec<_> = fs::read_dir(treepacks_dir).unwrap()
+    let paths: Vec<_> = fs::read_dir(treepacks_dir)
+        .unwrap()
         .map(|r| r.unwrap().path())
         .filter(|p| p.is_file())
         .collect();
@@ -38,7 +39,6 @@ fn load_treepacks_from_dir(dir: &str) {
         }
     });
 }
-
 
 #[test]
 fn test_load_arq7_new_treepacks() {

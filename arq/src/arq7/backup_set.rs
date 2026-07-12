@@ -252,7 +252,7 @@ impl BackupSet {
 
                             if path.is_dir() {
                                 collect_records(&path, records, keyset)?;
-                            } else if path.extension().map_or(false, |ext| ext == "backuprecord") {
+                            } else if path.extension().is_some_and(|ext| ext == "backuprecord") {
                                 match GenericBackupRecord::from_file_with_encryption(&path, keyset)
                                 {
                                     Ok(record) => records.push(record),
@@ -295,7 +295,7 @@ impl BackupSet {
         output_path: P2,
     ) -> Result<()> {
         // Find the file in the backup records
-        for (_, records) in &self.backup_records {
+        for records in self.backup_records.values() {
             for generic_record in records {
                 if let GenericBackupRecord::Arq7(record) = generic_record {
                     // Only Arq7 records have a direct node
@@ -363,7 +363,7 @@ impl BackupSet {
         let mut files = Vec::new();
         let backup_set_dir_ref = self.root_path.as_ref();
 
-        for (_, records) in &self.backup_records {
+        for records in self.backup_records.values() {
             for generic_record in records {
                 if let GenericBackupRecord::Arq7(record) = generic_record {
                     self.collect_files_recursive(
@@ -413,7 +413,7 @@ impl BackupSet {
         let mut stats: BackupStatistics = BackupStatistics::default();
         let backup_set_dir_ref = self.root_path.as_ref();
 
-        for (_, records_vec) in &self.backup_records {
+        for records_vec in self.backup_records.values() {
             stats.folder_count += 1; // This counts folders in backup_records map, not file system folders.
             stats.record_count += records_vec.len() as u32;
 
@@ -493,7 +493,7 @@ impl BackupSet {
             Ok(DirectoryEntry::Directory(DirectoryEntryNode {
                 name,
                 children: None, // Children are not loaded initially
-                tree_blob_loc: node.tree_blob_loc.as_ref().map(|loc| loc.clone().into()), // Convert to blob_location::BlobLoc
+                tree_blob_loc: node.tree_blob_loc.as_ref().map(|loc| loc.clone()), // Convert to blob_location::BlobLoc
                 modification_time_sec: node.modification_time_sec,
                 creation_time_sec: node.creation_time_sec,
                 mode: node.st_mode, // Using st_mode from crate::node::Node
@@ -506,7 +506,7 @@ impl BackupSet {
                 data_blob_locs: node
                     .data_blob_locs
                     .iter()
-                    .map(|loc| loc.clone().into())
+                    .map(|loc| loc.clone())
                     .collect(), // Convert to blob_location::BlobLoc
                 modification_time_sec: node.modification_time_sec,
                 creation_time_sec: node.creation_time_sec,
@@ -657,7 +657,7 @@ impl BackupSet {
     pub fn find_all_blob_locations(&self) -> Vec<crate::blob_location::BlobLoc> {
         let mut blob_locations = Vec::new();
 
-        for (_, records_vec) in &self.backup_records {
+        for records_vec in self.backup_records.values() {
             for generic_record in records_vec {
                 match generic_record {
                     GenericBackupRecord::Arq7(record) => {
@@ -692,21 +692,24 @@ fn collect_blob_locations_from_node(
     node: &crate::node::Node,
     blob_locations: &mut Vec<crate::blob_location::BlobLoc>,
 ) {
+    let additional_capacity = node.data_blob_locs.len()
+        + if node.tree_blob_loc.is_some() { 1 } else { 0 }
+        + node.xattrs_blob_locs.as_ref().map(|x| x.len()).unwrap_or(0)
+        + if node.acl_blob_loc.is_some() { 1 } else { 0 };
+
+    blob_locations.reserve(additional_capacity);
+
     // Add data blob locations from this node
-    for blob_loc in &node.data_blob_locs {
-        blob_locations.push(blob_loc.clone().into());
-    }
+    blob_locations.extend(node.data_blob_locs.iter().cloned());
 
     // Add tree blob location if present
     if let Some(tree_blob_loc) = &node.tree_blob_loc {
-        blob_locations.push(tree_blob_loc.clone().into());
+        blob_locations.push(tree_blob_loc.clone());
     }
 
     // Add xattrs blob locations if present
     if let Some(xattrs_blob_locs) = &node.xattrs_blob_locs {
-        for blob_loc in xattrs_blob_locs {
-            blob_locations.push(blob_loc.clone());
-        }
+        blob_locations.extend(xattrs_blob_locs.iter().cloned());
     }
     // Add acl blob location if present
     if let Some(acl_blob_loc) = &node.acl_blob_loc {
@@ -731,7 +734,7 @@ fn count_files_in_node(
     let mut total_size = 0u64;
 
     if let Some(tree) = node.load_tree_with_encryption(backup_set_dir, keyset)? {
-        for (_, child_node_entry) in &tree.nodes {
+        for child_node_entry in tree.nodes.values() {
             // Use tree.nodes
             let (child_files, child_size) =
                 count_files_in_node(child_node_entry, backup_set_dir, keyset)?;
