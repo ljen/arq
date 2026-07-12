@@ -375,7 +375,7 @@ pub fn list_file_versions(
             match gen_record {
                 arq::arq7::GenericBackupRecord::Arq7(record) => {
                     let record_local_path_str = record.local_path.as_deref().unwrap_or("");
-                    let mut effective_path_parts = path_parts.clone();
+                    let mut effective_path_parts = std::borrow::Cow::Borrowed(path_parts.as_slice());
 
                     // Path adjustment logic (remains largely the same, uses record.local_path)
                     if !record_local_path_str.is_empty()
@@ -385,14 +385,15 @@ pub fn list_file_versions(
                             .strip_prefix(record_local_path_str)
                             .unwrap_or(file_path_in_backup);
                         let relative_file_path_trimmed = relative_file_path.trim_start_matches('/');
-                        effective_path_parts = relative_file_path_trimmed
+                        let mut temp_parts: Vec<&str> = relative_file_path_trimmed
                             .split('/')
                             .filter(|s| !s.is_empty())
                             .collect();
-                        if effective_path_parts.is_empty() && !relative_file_path_trimmed.is_empty()
+                        if temp_parts.is_empty() && !relative_file_path_trimmed.is_empty()
                         {
-                            effective_path_parts = vec![relative_file_path_trimmed];
+                            temp_parts = vec![relative_file_path_trimmed];
                         }
+                        effective_path_parts = std::borrow::Cow::Owned(temp_parts);
                     } else if record_local_path_str.is_empty()
                         && backup_set.backup_folder_configs.get(folder_uuid).is_some()
                     {
@@ -403,15 +404,16 @@ pub fn list_file_versions(
                                     .unwrap_or(file_path_in_backup);
                                 let relative_file_path_trimmed =
                                     relative_file_path.trim_start_matches('/');
-                                effective_path_parts = relative_file_path_trimmed
+                                let mut temp_parts: Vec<&str> = relative_file_path_trimmed
                                     .split('/')
                                     .filter(|s| !s.is_empty())
                                     .collect();
-                                if effective_path_parts.is_empty()
+                                if temp_parts.is_empty()
                                     && !relative_file_path_trimmed.is_empty()
                                 {
-                                    effective_path_parts = vec![relative_file_path_trimmed];
+                                    temp_parts = vec![relative_file_path_trimmed];
                                 }
+                                effective_path_parts = std::borrow::Cow::Owned(temp_parts);
                             }
                         }
                     }
@@ -498,7 +500,7 @@ pub fn list_folder_versions(
             match gen_record {
                 arq::arq7::GenericBackupRecord::Arq7(record) => {
                     let record_local_path_str = record.local_path.as_deref().unwrap_or("");
-                    let mut effective_path_parts = path_parts.clone();
+                    let mut effective_path_parts = std::borrow::Cow::Borrowed(path_parts.as_slice());
 
                     debug_eprintln!(
                         "DEBUG list_folder_versions: Folder: '{}', Record LocalPath: '{}'",
@@ -508,7 +510,7 @@ pub fn list_folder_versions(
 
                     // Path adjustment logic
                     if folder_path_in_backup == "/" || folder_path_in_backup.is_empty() {
-                        effective_path_parts = Vec::new();
+                        effective_path_parts = std::borrow::Cow::Borrowed(&[]);
                     } else if !record_local_path_str.is_empty()
                         && folder_path_in_backup.starts_with(record_local_path_str)
                     {
@@ -517,7 +519,7 @@ pub fn list_folder_versions(
                             .unwrap_or(folder_path_in_backup);
                         let relative_folder_path_trimmed =
                             relative_folder_path.trim_start_matches('/');
-                        effective_path_parts = relative_folder_path_trimmed
+                        let mut temp_parts: Vec<&str> = relative_folder_path_trimmed
                             .split('/')
                             .filter(|s| !s.is_empty())
                             .collect();
@@ -525,8 +527,9 @@ pub fn list_folder_versions(
                             && !relative_folder_path.is_empty()
                             && folder_path_in_backup != "/"
                         {
-                            effective_path_parts = Vec::new();
+                            temp_parts = Vec::new();
                         }
+                        effective_path_parts = std::borrow::Cow::Owned(temp_parts);
                     } else if record_local_path_str.is_empty()
                         && backup_set.backup_folder_configs.get(folder_uuid).is_some()
                     {
@@ -537,7 +540,7 @@ pub fn list_folder_versions(
                                     .unwrap_or(folder_path_in_backup);
                                 let relative_folder_path_trimmed =
                                     relative_folder_path.trim_start_matches('/');
-                                effective_path_parts = relative_folder_path_trimmed
+                                let mut temp_parts: Vec<&str> = relative_folder_path_trimmed
                                     .split('/')
                                     .filter(|s| !s.is_empty())
                                     .collect();
@@ -545,8 +548,9 @@ pub fn list_folder_versions(
                                     && !relative_folder_path.is_empty()
                                     && folder_path_in_backup != "/"
                                 {
-                                    effective_path_parts = Vec::new();
+                                    temp_parts = Vec::new();
                                 }
+                                effective_path_parts = std::borrow::Cow::Owned(temp_parts);
                             }
                         }
                     }
@@ -691,19 +695,20 @@ pub fn restore_specific_file_from_record(
     }
 
     let record_local_path_str = arq7_record.local_path.as_deref().unwrap_or("");
-    let mut effective_path_parts = path_parts.clone();
+    let mut effective_path_parts = std::borrow::Cow::Borrowed(path_parts.as_slice());
     if !record_local_path_str.is_empty() && file_path_in_backup.starts_with(record_local_path_str) {
         let relative_file_path = file_path_in_backup
             .strip_prefix(record_local_path_str)
             .unwrap_or(file_path_in_backup);
         let relative_file_path_trimmed = relative_file_path.trim_start_matches('/');
-        effective_path_parts = relative_file_path_trimmed
+        let mut temp_parts: Vec<&str> = relative_file_path_trimmed
             .split('/')
             .filter(|s| !s.is_empty())
             .collect();
-        if effective_path_parts.is_empty() && !relative_file_path_trimmed.is_empty() {
-            effective_path_parts = vec![relative_file_path_trimmed];
+        if temp_parts.is_empty() && !relative_file_path_trimmed.is_empty() {
+            temp_parts = vec![relative_file_path_trimmed];
         }
+        effective_path_parts = std::borrow::Cow::Owned(temp_parts);
     } else if record_local_path_str.is_empty() {
         if let Some(bf_config) = backup_set
             .backup_folder_configs
@@ -714,13 +719,14 @@ pub fn restore_specific_file_from_record(
                     .strip_prefix(&bf_config.local_path)
                     .unwrap_or(file_path_in_backup);
                 let relative_file_path_trimmed = relative_file_path.trim_start_matches('/');
-                effective_path_parts = relative_file_path_trimmed
+                let mut temp_parts: Vec<&str> = relative_file_path_trimmed
                     .split('/')
                     .filter(|s| !s.is_empty())
                     .collect();
-                if effective_path_parts.is_empty() && !relative_file_path_trimmed.is_empty() {
-                    effective_path_parts = vec![relative_file_path_trimmed];
+                if temp_parts.is_empty() && !relative_file_path_trimmed.is_empty() {
+                    temp_parts = vec![relative_file_path_trimmed];
                 }
+                effective_path_parts = std::borrow::Cow::Owned(temp_parts);
             }
         }
     }
@@ -801,10 +807,10 @@ pub fn restore_specific_folder_from_record(
         .split('/')
         .filter(|s| !s.is_empty())
         .collect();
-    let mut effective_path_parts = path_parts.clone();
+    let mut effective_path_parts = std::borrow::Cow::Borrowed(path_parts.as_slice());
     let record_local_path_str = arq7_record.local_path.as_deref().unwrap_or("");
     if folder_path_in_backup == "/" || folder_path_in_backup.is_empty() {
-        effective_path_parts = Vec::new();
+        effective_path_parts = std::borrow::Cow::Borrowed(&[]);
     } else if !record_local_path_str.is_empty()
         && folder_path_in_backup.starts_with(record_local_path_str)
     {
@@ -812,7 +818,7 @@ pub fn restore_specific_folder_from_record(
             .strip_prefix(record_local_path_str)
             .unwrap_or(folder_path_in_backup);
         let trimmed_relative_path = relative_path.trim_start_matches('/');
-        effective_path_parts = trimmed_relative_path
+        let mut temp_parts: Vec<&str> = trimmed_relative_path
             .split('/')
             .filter(|s| !s.is_empty())
             .collect();
@@ -820,8 +826,9 @@ pub fn restore_specific_folder_from_record(
             && !relative_path.is_empty()
             && folder_path_in_backup != "/"
         {
-            effective_path_parts = Vec::new();
+            temp_parts = Vec::new();
         }
+        effective_path_parts = std::borrow::Cow::Owned(temp_parts);
     } else if record_local_path_str.is_empty() {
         if let Some(bf_config) = backup_set
             .backup_folder_configs
@@ -832,7 +839,7 @@ pub fn restore_specific_folder_from_record(
                     .strip_prefix(&bf_config.local_path)
                     .unwrap_or(folder_path_in_backup);
                 let trimmed_relative_path = relative_path.trim_start_matches('/');
-                effective_path_parts = trimmed_relative_path
+                let mut temp_parts: Vec<&str> = trimmed_relative_path
                     .split('/')
                     .filter(|s| !s.is_empty())
                     .collect();
@@ -840,8 +847,9 @@ pub fn restore_specific_folder_from_record(
                     && !relative_path.is_empty()
                     && folder_path_in_backup != "/"
                 {
-                    effective_path_parts = Vec::new();
+                    temp_parts = Vec::new();
                 }
+                effective_path_parts = std::borrow::Cow::Owned(temp_parts);
             }
         }
     }
@@ -959,10 +967,10 @@ pub fn restore_all_folder_versions(
                         timestamp_str
                     );
                     let record_local_path_str = arq7_record.local_path.as_deref().unwrap_or("");
-                    let mut effective_path_parts = path_parts.clone();
+                    let mut effective_path_parts = std::borrow::Cow::Borrowed(path_parts.as_slice());
 
                     if folder_path_in_backup == "/" || folder_path_in_backup.is_empty() {
-                        effective_path_parts = Vec::new();
+                        effective_path_parts = std::borrow::Cow::Borrowed(&[]);
                     } else if !record_local_path_str.is_empty()
                         && folder_path_in_backup.starts_with(record_local_path_str)
                     {
@@ -970,7 +978,7 @@ pub fn restore_all_folder_versions(
                             .strip_prefix(record_local_path_str)
                             .unwrap_or(folder_path_in_backup);
                         let trimmed_relative_path = relative_path.trim_start_matches('/');
-                        effective_path_parts = trimmed_relative_path
+                        let mut temp_parts: Vec<&str> = trimmed_relative_path
                             .split('/')
                             .filter(|s| !s.is_empty())
                             .collect();
@@ -978,8 +986,9 @@ pub fn restore_all_folder_versions(
                             && !relative_path.is_empty()
                             && folder_path_in_backup != "/"
                         {
-                            effective_path_parts = Vec::new();
+                            temp_parts = Vec::new();
                         }
+                        effective_path_parts = std::borrow::Cow::Owned(temp_parts);
                     } else if record_local_path_str.is_empty() {
                         if let Some(bf_config) = backup_set.backup_folder_configs.get(folder_uuid) {
                             if folder_path_in_backup.starts_with(&bf_config.local_path) {
@@ -987,7 +996,7 @@ pub fn restore_all_folder_versions(
                                     .strip_prefix(&bf_config.local_path)
                                     .unwrap_or(folder_path_in_backup);
                                 let trimmed_relative_path = relative_path.trim_start_matches('/');
-                                effective_path_parts = trimmed_relative_path
+                                let mut temp_parts: Vec<&str> = trimmed_relative_path
                                     .split('/')
                                     .filter(|s| !s.is_empty())
                                     .collect();
@@ -995,8 +1004,9 @@ pub fn restore_all_folder_versions(
                                     && !relative_path.is_empty()
                                     && folder_path_in_backup != "/"
                                 {
-                                    effective_path_parts = Vec::new();
+                                    temp_parts = Vec::new();
                                 }
+                                effective_path_parts = std::borrow::Cow::Owned(temp_parts);
                             }
                         }
                     }
