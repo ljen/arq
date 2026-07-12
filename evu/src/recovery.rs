@@ -109,26 +109,31 @@ fn restore_object(
         .arq5_data_compression_type
         .unwrap_or(arq::compression::CompressionType::None); // Changed to arq5_data_compression_type
 
+    let mut cached_index_files = Vec::new();
+    for entry in std::fs::read_dir(&path)? {
+        let fname = entry?.file_name().to_string_lossy().to_string();
+        if fname.ends_with(".index") {
+            cached_index_files.push(fname);
+        }
+    }
+
     for blob in &node.data_blob_locs {
         // Iterate over a reference to avoid moving
-        for entry in std::fs::read_dir(&path)? {
-            let fname = entry?.file_name().to_string_lossy().to_string();
-            if fname.ends_with(".index") {
-                let index_path = path.join(&fname);
-                let mut reader = utils::get_file_reader(&index_path)?;
-                let index = packset::PackIndex::new(&mut reader)?;
-                for obj in index.objects {
-                    if obj.sha1 == blob.blob_identifier {
-                        // Changed blob.sha1 to blob.blob_identifier
-                        let pack_path = path.join(&fname.replace(".index", ".pack"));
-                        let mut reader = utils::get_file_reader(&pack_path)?;
-                        reader.seek(SeekFrom::Start(obj.offset as u64))?;
-                        let ob = packset::PackObject::new(&mut reader)?;
-                        let mut f = File::create(filename)?;
-                        let data = ob.original(compression.clone(), master_key)?;
-                        f.write_all(&data)?;
-                        println!("Recovered '{}' to {:?}", absolute_filepath, filename);
-                    }
+        for fname in &cached_index_files {
+            let index_path = path.join(fname);
+            let mut reader = utils::get_file_reader(&index_path)?;
+            let index = packset::PackIndex::new(&mut reader)?;
+            for obj in index.objects {
+                if obj.sha1 == blob.blob_identifier {
+                    // Changed blob.sha1 to blob.blob_identifier
+                    let pack_path = path.join(&fname.replace(".index", ".pack"));
+                    let mut reader = utils::get_file_reader(&pack_path)?;
+                    reader.seek(SeekFrom::Start(obj.offset as u64))?;
+                    let ob = packset::PackObject::new(&mut reader)?;
+                    let mut f = File::create(filename)?;
+                    let data = ob.original(compression.clone(), master_key)?;
+                    f.write_all(&data)?;
+                    println!("Recovered '{}' to {:?}", absolute_filepath, filename);
                 }
             }
         }

@@ -22,3 +22,8 @@ predicates = "3.0"
 tempfile = "3.3"
 serde_json = "1.0" # Added for temp test
 plist = "1.9.0"
+criterion = "0.5"
+
+[[bench]]
+name = "recovery_benchmark"
+harness = false
