@@ -53,3 +53,70 @@ where
     let reader = BufReader::new(file);
     Ok(serde_json::from_reader(reader)?)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::io::Write;
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    fn get_temp_path(name: &str) -> std::path::PathBuf {
+        let nanos = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        // Include thread ID to avoid conflicts when tests run concurrently
+        let thread_id = format!("{:?}", std::thread::current().id());
+        let thread_id = thread_id.replace("ThreadId(", "").replace(")", "");
+        std::env::temp_dir().join(format!("{}_{}_{}", name, thread_id, nanos))
+    }
+
+    #[test]
+    fn test_is_file_encrypted_true() {
+        let path = get_temp_path("encrypted");
+        {
+            let mut file = File::create(&path).unwrap();
+            file.write_all(b"ARQO_and_some_data").unwrap();
+        }
+
+        let result = is_file_encrypted(&path).unwrap();
+        assert!(result);
+
+        let _ = std::fs::remove_file(path);
+    }
+
+    #[test]
+    fn test_is_file_encrypted_false_wrong_header() {
+        let path = get_temp_path("unencrypted");
+        {
+            let mut file = File::create(&path).unwrap();
+            file.write_all(b"NOT_ARQO_DATA").unwrap();
+        }
+
+        let result = is_file_encrypted(&path).unwrap();
+        assert!(!result);
+
+        let _ = std::fs::remove_file(path);
+    }
+
+    #[test]
+    fn test_is_file_encrypted_false_too_small() {
+        let path = get_temp_path("small");
+        {
+            let mut file = File::create(&path).unwrap();
+            file.write_all(b"ARQ").unwrap(); // Only 3 bytes
+        }
+
+        let result = is_file_encrypted(&path).unwrap();
+        assert!(!result);
+
+        let _ = std::fs::remove_file(path);
+    }
+
+    #[test]
+    fn test_is_file_encrypted_error_not_found() {
+        let path = get_temp_path("non_existent");
+        let result = is_file_encrypted(&path);
+        assert!(result.is_err());
+    }
+}
