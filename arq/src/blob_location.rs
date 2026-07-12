@@ -467,20 +467,79 @@ mod tests {
         assert_eq!(loc.relative_path, "/PLAN/blobpacks/AA/example.pack");
     }
 
-    #[test]
-    fn test_decompress_lz4_invalid_prefix_too_short() {
-        let loc = BlobLoc {
+    fn create_test_blobloc(compression_type: u32) -> BlobLoc {
+        BlobLoc {
             blob_identifier: "test".to_string(),
-            relative_path: "test".to_string(),
+            compression_type,
             is_packed: false,
+            length: 0,
             offset: 0,
-            length: 100,
-            compression_type: 2,
+            relative_path: "".to_string(),
             stretch_encryption_key: false,
             is_large_pack: None,
-        };
+        }
+    }
 
-        let data = vec![1, 2, 3]; // Only 3 bytes, length prefix needs 4
+    #[test]
+    fn decompress_data_no_compression() {
+        let loc = create_test_blobloc(0);
+        let data = b"hello world".to_vec();
+        let result = loc.decompress_data(data.clone()).unwrap();
+        assert_eq!(result, data);
+    }
+
+    #[test]
+    fn decompress_data_gzip() {
+        use flate2::write::GzEncoder;
+        use flate2::Compression;
+        use std::io::Write;
+
+        let loc = create_test_blobloc(1);
+        let original_data = b"hello world".to_vec();
+
+        let mut encoder = GzEncoder::new(Vec::new(), Compression::default());
+        encoder.write_all(&original_data).unwrap();
+        let compressed_data = encoder.finish().unwrap();
+
+        let result = loc.decompress_data(compressed_data).unwrap();
+        assert_eq!(result, original_data);
+    }
+
+    #[test]
+    fn decompress_data_lz4() {
+        let loc = create_test_blobloc(2);
+        let original_data = b"hello world".to_vec();
+
+        let compressed_body = lz4_flex::block::compress(&original_data);
+        let mut compressed_data = Vec::new();
+        let uncompressed_len = original_data.len() as u32;
+        compressed_data.extend_from_slice(&uncompressed_len.to_be_bytes());
+        compressed_data.extend_from_slice(&compressed_body);
+
+        let result = loc.decompress_data(compressed_data).unwrap();
+        assert_eq!(result, original_data);
+    }
+
+    #[test]
+    fn decompress_data_lz4_empty() {
+        let loc = create_test_blobloc(2);
+        let empty_data = Vec::new();
+        let result = loc.decompress_data(empty_data.clone()).unwrap();
+        assert_eq!(result, empty_data);
+    }
+
+    #[test]
+    fn decompress_data_lz4_too_short() {
+        let loc = create_test_blobloc(2);
+        let short_data = b"123".to_vec();
+        let result = loc.decompress_data(short_data);
+        assert!(matches!(result, Err(Error::InvalidFormat(_))));
+    }
+
+    #[test]
+    fn decompress_data_unsupported_type() {
+        let loc = create_test_blobloc(3);
+        let data = b"hello world".to_vec();
         let result = loc.decompress_data(data);
         assert!(matches!(result, Err(Error::InvalidFormat(_))));
     }
