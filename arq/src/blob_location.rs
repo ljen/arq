@@ -401,6 +401,38 @@ mod tests {
     }
 
     #[test]
+    fn test_is_valid_path() {
+        // Valid paths
+        assert!(BlobLoc::is_valid_path("/path/to/backup"));
+        assert!(BlobLoc::is_valid_path("/path/to/backup.pack"));
+        assert!(BlobLoc::is_valid_path("/backup-123_456.pack"));
+        assert!(BlobLoc::is_valid_path("/a:b(c) d")); // valid chars: ':', '(', ')', ' '
+        assert!(BlobLoc::is_valid_path("treepacks/something"));
+        assert!(BlobLoc::is_valid_path("blobpacks/something"));
+        assert!(BlobLoc::is_valid_path("largeblobpacks/something"));
+        assert!(BlobLoc::is_valid_path("standardobjects/something"));
+        assert!(BlobLoc::is_valid_path("blob/something"));
+        assert!(BlobLoc::is_valid_path("something.pack"));
+
+        // Invalid paths
+        assert!(!BlobLoc::is_valid_path(""));
+
+        let long_path = "a".repeat(4097);
+        assert!(!BlobLoc::is_valid_path(&long_path));
+
+        // Missing leading slash and no backup pattern
+        assert!(!BlobLoc::is_valid_path("just/a/normal/path"));
+
+        // Invalid characters
+        assert!(!BlobLoc::is_valid_path("/invalid/path\n")); // control char
+        assert!(!BlobLoc::is_valid_path("/invalid/path*")); // forbidden char '*'
+        assert!(!BlobLoc::is_valid_path("/invalid/path?")); // forbidden char '?'
+        assert!(!BlobLoc::is_valid_path("/invalid/path<")); // forbidden char '<'
+        assert!(!BlobLoc::is_valid_path("/invalid/path>")); // forbidden char '>'
+        assert!(!BlobLoc::is_valid_path("/invalid/path|")); // forbidden char '|'
+    }
+
+    #[test]
     fn parses_official_arq7_binary_blobloc_from_non_seek_reader() {
         let mut data = Vec::new();
         data.extend(arq_string("abc123"));
