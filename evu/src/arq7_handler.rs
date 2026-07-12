@@ -67,9 +67,12 @@ fn record_timestamp_dir_name(timestamp: f64) -> String {
 fn load_backup_set(backup_set_path: &Path) -> Result<BackupSet> {
     match BackupSet::from_directory_with_password(backup_set_path, None) {
         Ok(set) => Ok(set),
-        Err(arq::error::Error::InvalidFormat(msg)) if msg == "Encrypted backup requires password" => {
+        Err(arq::error::Error::InvalidFormat(msg))
+            if msg == "Encrypted backup requires password" =>
+        {
             let password = crate::utils::get_password()?;
-            BackupSet::from_directory_with_password(backup_set_path, Some(&password)).map_err(Error::ArqError)
+            BackupSet::from_directory_with_password(backup_set_path, Some(&password))
+                .map_err(Error::ArqError)
         }
         Err(e) => Err(Error::ArqError(e)),
     }
@@ -351,10 +354,7 @@ fn list_node_contents_recursive(
     Ok(())
 }
 
-pub fn list_file_versions(
-    backup_set_path: &Path,
-    file_path_in_backup: &str,
-) -> Result<()> {
+pub fn list_file_versions(backup_set_path: &Path, file_path_in_backup: &str) -> Result<()> {
     let backup_set = load_backup_set(backup_set_path)?;
     let keyset = backup_set.encryption_keyset();
     println!("Versions for file: {}", file_path_in_backup);
@@ -478,10 +478,7 @@ pub fn list_file_versions(
     Ok(())
 }
 
-pub fn list_folder_versions(
-    backup_set_path: &Path,
-    folder_path_in_backup: &str,
-) -> Result<()> {
+pub fn list_folder_versions(backup_set_path: &Path, folder_path_in_backup: &str) -> Result<()> {
     let backup_set = load_backup_set(backup_set_path)?;
     let keyset = backup_set.encryption_keyset();
     println!("Versions for folder: {}", folder_path_in_backup);
@@ -959,10 +956,11 @@ pub fn restore_all_folder_versions(
                         timestamp_str
                     );
                     let record_local_path_str = arq7_record.local_path.as_deref().unwrap_or("");
-                    let mut effective_path_parts = path_parts.clone();
+                    let mut effective_path_parts: std::borrow::Cow<[&str]> =
+                        std::borrow::Cow::Borrowed(path_parts.as_slice());
 
                     if folder_path_in_backup == "/" || folder_path_in_backup.is_empty() {
-                        effective_path_parts = Vec::new();
+                        effective_path_parts = std::borrow::Cow::Borrowed(&[]);
                     } else if !record_local_path_str.is_empty()
                         && folder_path_in_backup.starts_with(record_local_path_str)
                     {
@@ -970,15 +968,17 @@ pub fn restore_all_folder_versions(
                             .strip_prefix(record_local_path_str)
                             .unwrap_or(folder_path_in_backup);
                         let trimmed_relative_path = relative_path.trim_start_matches('/');
-                        effective_path_parts = trimmed_relative_path
-                            .split('/')
-                            .filter(|s| !s.is_empty())
-                            .collect();
+                        effective_path_parts = std::borrow::Cow::Owned(
+                            trimmed_relative_path
+                                .split('/')
+                                .filter(|s| !s.is_empty())
+                                .collect(),
+                        );
                         if trimmed_relative_path.is_empty()
                             && !relative_path.is_empty()
                             && folder_path_in_backup != "/"
                         {
-                            effective_path_parts = Vec::new();
+                            effective_path_parts = std::borrow::Cow::Borrowed(&[]);
                         }
                     } else if record_local_path_str.is_empty() {
                         if let Some(bf_config) = backup_set.backup_folder_configs.get(folder_uuid) {
@@ -987,15 +987,17 @@ pub fn restore_all_folder_versions(
                                     .strip_prefix(&bf_config.local_path)
                                     .unwrap_or(folder_path_in_backup);
                                 let trimmed_relative_path = relative_path.trim_start_matches('/');
-                                effective_path_parts = trimmed_relative_path
-                                    .split('/')
-                                    .filter(|s| !s.is_empty())
-                                    .collect();
+                                effective_path_parts = std::borrow::Cow::Owned(
+                                    trimmed_relative_path
+                                        .split('/')
+                                        .filter(|s| !s.is_empty())
+                                        .collect(),
+                                );
                                 if trimmed_relative_path.is_empty()
                                     && !relative_path.is_empty()
                                     && folder_path_in_backup != "/"
                                 {
-                                    effective_path_parts = Vec::new();
+                                    effective_path_parts = std::borrow::Cow::Borrowed(&[]);
                                 }
                             }
                         }
