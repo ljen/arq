@@ -139,14 +139,15 @@ impl EncryptionDat {
         ]
     }
 
-    fn derive_encryption_key(password: &[u8], salt: &[u8], result: &mut [u8]) {
+    fn derive_encryption_key(password: &[u8], salt: &[u8], result: &mut [u8]) -> Result<()> {
         pbkdf2::derive(
             pbkdf2::PBKDF2_HMAC_SHA1,
-            std::num::NonZeroU32::new(200_000).unwrap(), // this unwrap will always succeed
+            std::num::NonZeroU32::new(200_000).ok_or(Error::CryptoError)?,
             salt,
             password,
             result,
         );
+        Ok(())
     }
 
     /// Generate EncryptionDat given a user-supplied password
@@ -170,7 +171,7 @@ impl EncryptionDat {
         // 4. Derive 64-byte encryption key from user-supplied encryption password using
         // PBKDF2/HMACSHA1 (200000 rounds) and the salt from step 1.
         let mut encryption_key: [u8; 64] = [0; 64];
-        Self::derive_encryption_key(password.as_bytes(), &salt, &mut encryption_key);
+        Self::derive_encryption_key(password.as_bytes(), &salt, &mut encryption_key)?;
         // 5. Encrypt the master keys with AES256-CBC using the first 32 bytes of the
         // derived key from step 4 and IV from step 2.
         let mut buf = [0; 160];
@@ -208,7 +209,7 @@ impl EncryptionDat {
         let mut encrypted_master_keys = reader.read_bytes(112)?;
 
         let mut encryption_key: [u8; 64] = [0u8; 64];
-        Self::derive_encryption_key(password.as_bytes(), &salt[..], &mut encryption_key);
+        Self::derive_encryption_key(password.as_bytes(), &salt[..], &mut encryption_key)?;
 
         let iv_and_keys = [&iv[..], &encrypted_master_keys[..]].concat();
         let calculated_hmacsha256 = calculate_hmacsha256(&encryption_key[32..64], &iv_and_keys)?;
