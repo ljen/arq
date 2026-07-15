@@ -301,8 +301,23 @@ impl BlobLoc {
                 } // Empty data is valid
 
                 let length_prefix = &data[0..4];
-                let actual_decompressed_length =
-                    u32::from_be_bytes(length_prefix.try_into().unwrap()) as usize;
+                let length_array: [u8; 4] = length_prefix
+                    .try_into()
+                    .map_err(|_| Error::InvalidFormat("Invalid LZ4 length prefix".to_string()))?;
+                let actual_decompressed_length_u32 = u32::from_be_bytes(length_array);
+
+                let actual_decompressed_length = usize::try_from(actual_decompressed_length_u32)
+                    .map_err(|_| Error::DecompressionDataLengthOutOfBounds)?;
+
+                // MAX_BLOB_SIZE is 4GB (4294967296 bytes).
+                // The max value of u32 is 4294967295, which is strictly less than 4GB.
+                // However, on some embedded 16-bit systems `usize` might be 16-bit (max 65535)
+                // in which case `try_from(actual_decompressed_length_u32)` will fail if > 65535.
+                // We add a safety check just in case MAX_BLOB_SIZE changes in the future.
+                if actual_decompressed_length as u64 > MAX_BLOB_SIZE {
+                    return Err(Error::DecompressionDataLengthOutOfBounds);
+                }
+
                 let compressed_data_body = &data[4..];
 
                 Ok(lz4_flex::block::decompress(
@@ -418,5 +433,23 @@ mod tests {
 
         assert_eq!(loc.blob_identifier, "abc123");
         assert_eq!(loc.relative_path, "/PLAN/blobpacks/AA/example.pack");
+    }
+
+    #[test]
+    fn test_decompress_lz4_invalid_prefix_too_short() {
+        let loc = BlobLoc {
+            blob_identifier: "test".to_string(),
+            relative_path: "test".to_string(),
+            is_packed: false,
+            offset: 0,
+            length: 100,
+            compression_type: 2,
+            stretch_encryption_key: false,
+            is_large_pack: None,
+        };
+
+        let data = vec![1, 2, 3]; // Only 3 bytes, length prefix needs 4
+        let result = loc.decompress_data(data);
+        assert!(matches!(result, Err(Error::InvalidFormat(_))));
     }
 }
