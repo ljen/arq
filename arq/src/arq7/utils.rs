@@ -58,9 +58,9 @@ where
 mod tests {
     use super::*;
     use crate::object_encryption::calculate_hmacsha256;
+    use aes::cipher::{block_padding::Pkcs7, BlockEncryptMut, KeyIvInit};
     use aes::Aes256;
     use cbc::Encryptor;
-    use aes::cipher::{block_padding::Pkcs7, BlockEncryptMut, KeyIvInit};
     use serde::Deserialize;
     use std::io::Write;
 
@@ -118,7 +118,8 @@ mod tests {
     #[test]
     fn test_load_json_unencrypted() {
         let mut file = tempfile::NamedTempFile::new().unwrap();
-        file.write_all(b"{\"test_key\": \"unencrypted_value\"}").unwrap();
+        file.write_all(b"{\"test_key\": \"unencrypted_value\"}")
+            .unwrap();
         let file_path = file.path();
 
         // Should work without keyset
@@ -131,7 +132,8 @@ mod tests {
             hmac_key: vec![0; 32],
             blob_identifier_salt: vec![0; 32],
         };
-        let res_with_keyset: DummyData = load_json_with_encryption(file_path, Some(&keyset)).unwrap();
+        let res_with_keyset: DummyData =
+            load_json_with_encryption(file_path, Some(&keyset)).unwrap();
         assert_eq!(res_with_keyset.test_key, "unencrypted_value");
     }
 

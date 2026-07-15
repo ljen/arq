@@ -503,11 +503,7 @@ impl BackupSet {
             Ok(DirectoryEntry::File(FileEntry {
                 name,
                 size: node.item_size,
-                data_blob_locs: node
-                    .data_blob_locs
-                    .iter()
-                    .map(|loc| loc.clone())
-                    .collect(), // Convert to blob_location::BlobLoc
+                data_blob_locs: node.data_blob_locs.iter().map(|loc| loc.clone()).collect(), // Convert to blob_location::BlobLoc
                 modification_time_sec: node.modification_time_sec,
                 creation_time_sec: node.creation_time_sec,
                 mode: node.st_mode, // Using st_mode from crate::node::Node

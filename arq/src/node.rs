@@ -802,8 +802,7 @@ impl Node {
         }
         let file_data =
             self.reconstruct_file_data_with_encryption(backup_set_dir.as_ref(), keyset)?;
-        std::fs::write(output_path.as_ref(), file_data)
-            .map_err(crate::error::Error::IoError)?; // Map std::io::Error to crate::error::Error
+        std::fs::write(output_path.as_ref(), file_data).map_err(crate::error::Error::IoError)?; // Map std::io::Error to crate::error::Error
         Ok(())
     }
 }
