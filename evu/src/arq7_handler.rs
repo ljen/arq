@@ -67,9 +67,12 @@ fn record_timestamp_dir_name(timestamp: f64) -> String {
 fn load_backup_set(backup_set_path: &Path) -> Result<BackupSet> {
     match BackupSet::from_directory_with_password(backup_set_path, None) {
         Ok(set) => Ok(set),
-        Err(arq::error::Error::InvalidFormat(msg)) if msg == "Encrypted backup requires password" => {
+        Err(arq::error::Error::InvalidFormat(msg))
+            if msg == "Encrypted backup requires password" =>
+        {
             let password = crate::utils::get_password()?;
-            BackupSet::from_directory_with_password(backup_set_path, Some(&password)).map_err(Error::ArqError)
+            BackupSet::from_directory_with_password(backup_set_path, Some(&password))
+                .map_err(Error::ArqError)
         }
         Err(e) => Err(Error::ArqError(e)),
     }
@@ -351,10 +354,7 @@ fn list_node_contents_recursive(
     Ok(())
 }
 
-pub fn list_file_versions(
-    backup_set_path: &Path,
-    file_path_in_backup: &str,
-) -> Result<()> {
+pub fn list_file_versions(backup_set_path: &Path, file_path_in_backup: &str) -> Result<()> {
     let backup_set = load_backup_set(backup_set_path)?;
     let keyset = backup_set.encryption_keyset();
     println!("Versions for file: {}", file_path_in_backup);
@@ -375,7 +375,8 @@ pub fn list_file_versions(
             match gen_record {
                 arq::arq7::GenericBackupRecord::Arq7(record) => {
                     let record_local_path_str = record.local_path.as_deref().unwrap_or("");
-                    let mut effective_path_parts = std::borrow::Cow::Borrowed(path_parts.as_slice());
+                    let mut effective_path_parts =
+                        std::borrow::Cow::Borrowed(path_parts.as_slice());
 
                     // Path adjustment logic (remains largely the same, uses record.local_path)
                     if !record_local_path_str.is_empty()
@@ -389,8 +390,7 @@ pub fn list_file_versions(
                             .split('/')
                             .filter(|s| !s.is_empty())
                             .collect();
-                        if temp_parts.is_empty() && !relative_file_path_trimmed.is_empty()
-                        {
+                        if temp_parts.is_empty() && !relative_file_path_trimmed.is_empty() {
                             temp_parts = vec![relative_file_path_trimmed];
                         }
                         effective_path_parts = std::borrow::Cow::Owned(temp_parts);
@@ -408,9 +408,7 @@ pub fn list_file_versions(
                                     .split('/')
                                     .filter(|s| !s.is_empty())
                                     .collect();
-                                if temp_parts.is_empty()
-                                    && !relative_file_path_trimmed.is_empty()
-                                {
+                                if temp_parts.is_empty() && !relative_file_path_trimmed.is_empty() {
                                     temp_parts = vec![relative_file_path_trimmed];
                                 }
                                 effective_path_parts = std::borrow::Cow::Owned(temp_parts);
@@ -480,10 +478,7 @@ pub fn list_file_versions(
     Ok(())
 }
 
-pub fn list_folder_versions(
-    backup_set_path: &Path,
-    folder_path_in_backup: &str,
-) -> Result<()> {
+pub fn list_folder_versions(backup_set_path: &Path, folder_path_in_backup: &str) -> Result<()> {
     let backup_set = load_backup_set(backup_set_path)?;
     let keyset = backup_set.encryption_keyset();
     println!("Versions for folder: {}", folder_path_in_backup);
@@ -500,7 +495,8 @@ pub fn list_folder_versions(
             match gen_record {
                 arq::arq7::GenericBackupRecord::Arq7(record) => {
                     let record_local_path_str = record.local_path.as_deref().unwrap_or("");
-                    let mut effective_path_parts = std::borrow::Cow::Borrowed(path_parts.as_slice());
+                    let mut effective_path_parts =
+                        std::borrow::Cow::Borrowed(path_parts.as_slice());
 
                     debug_eprintln!(
                         "DEBUG list_folder_versions: Folder: '{}', Record LocalPath: '{}'",
@@ -967,7 +963,8 @@ pub fn restore_all_folder_versions(
                         timestamp_str
                     );
                     let record_local_path_str = arq7_record.local_path.as_deref().unwrap_or("");
-                    let mut effective_path_parts = std::borrow::Cow::Borrowed(path_parts.as_slice());
+                    let mut effective_path_parts =
+                        std::borrow::Cow::Borrowed(path_parts.as_slice());
 
                     if folder_path_in_backup == "/" || folder_path_in_backup.is_empty() {
                         effective_path_parts = std::borrow::Cow::Borrowed(&[]);

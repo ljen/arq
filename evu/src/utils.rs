@@ -64,10 +64,7 @@ pub fn get_password() -> Result<String> {
     }
 }
 
-pub fn get_master_keys(
-    path: &str,
-    _computer: &str,
-) -> Result<Vec<Vec<u8>>> {
+pub fn get_master_keys(path: &str, _computer: &str) -> Result<Vec<Vec<u8>>> {
     let enc_path = Path::new(path).join("encryptionv3.dat");
     let mut reader = get_file_reader(&enc_path)?;
     let password = get_password()?;
@@ -100,21 +97,18 @@ macro_rules! debug_eprintln {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::io::Read;
-    use std::fs;
-    use tempfile::{NamedTempFile, TempDir, tempdir};
     use plist;
+    use std::fs;
+    use std::io::Read;
+    use tempfile::{NamedTempFile, TempDir, tempdir};
 
     #[test]
     fn test_find_latest_folder_sha_not_found() {
         let temp_dir = TempDir::new().expect("Failed to create temp dir");
         let base_path = temp_dir.path();
 
-        let result = find_latest_folder_sha(
-            base_path.to_str().unwrap(),
-            "test_computer",
-            "test_folder",
-        );
+        let result =
+            find_latest_folder_sha(base_path.to_str().unwrap(), "test_computer", "test_folder");
 
         assert!(result.is_err());
     }
@@ -126,10 +120,7 @@ mod tests {
         let computer = "test_computer";
         let folder = "test_folder";
 
-        let refs_path = base_path
-            .join("bucketdata")
-            .join(folder)
-            .join("refs");
+        let refs_path = base_path.join("bucketdata").join(folder).join("refs");
 
         let logs_master_path = refs_path.join("logs").join("master");
         fs::create_dir_all(&logs_master_path).expect("Failed to create logs/master dir");
@@ -144,20 +135,26 @@ mod tests {
         let mut file = File::create(&folder_data_path).expect("Failed to create folder data file");
 
         let mut dict = plist::Dictionary::new();
-        dict.insert("newHeadSHA1".into(), plist::Value::String("test_new_head_sha".into()));
-        dict.insert("oldHeadSHA1".into(), plist::Value::String("test_old_head_sha".into()));
-        dict.insert("packSHA1".into(), plist::Value::String("test_pack_sha".into()));
+        dict.insert(
+            "newHeadSHA1".into(),
+            plist::Value::String("test_new_head_sha".into()),
+        );
+        dict.insert(
+            "oldHeadSHA1".into(),
+            plist::Value::String("test_old_head_sha".into()),
+        );
+        dict.insert(
+            "packSHA1".into(),
+            plist::Value::String("test_pack_sha".into()),
+        );
         dict.insert("old_head_stretch_key".into(), plist::Value::Boolean(false));
         dict.insert("new_head_stretch_key".into(), plist::Value::Boolean(false));
         dict.insert("is_rewrite".into(), plist::Value::Boolean(false));
 
         plist::to_writer_xml(&mut file, &dict).expect("Failed to write plist");
 
-        let result = find_latest_folder_sha(
-            base_path.to_str().unwrap(),
-            computer,
-            folder,
-        ).expect("find_latest_folder_sha failed");
+        let result = find_latest_folder_sha(base_path.to_str().unwrap(), computer, folder)
+            .expect("find_latest_folder_sha failed");
 
         assert_eq!(result, "test_new_head_sha");
     }
@@ -168,11 +165,15 @@ mod tests {
 
         let mut temp_file = NamedTempFile::new().expect("Failed to create temp file");
         let test_data = b"Hello, world!";
-        temp_file.write_all(test_data).expect("Failed to write to temp file");
+        temp_file
+            .write_all(test_data)
+            .expect("Failed to write to temp file");
 
         let mut reader = get_file_reader(temp_file.path()).unwrap();
         let mut buffer = Vec::new();
-        reader.read_to_end(&mut buffer).expect("Failed to read from file");
+        reader
+            .read_to_end(&mut buffer)
+            .expect("Failed to read from file");
 
         assert_eq!(buffer, test_data);
     }
@@ -181,7 +182,10 @@ mod tests {
     fn test_get_file_reader_failure() {
         let non_existent_path = PathBuf::from("does_not_exist.txt");
         let result = get_file_reader(&non_existent_path);
-        assert!(result.is_err(), "Expected an error when opening non-existent file");
+        assert!(
+            result.is_err(),
+            "Expected an error when opening non-existent file"
+        );
     }
 
     #[test]

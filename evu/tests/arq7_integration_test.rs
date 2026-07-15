@@ -66,9 +66,9 @@ fn test_arq7_show_records_encrypted_wrong_password() {
         .arg(ARQ7_ENCRYPTED_PATH)
         .arg("records");
 
-    cmd.assert().failure().stderr(predicate::str::contains(
-        "WrongPassword",
-    ));
+    cmd.assert()
+        .failure()
+        .stderr(predicate::str::contains("WrongPassword"));
 }
 
 #[test]
@@ -233,7 +233,9 @@ fn test_arq7_show_folder_versions_not_found() {
         .arg(ARQ7_UNENCRYPTED_PATH)
         .arg("folder-versions")
         .arg("--folder")
-        .arg("/Users/developer/Projects/2024-12-arq-decryption/arq_backup_source/nonexistentfolder");
+        .arg(
+            "/Users/developer/Projects/2024-12-arq-decryption/arq_backup_source/nonexistentfolder",
+        );
 
     cmd.assert()
         .success() // Command itself succeeds
