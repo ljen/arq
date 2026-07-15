@@ -53,3 +53,108 @@ where
     let reader = BufReader::new(file);
     Ok(serde_json::from_reader(reader)?)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::object_encryption::calculate_hmacsha256;
+    use aes::Aes256;
+    use cbc::Encryptor;
+    use aes::cipher::{block_padding::Pkcs7, BlockEncryptMut, KeyIvInit};
+    use serde::Deserialize;
+    use std::io::Write;
+
+    #[derive(Debug, Deserialize, PartialEq)]
+    struct DummyData {
+        test_key: String,
+    }
+
+    fn create_encrypted_object_bytes(
+        encryption_key: &[u8],
+        hmac_key: &[u8],
+        plaintext: &[u8],
+    ) -> Vec<u8> {
+        type Aes256CbcEnc = Encryptor<Aes256>;
+
+        let master_iv: [u8; 16] = [1; 16];
+        let data_iv: [u8; 16] = [2; 16];
+        let session_key: [u8; 32] = [3; 32];
+
+        let mut data_iv_session = vec![0u8; 64];
+        data_iv_session[..16].copy_from_slice(&data_iv);
+        data_iv_session[16..48].copy_from_slice(&session_key);
+
+        let encrypted_data_iv_session = Aes256CbcEnc::new_from_slices(encryption_key, &master_iv)
+            .unwrap()
+            .encrypt_padded_mut::<Pkcs7>(&mut data_iv_session, 48)
+            .unwrap()
+            .to_vec();
+
+        let mut plaintext_buf = vec![0u8; plaintext.len() + 16]; // Padding might add up to 16 bytes
+        plaintext_buf[..plaintext.len()].copy_from_slice(plaintext);
+        let ciphertext = Aes256CbcEnc::new_from_slices(&session_key, &data_iv)
+            .unwrap()
+            .encrypt_padded_mut::<Pkcs7>(&mut plaintext_buf, plaintext.len())
+            .unwrap()
+            .to_vec();
+
+        let mut master_iv_and_data = Vec::new();
+        master_iv_and_data.extend_from_slice(&master_iv);
+        master_iv_and_data.extend_from_slice(&encrypted_data_iv_session);
+        master_iv_and_data.extend_from_slice(&ciphertext);
+
+        let calculated_hmacsha256 = calculate_hmacsha256(hmac_key, &master_iv_and_data).unwrap();
+
+        let mut result = Vec::new();
+        result.extend_from_slice(b"ARQO");
+        result.extend_from_slice(&calculated_hmacsha256);
+        result.extend_from_slice(&master_iv);
+        result.extend_from_slice(&encrypted_data_iv_session);
+        result.extend_from_slice(&ciphertext);
+
+        result
+    }
+
+    #[test]
+    fn test_load_json_unencrypted() {
+        let mut file = tempfile::NamedTempFile::new().unwrap();
+        file.write_all(b"{\"test_key\": \"unencrypted_value\"}").unwrap();
+        let file_path = file.path();
+
+        // Should work without keyset
+        let res: DummyData = load_json_with_encryption(file_path, None).unwrap();
+        assert_eq!(res.test_key, "unencrypted_value");
+
+        // Should also work with keyset since it checks if it is encrypted first
+        let keyset = EncryptedKeySet {
+            encryption_key: vec![0; 32],
+            hmac_key: vec![0; 32],
+            blob_identifier_salt: vec![0; 32],
+        };
+        let res_with_keyset: DummyData = load_json_with_encryption(file_path, Some(&keyset)).unwrap();
+        assert_eq!(res_with_keyset.test_key, "unencrypted_value");
+    }
+
+    #[test]
+    fn test_load_json_encrypted() {
+        let encryption_key = vec![5u8; 32];
+        let hmac_key = vec![6u8; 32];
+        let plaintext = b"{\"test_key\": \"encrypted_value\"}";
+
+        let encrypted_bytes = create_encrypted_object_bytes(&encryption_key, &hmac_key, plaintext);
+
+        let mut file = tempfile::NamedTempFile::new().unwrap();
+        file.write_all(&encrypted_bytes).unwrap();
+        let file_path = file.path();
+
+        let keyset = EncryptedKeySet {
+            encryption_key: encryption_key.clone(),
+            hmac_key: hmac_key.clone(),
+            blob_identifier_salt: vec![0; 32],
+        };
+
+        // Should work with correct keyset
+        let res: DummyData = load_json_with_encryption(file_path, Some(&keyset)).unwrap();
+        assert_eq!(res.test_key, "encrypted_value");
+    }
+}
