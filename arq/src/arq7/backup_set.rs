@@ -366,9 +366,10 @@ impl BackupSet {
         for (_, records) in &self.backup_records {
             for generic_record in records {
                 if let GenericBackupRecord::Arq7(record) = generic_record {
+                    let mut path_buffer = String::new();
                     self.collect_files_recursive(
                         &record.node, // This is now crate::node::Node
-                        String::new(),
+                        &mut path_buffer,
                         &mut files,
                         backup_set_dir_ref,
                     )?;
@@ -379,17 +380,16 @@ impl BackupSet {
         Ok(files)
     }
 
-    // collect_files_recursive remains largely the same.
     fn collect_files_recursive(
         &self,
         node: &crate::node::Node,
-        current_path: String,
+        current_path: &mut String,
         files: &mut Vec<String>,
         backup_set_dir: &Path,
     ) -> Result<()> {
         if !node.is_tree {
             if !current_path.is_empty() {
-                files.push(current_path);
+                files.push(current_path.clone());
             }
             return Ok(());
         }
@@ -397,12 +397,20 @@ impl BackupSet {
             node.load_tree_with_encryption(backup_set_dir, self.encryption_keyset.as_ref())?
         {
             for (name, child_node_entry) in &tree.nodes {
-                let child_path = if current_path.is_empty() {
-                    name.clone()
-                } else {
-                    format!("{}/{}", current_path, name)
-                };
-                self.collect_files_recursive(child_node_entry, child_path, files, backup_set_dir)?;
+                let original_len = current_path.len();
+                if !current_path.is_empty() {
+                    current_path.push('/');
+                }
+                current_path.push_str(name);
+
+                self.collect_files_recursive(
+                    child_node_entry,
+                    current_path,
+                    files,
+                    backup_set_dir,
+                )?;
+
+                current_path.truncate(original_len);
             }
         }
         Ok(())
