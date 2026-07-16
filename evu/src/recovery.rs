@@ -137,7 +137,6 @@ fn restore_object(
                     f.write_all(&data)?;
                     println!("Recovered '{}' to {:?}", absolute_filepath, filename);
                 }
-                }
             }
         }
     }
