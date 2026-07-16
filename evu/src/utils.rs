@@ -20,9 +20,11 @@ pub fn get_latest_folder_data_path(path: &Path) -> Result<PathBuf> {
         Err(e) => return Err(e.into()),
     };
     for entry in read_dir_result {
-        let filename = entry?.file_name().to_str().unwrap().to_string();
-        if filename > newest {
-            newest = filename;
+        let entry = entry?;
+        if let Some(filename) = entry.file_name().to_str() {
+            if filename > newest.as_str() {
+                newest = filename.to_string();
+            }
         }
     }
     Ok(path.join(newest))
