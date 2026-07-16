@@ -60,6 +60,62 @@ mod tests {
     use std::io::Write;
     use std::time::{SystemTime, UNIX_EPOCH};
 
+    use aes::cipher::{block_padding::Pkcs7, BlockEncryptMut, KeyIvInit};
+    use crate::object_encryption::calculate_hmacsha256;
+
+    type Aes256CbcEnc = cbc::Encryptor<aes::Aes256>;
+
+    fn create_test_encrypted_object(data: &[u8], encryption_key: &[u8], hmac_key: &[u8]) -> Vec<u8> {
+        // 1. Generate session key and data IV
+        let session_key = [1u8; 32];
+        let data_iv = [2u8; 16];
+
+        // 2. Encrypt plaintext with session key and data IV
+        let mut ciphertext_buf = vec![0u8; data.len() + 16];
+        ciphertext_buf[..data.len()].copy_from_slice(data);
+        let ciphertext_len = Aes256CbcEnc::new_from_slices(&session_key, &data_iv)
+            .unwrap()
+            .encrypt_padded_mut::<Pkcs7>(&mut ciphertext_buf, data.len())
+            .unwrap()
+            .len();
+        let ciphertext = &ciphertext_buf[..ciphertext_len];
+
+        // 3. Generate master IV
+        let master_iv = [3u8; 16];
+
+        // 4. Encrypt data IV + session key with master key and master IV
+        let mut data_iv_session = Vec::new();
+        data_iv_session.extend_from_slice(&data_iv);
+        data_iv_session.extend_from_slice(&session_key);
+
+        let mut enc_data_iv_session_buf = vec![0u8; data_iv_session.len() + 16];
+        enc_data_iv_session_buf[..data_iv_session.len()].copy_from_slice(&data_iv_session);
+        let enc_len = Aes256CbcEnc::new_from_slices(encryption_key, &master_iv)
+            .unwrap()
+            .encrypt_padded_mut::<Pkcs7>(&mut enc_data_iv_session_buf, data_iv_session.len())
+            .unwrap()
+            .len();
+        let encrypted_data_iv_session = &enc_data_iv_session_buf[..enc_len];
+
+        // 5. Calculate HMAC-SHA256
+        let mut mac_data = Vec::new();
+        mac_data.extend_from_slice(&master_iv);
+        mac_data.extend_from_slice(encrypted_data_iv_session);
+        mac_data.extend_from_slice(ciphertext);
+
+        let hmac = calculate_hmacsha256(hmac_key, &mac_data).unwrap();
+
+        // 6. Assemble
+        let mut result = Vec::new();
+        result.extend_from_slice(b"ARQO");
+        result.extend_from_slice(&hmac);
+        result.extend_from_slice(&master_iv);
+        result.extend_from_slice(encrypted_data_iv_session);
+        result.extend_from_slice(ciphertext);
+
+        result
+    }
+
     fn get_temp_path(name: &str) -> std::path::PathBuf {
         let nanos = SystemTime::now()
             .duration_since(UNIX_EPOCH)
@@ -118,5 +174,31 @@ mod tests {
         let path = get_temp_path("non_existent");
         let result = is_file_encrypted(&path);
         assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_decrypt_json_file() {
+        let encryption_key = vec![4u8; 32];
+        let hmac_key = vec![5u8; 32];
+
+        let keyset = EncryptedKeySet {
+            encryption_key: encryption_key.clone(),
+            hmac_key: hmac_key.clone(),
+            blob_identifier_salt: vec![6u8; 32],
+        };
+
+        let json_data = r#"{"hello": "world"}"#;
+        let encrypted_bytes = create_test_encrypted_object(json_data.as_bytes(), &encryption_key, &hmac_key);
+
+        let path = get_temp_path("test_decrypt_json");
+        {
+            let mut file = File::create(&path).unwrap();
+            file.write_all(&encrypted_bytes).unwrap();
+        }
+
+        let decrypted = decrypt_json_file(&path, &keyset).unwrap();
+        assert_eq!(decrypted, json_data);
+
+        let _ = std::fs::remove_file(path);
     }
 }
