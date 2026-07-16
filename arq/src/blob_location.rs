@@ -528,4 +528,49 @@ mod tests {
         let result = loc.decompress_data(data);
         assert!(matches!(result, Err(Error::InvalidFormat(_))));
     }
+
+    #[test]
+    fn test_normalize_relative_path() {
+        let backup_set_dir = std::path::Path::new("/backup/12345678-1234-1234-1234-123456789012");
+
+        // Scenario 1: Path starts with backup_set_dir's UUID
+        let loc1 = BlobLoc {
+            relative_path: "/12345678-1234-1234-1234-123456789012/pack/123.pack".to_string(),
+            ..create_test_blobloc(0)
+        };
+        assert_eq!(
+            loc1.normalize_relative_path(backup_set_dir),
+            backup_set_dir.join("pack/123.pack")
+        );
+
+        // Scenario 2: Path starts with a different UUID (fallback logic strips the first directory regardless)
+        let loc2 = BlobLoc {
+            relative_path: "/87654321-4321-4321-4321-210987654321/pack/123.pack".to_string(),
+            ..create_test_blobloc(0)
+        };
+        assert_eq!(
+            loc2.normalize_relative_path(backup_set_dir),
+            backup_set_dir.join("pack/123.pack")
+        );
+
+        // Scenario 3: Path without any prefix UUID component
+        let loc3 = BlobLoc {
+            relative_path: "/123.pack".to_string(),
+            ..create_test_blobloc(0)
+        };
+        assert_eq!(
+            loc3.normalize_relative_path(backup_set_dir),
+            backup_set_dir.join("123.pack")
+        );
+
+        // Scenario 4: Path without a leading slash
+        let loc4 = BlobLoc {
+            relative_path: "pack/123.pack".to_string(),
+            ..create_test_blobloc(0)
+        };
+        assert_eq!(
+            loc4.normalize_relative_path(backup_set_dir),
+            backup_set_dir.join("pack/123.pack")
+        );
+    }
 }
