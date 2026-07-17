@@ -18,13 +18,16 @@ fn main() -> Result<(), evu::error::Error> {
     match matches.subcommand() {
         ("show", Some(cmd)) => match version {
             ArqVersion::Arq5 => {
-                let computer_uuid = global_path.file_name().unwrap().to_str().unwrap();
+                let computer_uuid = global_path.file_name()
+                    .ok_or_else(|| evu::error::Error::CliInputError("Invalid path: missing filename".to_string()))?
+                    .to_str()
+                    .ok_or_else(|| evu::error::Error::CliInputError("Invalid path: filename is not valid UTF-8".to_string()))?;
                 match cmd.subcommand() {
                     ("folders", Some(_)) => evu::folders::show(global_path_str, computer_uuid)?,
                     ("tree", Some(c)) => evu::tree::show(
                         global_path_str,
                         computer_uuid,
-                        c.value_of("folder").unwrap(),
+                        c.value_of("folder").ok_or_else(|| evu::error::Error::CliInputError("Missing --folder argument".to_string()))?,
                     )?,
                     _ => println!("Invalid 'show' subcommand for Arq 5. Use --help for details."),
                 }
@@ -34,11 +37,11 @@ fn main() -> Result<(), evu::error::Error> {
                     evu::arq7_handler::list_backup_records(global_path)?;
                 }
                 ("file-versions", Some(sub_matches)) => {
-                    let file_path = sub_matches.value_of("file").unwrap();
+                    let file_path = sub_matches.value_of("file").ok_or_else(|| evu::error::Error::CliInputError("Missing --file argument".to_string()))?;
                     evu::arq7_handler::list_file_versions(global_path, file_path)?;
                 }
                 ("folder-versions", Some(sub_matches)) => {
-                    let folder_path = sub_matches.value_of("folder").unwrap();
+                    let folder_path = sub_matches.value_of("folder").ok_or_else(|| evu::error::Error::CliInputError("Missing --folder argument".to_string()))?;
                     evu::arq7_handler::list_folder_versions(global_path, folder_path)?;
                 }
                 _ => println!("Invalid 'show' subcommand for Arq 7. Use --help for details."),
@@ -46,7 +49,10 @@ fn main() -> Result<(), evu::error::Error> {
         },
         ("restore", Some(cmd)) => match version {
             ArqVersion::Arq5 => {
-                let computer_uuid = global_path.file_name().unwrap().to_str().unwrap();
+                let computer_uuid = global_path.file_name()
+                    .ok_or_else(|| evu::error::Error::CliInputError("Invalid path: missing filename".to_string()))?
+                    .to_str()
+                    .ok_or_else(|| evu::error::Error::CliInputError("Invalid path: filename is not valid UTF-8".to_string()))?;
                 let folder = cmd.value_of("folder").ok_or_else(|| {
                     evu::error::Error::CliInputError(
                         "Arq 5 restore requires --folder <folder>".to_string(),
@@ -61,8 +67,8 @@ fn main() -> Result<(), evu::error::Error> {
             }
             ArqVersion::Arq7 => match cmd.subcommand() {
                 ("record", Some(sub_matches)) => {
-                    let record_id = sub_matches.value_of("record").unwrap();
-                    let dest_str = sub_matches.value_of("destination").unwrap();
+                    let record_id = sub_matches.value_of("record").ok_or_else(|| evu::error::Error::CliInputError("Missing --record argument".to_string()))?;
+                    let dest_str = sub_matches.value_of("destination").ok_or_else(|| evu::error::Error::CliInputError("Missing --destination argument".to_string()))?;
                     evu::arq7_handler::restore_full_record(
                         global_path,
                         record_id,
@@ -70,9 +76,9 @@ fn main() -> Result<(), evu::error::Error> {
                     )?;
                 }
                 ("file", Some(sub_matches)) => {
-                    let record_id = sub_matches.value_of("record").unwrap();
-                    let file_path = sub_matches.value_of("file").unwrap();
-                    let dest_str = sub_matches.value_of("destination").unwrap();
+                    let record_id = sub_matches.value_of("record").ok_or_else(|| evu::error::Error::CliInputError("Missing --record argument".to_string()))?;
+                    let file_path = sub_matches.value_of("file").ok_or_else(|| evu::error::Error::CliInputError("Missing --file argument".to_string()))?;
+                    let dest_str = sub_matches.value_of("destination").ok_or_else(|| evu::error::Error::CliInputError("Missing --destination argument".to_string()))?;
                     evu::arq7_handler::restore_specific_file_from_record(
                         global_path,
                         record_id,
@@ -81,9 +87,9 @@ fn main() -> Result<(), evu::error::Error> {
                     )?;
                 }
                 ("folder", Some(sub_matches)) => {
-                    let record_id = sub_matches.value_of("record").unwrap();
-                    let folder_path = sub_matches.value_of("folder").unwrap();
-                    let dest_str = sub_matches.value_of("destination").unwrap();
+                    let record_id = sub_matches.value_of("record").ok_or_else(|| evu::error::Error::CliInputError("Missing --record argument".to_string()))?;
+                    let folder_path = sub_matches.value_of("folder").ok_or_else(|| evu::error::Error::CliInputError("Missing --folder argument".to_string()))?;
+                    let dest_str = sub_matches.value_of("destination").ok_or_else(|| evu::error::Error::CliInputError("Missing --destination argument".to_string()))?;
                     evu::arq7_handler::restore_specific_folder_from_record(
                         global_path,
                         record_id,
@@ -92,8 +98,8 @@ fn main() -> Result<(), evu::error::Error> {
                     )?;
                 }
                 ("all-folder-versions", Some(sub_matches)) => {
-                    let folder_path = sub_matches.value_of("folder").unwrap();
-                    let dest_root_str = sub_matches.value_of("destination-root").unwrap();
+                    let folder_path = sub_matches.value_of("folder").ok_or_else(|| evu::error::Error::CliInputError("Missing --folder argument".to_string()))?;
+                    let dest_root_str = sub_matches.value_of("destination-root").ok_or_else(|| evu::error::Error::CliInputError("Missing --destination-root argument".to_string()))?;
                     evu::arq7_handler::restore_all_folder_versions(
                         global_path,
                         folder_path,
