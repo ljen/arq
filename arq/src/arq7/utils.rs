@@ -161,6 +161,86 @@ mod tests {
         assert_eq!(res.test_key, "encrypted_value");
     }
 
+    #[test]
+    fn test_load_json_not_found() {
+        let path = get_temp_path("non_existent_json");
+        let result: Result<DummyData> = load_json_with_encryption(&path, None);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_load_json_encrypted_no_keyset() {
+        let encryption_key = vec![5u8; 32];
+        let hmac_key = vec![6u8; 32];
+        let plaintext = b"{\"test_key\": \"encrypted_value\"}";
+
+        let encrypted_bytes = create_encrypted_object_bytes(&encryption_key, &hmac_key, plaintext);
+
+        let mut file = tempfile::NamedTempFile::new().unwrap();
+        file.write_all(&encrypted_bytes).unwrap();
+        let file_path = file.path();
+
+        // Should fail to parse because it's treated as unencrypted and is not valid JSON
+        let result: Result<DummyData> = load_json_with_encryption(file_path, None);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_load_json_encrypted_wrong_keyset() {
+        let encryption_key = vec![5u8; 32];
+        let hmac_key = vec![6u8; 32];
+        let plaintext = b"{\"test_key\": \"encrypted_value\"}";
+
+        let encrypted_bytes = create_encrypted_object_bytes(&encryption_key, &hmac_key, plaintext);
+
+        let mut file = tempfile::NamedTempFile::new().unwrap();
+        file.write_all(&encrypted_bytes).unwrap();
+        let file_path = file.path();
+
+        let wrong_keyset = EncryptedKeySet {
+            encryption_key: vec![7u8; 32], // wrong encryption key
+            hmac_key: vec![8u8; 32],       // wrong hmac key
+            blob_identifier_salt: vec![0; 32],
+        };
+
+        // Should fail because HMAC validation will fail
+        let result: Result<DummyData> = load_json_with_encryption(file_path, Some(&wrong_keyset));
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_load_json_invalid_json_unencrypted() {
+        let mut file = tempfile::NamedTempFile::new().unwrap();
+        file.write_all(b"invalid json content").unwrap();
+        let file_path = file.path();
+
+        let result: Result<DummyData> = load_json_with_encryption(file_path, None);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_load_json_invalid_json_encrypted() {
+        let encryption_key = vec![5u8; 32];
+        let hmac_key = vec![6u8; 32];
+        let plaintext = b"invalid json content";
+
+        let encrypted_bytes = create_encrypted_object_bytes(&encryption_key, &hmac_key, plaintext);
+
+        let mut file = tempfile::NamedTempFile::new().unwrap();
+        file.write_all(&encrypted_bytes).unwrap();
+        let file_path = file.path();
+
+        let keyset = EncryptedKeySet {
+            encryption_key: encryption_key.clone(),
+            hmac_key: hmac_key.clone(),
+            blob_identifier_salt: vec![0; 32],
+        };
+
+        // Decrypts successfully but fails to parse as JSON
+        let result: Result<DummyData> = load_json_with_encryption(file_path, Some(&keyset));
+        assert!(result.is_err());
+    }
+
     fn get_temp_path(name: &str) -> std::path::PathBuf {
         let nanos = SystemTime::now()
             .duration_since(UNIX_EPOCH)
