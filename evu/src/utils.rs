@@ -191,6 +191,22 @@ mod tests {
     }
 
     #[test]
+    fn test_get_password_env_var() {
+        let test_pass = "my_super_secret_password_123";
+        unsafe {
+            std::env::set_var("ARQ_PASSWORD", test_pass);
+        }
+
+        let result = get_password();
+        assert!(result.is_ok());
+        assert_eq!(result.unwrap(), test_pass);
+
+        unsafe {
+            std::env::remove_var("ARQ_PASSWORD");
+        }
+    }
+
+    #[test]
     fn test_is_debug_enabled_default() {
         // By default, the IS_DEBUG atomic bool should be initialized to false.
         assert_eq!(is_debug_enabled(), false);
