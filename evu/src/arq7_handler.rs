@@ -638,13 +638,16 @@ pub fn restore_full_record(
             );
 
             let mut stats = ExtractionStats::default();
-            extract_node_to_destination_recursive(
-                &arq7_record.node, // Access node from arq7_record
+            let mut ctx = ExtractionContext {
                 backup_set_path,
                 keyset,
+                stats: &mut stats,
+            };
+            extract_node_to_destination_recursive(
+                &arq7_record.node, // Access node from arq7_record
                 &final_destination,
                 "",
-                &mut stats,
+                &mut ctx,
             )?;
             println!(
                 "Successfully restored record. Files: {}, Dirs: {}, Total Size: {} bytes. Errors: {}",
@@ -895,13 +898,16 @@ pub fn restore_specific_folder_from_record(
     );
 
     let mut stats = ExtractionStats::default();
-    extract_node_to_destination_recursive(
-        &target_node,
+    let mut ctx = ExtractionContext {
         backup_set_path,
         keyset,
+        stats: &mut stats,
+    };
+    extract_node_to_destination_recursive(
+        &target_node,
         &final_destination_for_folder_content,
         "",
-        &mut stats,
+        &mut ctx,
     )?;
 
     println!(
@@ -1039,13 +1045,16 @@ pub fn restore_all_folder_versions(
                                 final_content_destination.display()
                             );
                             let mut stats = ExtractionStats::default();
-                            match extract_node_to_destination_recursive(
-                                &target_node,
+                            let mut ctx = ExtractionContext {
                                 backup_set_path,
                                 keyset,
+                                stats: &mut stats,
+                            };
+                            match extract_node_to_destination_recursive(
+                                &target_node,
                                 &final_content_destination,
                                 "",
-                                &mut stats,
+                                &mut ctx,
                             ) {
                                 Ok(_) => {
                                     println!(
@@ -1108,13 +1117,17 @@ struct ExtractionStats {
     errors: usize,
 }
 
+struct ExtractionContext<'a> {
+    backup_set_path: &'a Path,
+    keyset: Option<&'a EncryptedKeySet>,
+    stats: &'a mut ExtractionStats,
+}
+
 fn extract_node_to_destination_recursive(
     node: &Node,
-    backup_set_path: &Path,
-    keyset: Option<&EncryptedKeySet>,
     current_materialized_path: &Path,
     relative_path_for_node: &str,
-    stats: &mut ExtractionStats,
+    ctx: &mut ExtractionContext<'_>,
 ) -> Result<()> {
     let node_output_path = if relative_path_for_node.is_empty() {
         current_materialized_path.to_path_buf()
@@ -1125,22 +1138,20 @@ fn extract_node_to_destination_recursive(
     if node.is_tree {
         if !node_output_path.exists() {
             std::fs::create_dir_all(&node_output_path).map_err(Error::IoError)?;
-            stats.dirs_created += 1;
+            ctx.stats.dirs_created += 1;
         }
 
-        match node.load_tree_with_encryption(backup_set_path, keyset) {
+        match node.load_tree_with_encryption(ctx.backup_set_path, ctx.keyset) {
             Ok(Some(tree)) => {
                 for (child_name, child_node) in &tree.nodes {
                     if let Err(e) = extract_node_to_destination_recursive(
                         child_node,
-                        backup_set_path,
-                        keyset,
                         &node_output_path,
                         child_name,
-                        stats,
+                        ctx,
                     ) {
                         debug_eprintln!("Error processing child '{}': {}", child_name, e);
-                        stats.errors += 1;
+                        ctx.stats.errors += 1;
                     }
                 }
             }
@@ -1156,7 +1167,7 @@ fn extract_node_to_destination_recursive(
                     node_output_path.display(),
                     e
                 );
-                stats.errors += 1;
+                ctx.stats.errors += 1;
             }
         }
     } else {
@@ -1166,11 +1177,11 @@ fn extract_node_to_destination_recursive(
             }
         }
 
-        match node.reconstruct_file_data_with_encryption(backup_set_path, keyset) {
+        match node.reconstruct_file_data_with_encryption(ctx.backup_set_path, ctx.keyset) {
             Ok(file_data) => {
                 std::fs::write(&node_output_path, &file_data).map_err(Error::IoError)?;
-                stats.files_restored += 1;
-                stats.bytes_restored += file_data.len() as u64;
+                ctx.stats.files_restored += 1;
+                ctx.stats.bytes_restored += file_data.len() as u64;
 
                 if node.modification_time_sec > 0 {
                     use std::time::UNIX_EPOCH;
@@ -1190,7 +1201,7 @@ fn extract_node_to_destination_recursive(
                     node_output_path.display(),
                     e
                 );
-                stats.errors += 1;
+                ctx.stats.errors += 1;
             }
         }
     }
