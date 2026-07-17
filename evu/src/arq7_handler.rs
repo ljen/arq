@@ -4,6 +4,7 @@ use arq::arq7::{BackupSet, EncryptedKeySet};
 use arq::node::Node;
 use chrono::DateTime;
 use std::path::Path;
+use rayon::prelude::*;
 
 /// Safely convert an f64 timestamp (seconds since epoch) to a formatted string.
 fn format_timestamp(ts_f64: f64) -> String {
@@ -370,9 +371,14 @@ pub fn list_file_versions(backup_set_path: &Path, file_path_in_backup: &str) -> 
 
     let mut found_versions = 0;
 
-    for (folder_uuid, records_vec) in &backup_set.backup_records {
-        for gen_record in records_vec {
-            match gen_record {
+    let all_records: Vec<_> = backup_set.backup_records.iter().flat_map(|(uuid, vec)| {
+        vec.iter().map(move |rec| (uuid, rec))
+    }).collect();
+
+    let results: Vec<_> = all_records.into_par_iter().map(|(folder_uuid, gen_record)| {
+        let mut output_lines: Vec<String> = Vec::new();
+        let mut found = false;
+        match gen_record {
                 arq::arq7::GenericBackupRecord::Arq7(record) => {
                     let record_local_path_str = record.local_path.as_deref().unwrap_or("");
                     let mut effective_path_parts =
@@ -417,7 +423,7 @@ pub fn list_file_versions(backup_set_path: &Path, file_path_in_backup: &str) -> 
                     }
 
                     if effective_path_parts.is_empty() {
-                        continue;
+                        return (output_lines, found);
                     }
 
                     match find_node_in_record_tree(
@@ -436,23 +442,24 @@ pub fn list_file_versions(backup_set_path: &Path, file_path_in_backup: &str) -> 
                             let timestamp_str = record
                                 .creation_date
                                 .map_or_else(|| "Unknown Timestamp".to_string(), format_timestamp);
-                            println!(
+                            output_lines.push(format!(
                                 "  - Record Timestamp: {} (Arq7, Raw: {:?}), Size: {} bytes, Modified: {}",
                                 timestamp_str,
                                 record.creation_date.unwrap_or(0.0),
                                 node.item_size,
                                 format_epoch_secs(node.modification_time_sec),
-                            );
-                            found_versions += 1;
+                            ));
+                            found = true;
                         }
                         Ok(Some(_node)) => {} // Found a directory when expecting a file
                         Ok(None) => {}        // Path not found in this record
                         Err(e) => {
-                            debug_eprintln!(
-                                "Warning: Error processing Arq7 record {:?}: {}",
+                            // Can't use debug_eprintln easily in parallel without mixing, but we can collect it.
+                            output_lines.push(format!(
+                                "DEBUG: Warning: Error processing Arq7 record {:?}: {}",
                                 record.creation_date,
                                 e
-                            );
+                            ));
                         }
                     }
                 }
@@ -460,15 +467,27 @@ pub fn list_file_versions(backup_set_path: &Path, file_path_in_backup: &str) -> 
                     let timestamp_str = record
                         .creation_date
                         .map_or_else(|| "Unknown Timestamp".to_string(), format_timestamp);
-                    println!(
-                        "  - Record Timestamp: {} (Arq5, Raw: {:?})",
+                    output_lines.push(format!(
+                        "  - Record Timestamp: {} (Arq5, Raw: {:?})\n    (Arq5 record - detailed file version info not supported)",
                         timestamp_str,
                         record.creation_date.unwrap_or(0.0)
-                    );
-                    println!("    (Arq5 record - detailed file version info not supported)");
-                    found_versions += 1;
+                    ));
+                    found = true;
                 }
             }
+        (output_lines, found)
+    }).collect();
+
+    for (lines, found) in results {
+        for line in lines {
+            if line.starts_with("DEBUG:") {
+                debug_eprintln!("{}", line.trim_start_matches("DEBUG: ").trim());
+            } else {
+                println!("{}", line);
+            }
+        }
+        if found {
+            found_versions += 1;
         }
     }
 
@@ -490,9 +509,14 @@ pub fn list_folder_versions(backup_set_path: &Path, folder_path_in_backup: &str)
         .collect();
     let mut found_versions = 0;
 
-    for (folder_uuid, records_vec) in &backup_set.backup_records {
-        for gen_record in records_vec {
-            match gen_record {
+    let all_records: Vec<_> = backup_set.backup_records.iter().flat_map(|(uuid, vec)| {
+        vec.iter().map(move |rec| (uuid, rec))
+    }).collect();
+
+    let results: Vec<_> = all_records.into_par_iter().map(|(folder_uuid, gen_record)| {
+        let mut output_lines: Vec<String> = Vec::new();
+        let mut found = false;
+        match gen_record {
                 arq::arq7::GenericBackupRecord::Arq7(record) => {
                     let record_local_path_str = record.local_path.as_deref().unwrap_or("");
                     let mut effective_path_parts =
@@ -563,23 +587,23 @@ pub fn list_folder_versions(backup_set_path: &Path, folder_path_in_backup: &str)
                             let timestamp_str = record
                                 .creation_date
                                 .map_or_else(|| "Unknown Timestamp".to_string(), format_timestamp);
-                            println!(
+                            output_lines.push(format!(
                                 "  - Record Timestamp: {} (Arq7, Raw: {:?}), Items: ~{}, Modified: {}",
                                 timestamp_str,
                                 record.creation_date.unwrap_or(0.0),
                                 node.contained_files_count.unwrap_or(0),
                                 format_epoch_secs(node.modification_time_sec),
-                            );
-                            found_versions += 1;
+                            ));
+                            found = true;
                         }
                         Ok(Some(_node)) => {}
                         Ok(None) => {}
                         Err(e) => {
-                            debug_eprintln!(
-                                "Warning: Error processing Arq7 record {:?}: {}",
+                            output_lines.push(format!(
+                                "DEBUG: Warning: Error processing Arq7 record {:?}: {}",
                                 record.creation_date,
                                 e
-                            );
+                            ));
                         }
                     }
                 }
@@ -587,15 +611,27 @@ pub fn list_folder_versions(backup_set_path: &Path, folder_path_in_backup: &str)
                     let timestamp_str = record
                         .creation_date
                         .map_or_else(|| "Unknown Timestamp".to_string(), format_timestamp);
-                    println!(
-                        "  - Record Timestamp: {} (Arq5, Raw: {:?})",
+                    output_lines.push(format!(
+                        "  - Record Timestamp: {} (Arq5, Raw: {:?})\n    (Arq5 record - detailed folder version info not supported)",
                         timestamp_str,
                         record.creation_date.unwrap_or(0.0)
-                    );
-                    println!("    (Arq5 record - detailed folder version info not supported)");
-                    found_versions += 1;
+                    ));
+                    found = true;
                 }
             }
+        (output_lines, found)
+    }).collect();
+
+    for (lines, found) in results {
+        for line in lines {
+            if line.starts_with("DEBUG:") {
+                debug_eprintln!("{}", line.trim_start_matches("DEBUG: ").trim());
+            } else {
+                println!("{}", line);
+            }
+        }
+        if found {
+            found_versions += 1;
         }
     }
     if found_versions == 0 {
@@ -945,19 +981,32 @@ pub fn restore_all_folder_versions(
         .split('/')
         .filter(|s| !s.is_empty())
         .collect();
-    let mut versions_restored_count = 0;
 
+    let mut records_to_process = Vec::new();
+    let mut ts_idx = 0;
     for (folder_uuid, gen_records_vec) in &backup_set.backup_records {
         for gen_record in gen_records_vec {
             match gen_record {
                 arq::arq7::GenericBackupRecord::Arq7(arq7_record) => {
-                    // Handle Arq7 variant
-
                     let timestamp_str = arq7_record.creation_date.map_or_else(
-                        || format!("unknown_ts_{}", versions_restored_count),
+                        || format!("unknown_ts_{}", ts_idx),
                         format_timestamp_rfc3339,
                     );
+                    ts_idx += 1;
+                    records_to_process.push((folder_uuid, arq7_record, timestamp_str));
+                }
+                arq::arq7::GenericBackupRecord::Arq5(_arq5_record) => {
+                    debug_eprintln!(
+                        "DEBUG restore_all_folder_versions: Skipping Arq5 record for folder version restoration."
+                    );
+                }
+            }
+        }
+    }
 
+    let versions_restored_count = std::sync::atomic::AtomicUsize::new(0);
+
+    records_to_process.into_par_iter().try_for_each(|(folder_uuid, arq7_record, timestamp_str)| -> Result<()> {
                     debug_eprintln!(
                         "DEBUG: restore_all_folder_versions: Arq7 record timestamp: {}",
                         timestamp_str
@@ -1016,11 +1065,6 @@ pub fn restore_all_folder_versions(
                         keyset,
                     ) {
                         if target_node.is_tree {
-                            let timestamp_str = arq7_record.creation_date.map_or_else(
-                                || format!("unknown_ts_{}", versions_restored_count),
-                                format_timestamp_rfc3339,
-                            );
-
                             let version_dest_dir_name = format!("{}", timestamp_str);
                             let version_destination = destination_root.join(version_dest_dir_name);
 
@@ -1061,7 +1105,7 @@ pub fn restore_all_folder_versions(
                                             stats.errors
                                         );
                                     }
-                                    versions_restored_count += 1;
+                                    versions_restored_count.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
                                 }
                                 Err(e) => {
                                     debug_eprintln!(
@@ -1073,18 +1117,11 @@ pub fn restore_all_folder_versions(
                             }
                         }
                     }
-                }
-                arq::arq7::GenericBackupRecord::Arq5(_arq5_record) => {
-                    // Arq5 records lack the direct node structure needed for folder restoration.
-                    debug_eprintln!(
-                        "DEBUG restore_all_folder_versions: Skipping Arq5 record for folder version restoration."
-                    );
-                }
-            }
-        }
-    }
+                    Ok(())
+    })?;
 
-    if versions_restored_count == 0 {
+    let final_count = versions_restored_count.load(std::sync::atomic::Ordering::Relaxed);
+    if final_count == 0 {
         println!(
             "No versions of folder '{}' found to restore.",
             folder_path_in_backup
@@ -1092,7 +1129,7 @@ pub fn restore_all_folder_versions(
     } else {
         println!(
             "Finished restoring {} versions of folder '{}'.",
-            versions_restored_count, folder_path_in_backup
+            final_count, folder_path_in_backup
         );
     }
 
