@@ -1119,7 +1119,10 @@ fn extract_node_to_destination_recursive(
     let node_output_path = if relative_path_for_node.is_empty() {
         current_materialized_path.to_path_buf()
     } else {
-        current_materialized_path.join(relative_path_for_node)
+        let safe_name = std::path::Path::new(relative_path_for_node)
+            .file_name()
+            .unwrap_or_else(|| std::ffi::OsStr::new("invalid_node_name"));
+        current_materialized_path.join(safe_name)
     };
 
     if node.is_tree {
