@@ -139,6 +139,50 @@ mod tests {
     }
 
     #[test]
+    fn test_decrypt_json_file_success() {
+        let encryption_key = vec![1u8; 32];
+        let hmac_key = vec![2u8; 32];
+        let plaintext = b"{\"test_key\": \"decrypted_value\"}";
+
+        let encrypted_bytes = create_encrypted_object_bytes(&encryption_key, &hmac_key, plaintext);
+
+        let mut file = tempfile::NamedTempFile::new().unwrap();
+        file.write_all(&encrypted_bytes).unwrap();
+        let file_path = file.path();
+
+        let keyset = EncryptedKeySet {
+            encryption_key: encryption_key.clone(),
+            hmac_key: hmac_key.clone(),
+            blob_identifier_salt: vec![0; 32],
+        };
+
+        let result = decrypt_json_file(file_path, &keyset).unwrap();
+        assert_eq!(result, "{\"test_key\": \"decrypted_value\"}");
+    }
+
+    #[test]
+    fn test_decrypt_json_file_failure_invalid_hmac() {
+        let encryption_key = vec![3u8; 32];
+        let hmac_key = vec![4u8; 32];
+        let plaintext = b"{\"test_key\": \"secret\"}";
+
+        let encrypted_bytes = create_encrypted_object_bytes(&encryption_key, &hmac_key, plaintext);
+
+        let mut file = tempfile::NamedTempFile::new().unwrap();
+        file.write_all(&encrypted_bytes).unwrap();
+        let file_path = file.path();
+
+        let invalid_keyset = EncryptedKeySet {
+            encryption_key: encryption_key.clone(),
+            hmac_key: vec![9u8; 32], // Wrong HMAC key
+            blob_identifier_salt: vec![0; 32],
+        };
+
+        let result = decrypt_json_file(file_path, &invalid_keyset);
+        assert!(result.is_err());
+    }
+
+    #[test]
     fn test_load_json_encrypted() {
         let encryption_key = vec![5u8; 32];
         let hmac_key = vec![6u8; 32];
