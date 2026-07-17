@@ -194,25 +194,31 @@ impl BackupSet {
         self.backup_config.is_encrypted
     }
 
-    /// Recursively load backup record files from a directory
+    /// Load backup record files from a directory (iteratively)
     fn load_backup_records_recursive(
         dir: &std::path::Path,
         records: &mut Vec<GenericBackupRecord>,
     ) -> Result<()> {
-        for entry in std::fs::read_dir(dir)? {
-            let entry = entry?;
-            let path = entry.path();
+        let mut stack = vec![dir.to_path_buf()];
 
-            if entry.file_type()?.is_dir() {
-                // Recursively search subdirectories
-                Self::load_backup_records_recursive(&path, records)?;
-            } else if path.extension().and_then(|s| s.to_str()) == Some("backuprecord") {
-                // Try to parse backup record file
-                match GenericBackupRecord::from_file(&path) {
-                    Ok(record) => records.push(record),
-                    Err(e) => {
-                        // Log error but continue processing other files
-                        eprintln!("Warning: Failed to parse backup record {:?}: {}", path, e);
+        while let Some(current_dir) = stack.pop() {
+            for entry in std::fs::read_dir(current_dir)? {
+                let entry = entry?;
+                let file_type = entry.file_type()?;
+
+                if file_type.is_dir() {
+                    stack.push(entry.path());
+                } else if file_type.is_file() {
+                    let path = entry.path();
+                    if path.extension().and_then(|s| s.to_str()) == Some("backuprecord") {
+                        // Try to parse backup record file
+                        match GenericBackupRecord::from_file(&path) {
+                            Ok(record) => records.push(record),
+                            Err(e) => {
+                                // Log error but continue processing other files
+                                eprintln!("Warning: Failed to parse backup record {:?}: {}", path, e);
+                            }
+                        }
                     }
                 }
             }
@@ -240,27 +246,33 @@ impl BackupSet {
                 if records_dir.exists() {
                     folder_records.clear();
 
-                    // Recursively traverse backup records directories
+                    // Traverse backup records directories iteratively
                     fn collect_records(
                         dir: &Path,
                         records: &mut Vec<GenericBackupRecord>,
                         keyset: Option<&EncryptedKeySet>,
                     ) -> Result<()> {
-                        for entry in std::fs::read_dir(dir)? {
-                            let entry = entry?;
-                            let path = entry.path();
+                        let mut stack = vec![dir.to_path_buf()];
+                        while let Some(current_dir) = stack.pop() {
+                            for entry in std::fs::read_dir(current_dir)? {
+                                let entry = entry?;
+                                let file_type = entry.file_type()?;
 
-                            if path.is_dir() {
-                                collect_records(&path, records, keyset)?;
-                            } else if path.extension().is_some_and(|ext| ext == "backuprecord") {
-                                match GenericBackupRecord::from_file_with_encryption(&path, keyset)
-                                {
-                                    Ok(record) => records.push(record),
-                                    Err(e) => {
-                                        eprintln!(
-                                            "Warning: Failed to load backup record {:?}: {}",
-                                            path, e
-                                        );
+                                if file_type.is_dir() {
+                                    stack.push(entry.path());
+                                } else if file_type.is_file() {
+                                    let path = entry.path();
+                                    if path.extension().is_some_and(|ext| ext == "backuprecord") {
+                                        match GenericBackupRecord::from_file_with_encryption(&path, keyset)
+                                        {
+                                            Ok(record) => records.push(record),
+                                            Err(e) => {
+                                                eprintln!(
+                                                    "Warning: Failed to load backup record {:?}: {}",
+                                                    path, e
+                                                );
+                                            }
+                                        }
                                     }
                                 }
                             }
