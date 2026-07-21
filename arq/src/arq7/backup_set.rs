@@ -194,29 +194,64 @@ impl BackupSet {
         self.backup_config.is_encrypted
     }
 
-    /// Recursively load backup record files from a directory
+    /// Load backup record files from a directory using an iterative concurrent approach
     fn load_backup_records_recursive(
         dir: &std::path::Path,
         records: &mut Vec<GenericBackupRecord>,
     ) -> Result<()> {
-        for entry in std::fs::read_dir(dir)? {
-            let entry = entry?;
-            let path = entry.path();
+        let mut dirs_to_visit = vec![dir.to_path_buf()];
+        let mut files_to_parse = Vec::new();
 
-            if entry.file_type()?.is_dir() {
-                // Recursively search subdirectories
-                Self::load_backup_records_recursive(&path, records)?;
-            } else if path.extension().and_then(|s| s.to_str()) == Some("backuprecord") {
-                // Try to parse backup record file
-                match GenericBackupRecord::from_file(&path) {
-                    Ok(record) => records.push(record),
-                    Err(e) => {
-                        // Log error but continue processing other files
-                        eprintln!("Warning: Failed to parse backup record {:?}: {}", path, e);
-                    }
+        while let Some(current_dir) = dirs_to_visit.pop() {
+            let entries = std::fs::read_dir(current_dir)?;
+            for entry_result in entries {
+                let entry = entry_result?;
+                let path = entry.path();
+                let file_type = entry.file_type()?;
+                if file_type.is_dir() {
+                    dirs_to_visit.push(path);
+                } else if path.extension().is_some_and(|s| s == "backuprecord") {
+                    files_to_parse.push(path);
                 }
             }
         }
+
+        let num_threads = std::thread::available_parallelism()
+            .map(|n| n.get())
+            .unwrap_or(4);
+        let chunk_size = (files_to_parse.len() + num_threads - 1) / num_threads;
+
+        if chunk_size > 0 {
+            std::thread::scope(|s| {
+                let mut handles = Vec::with_capacity(num_threads);
+
+                for chunk in files_to_parse.chunks(chunk_size) {
+                    let handle = s.spawn(move || {
+                        let mut local_records = Vec::with_capacity(chunk.len());
+                        for path in chunk {
+                            match GenericBackupRecord::from_file(path) {
+                                Ok(record) => local_records.push(record),
+                                Err(e) => {
+                                    eprintln!(
+                                        "Warning: Failed to parse backup record {:?}: {}",
+                                        path, e
+                                    );
+                                }
+                            }
+                        }
+                        local_records
+                    });
+                    handles.push(handle);
+                }
+
+                for handle in handles {
+                    if let Ok(mut local_records) = handle.join() {
+                        records.append(&mut local_records);
+                    }
+                }
+            });
+        }
+
         Ok(())
     }
 
