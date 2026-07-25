@@ -199,20 +199,13 @@ impl BackupSet {
         dir: &std::path::Path,
         records: &mut Vec<GenericBackupRecord>,
     ) -> Result<()> {
-        let mut dirs_to_visit = vec![dir.to_path_buf()];
         let mut files_to_parse = Vec::new();
 
-        while let Some(current_dir) = dirs_to_visit.pop() {
-            let entries = std::fs::read_dir(current_dir)?;
-            for entry_result in entries {
-                let entry = entry_result?;
-                let path = entry.path();
-                let file_type = entry.file_type()?;
-                if file_type.is_dir() {
-                    dirs_to_visit.push(path);
-                } else if path.extension().is_some_and(|s| s == "backuprecord") {
-                    files_to_parse.push(path);
-                }
+        for entry_result in jwalk::WalkDir::new(dir) {
+            let entry = entry_result.map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))?;
+            let path = entry.path();
+            if entry.file_type.is_file() && path.extension().is_some_and(|s| s == "backuprecord") {
+                files_to_parse.push(path);
             }
         }
 
