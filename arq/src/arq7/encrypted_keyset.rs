@@ -190,4 +190,33 @@ mod tests {
         assert_eq!(master_keys[1], vec![4, 5, 6]);
         assert_eq!(master_keys[2], vec![7, 8, 9]);
     }
+
+    #[test]
+    fn test_from_master_keys_success() {
+        let key1 = vec![1, 2, 3];
+        let key2 = vec![4, 5, 6];
+        let key3 = vec![7, 8, 9];
+        let master_keys = vec![key1.clone(), key2.clone(), key3.clone()];
+
+        let result = EncryptedKeySet::from_master_keys(master_keys);
+        assert!(result.is_ok());
+
+        let keyset = result.unwrap();
+        assert_eq!(keyset.encryption_key, key1);
+        assert_eq!(keyset.hmac_key, key2);
+        assert_eq!(keyset.blob_identifier_salt, key3);
+    }
+
+    #[test]
+    fn test_from_master_keys_invalid_length() {
+        // Too few keys
+        let master_keys_short = vec![vec![1, 2, 3], vec![4, 5, 6]];
+        let result_short = EncryptedKeySet::from_master_keys(master_keys_short);
+        assert!(matches!(result_short, Err(Error::InvalidFormat(_))));
+
+        // Too many keys
+        let master_keys_long = vec![vec![1], vec![2], vec![3], vec![4]];
+        let result_long = EncryptedKeySet::from_master_keys(master_keys_long);
+        assert!(matches!(result_long, Err(Error::InvalidFormat(_))));
+    }
 }
