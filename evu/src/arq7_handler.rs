@@ -3,8 +3,8 @@ use crate::error::{Error, Result};
 use arq::arq7::{BackupSet, EncryptedKeySet};
 use arq::node::Node;
 use chrono::DateTime;
-use std::path::Path;
 use rayon::prelude::*;
+use std::path::Path;
 
 /// Safely convert an f64 timestamp (seconds since epoch) to a formatted string.
 fn format_timestamp(ts_f64: f64) -> String {
@@ -395,12 +395,12 @@ pub fn list_file_versions(backup_set_path: &Path, file_path_in_backup: &str) -> 
 
     let mut found_versions = 0;
 
-    let all_records: Vec<_> = backup_set.backup_records.iter().flat_map(|(uuid, vec)| {
-        vec.iter().map(move |rec| (uuid, rec))
-    }).collect();
-
-    let results: Vec<_> = all_records.into_par_iter().map(|(folder_uuid, gen_record)| {
-        let mut output_lines: Vec<String> = Vec::new();
+    let results: Vec<_> = backup_set
+        .backup_records
+        .par_iter()
+        .flat_map(|(uuid, vec)| vec.par_iter().map(move |rec| (uuid, rec)))
+        .map(|(folder_uuid, gen_record)| {
+            let mut output_lines: Vec<String> = Vec::new();
         let mut found = false;
         match gen_record {
                 arq::arq7::GenericBackupRecord::Arq7(record) => {
@@ -533,12 +533,12 @@ pub fn list_folder_versions(backup_set_path: &Path, folder_path_in_backup: &str)
         .collect();
     let mut found_versions = 0;
 
-    let all_records: Vec<_> = backup_set.backup_records.iter().flat_map(|(uuid, vec)| {
-        vec.iter().map(move |rec| (uuid, rec))
-    }).collect();
-
-    let results: Vec<_> = all_records.into_par_iter().map(|(folder_uuid, gen_record)| {
-        let mut output_lines: Vec<String> = Vec::new();
+    let results: Vec<_> = backup_set
+        .backup_records
+        .par_iter()
+        .flat_map(|(uuid, vec)| vec.par_iter().map(move |rec| (uuid, rec)))
+        .map(|(folder_uuid, gen_record)| {
+            let mut output_lines: Vec<String> = Vec::new();
         let mut found = false;
         match gen_record {
                 arq::arq7::GenericBackupRecord::Arq7(record) => {
