@@ -170,3 +170,29 @@ impl EncryptedKeySet {
         })
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_from_master_keys_invalid_length() {
+        // Test with length 2
+        let keys_2 = vec![vec![1, 2, 3], vec![4, 5, 6]];
+        let result = EncryptedKeySet::from_master_keys(keys_2);
+        assert!(result.is_err());
+        match result.unwrap_err() {
+            Error::InvalidFormat(msg) => assert_eq!(msg, "Expected 3 master keys"),
+            _ => panic!("Expected Error::InvalidFormat"),
+        }
+
+        // Test with length 4
+        let keys_4 = vec![vec![1, 2, 3], vec![4, 5, 6], vec![7, 8, 9], vec![10, 11, 12]];
+        let result = EncryptedKeySet::from_master_keys(keys_4);
+        assert!(result.is_err());
+        match result.unwrap_err() {
+            Error::InvalidFormat(msg) => assert_eq!(msg, "Expected 3 master keys"),
+            _ => panic!("Expected Error::InvalidFormat"),
+        }
+    }
+}
