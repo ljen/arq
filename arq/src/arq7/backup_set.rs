@@ -783,3 +783,20 @@ fn count_files_in_node(
     }
     Ok((file_count, total_size))
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_backup_set_is_encrypted() {
+        let root = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/arq_storage_location/D1154AC6-01EB-41FE-B115-114464350B92");
+        let mut backup_set = BackupSet::from_directory_with_password(root, Some("asdfasdf1234")).unwrap();
+
+        backup_set.backup_config.is_encrypted = true;
+        assert!(backup_set.is_encrypted());
+
+        backup_set.backup_config.is_encrypted = false;
+        assert!(!backup_set.is_encrypted());
+    }
+}
