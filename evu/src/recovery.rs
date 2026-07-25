@@ -48,18 +48,10 @@ pub fn restore_file(
         keyset: &keyset,
     };
 
-    restore_file_in_tree(
-        Path::new(&arq_folder.local_path),
-        tree,
-        &options,
-    )
+    restore_file_in_tree(Path::new(&arq_folder.local_path), tree, &options)
 }
 
-fn restore_file_in_tree(
-    prefix: &Path,
-    tree: tree::Tree,
-    options: &RestoreOptions,
-) -> Result<()> {
+fn restore_file_in_tree(prefix: &Path, tree: tree::Tree, options: &RestoreOptions) -> Result<()> {
     for (name, node) in tree.nodes {
         if !node.is_tree {
             let inner = prefix.join(name);
@@ -84,11 +76,7 @@ fn restore_file_in_tree(
                 node.arq5_data_compression_type
                     .unwrap_or(arq::compression::CompressionType::None),
             )?; // Changed to arq5_data_compression_type
-            restore_file_in_tree(
-                prefix.join(name).as_path(),
-                inner_tree,
-                options,
-            )?;
+            restore_file_in_tree(prefix.join(name).as_path(), inner_tree, options)?;
         }
     }
     Ok(())
