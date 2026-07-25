@@ -15,6 +15,17 @@ fn main() -> Result<(), evu::error::Error> {
 
     let version = detect_version(global_path)?;
 
+    handle_subcommand(&matches, version, global_path, global_path_str)?;
+
+    Ok(())
+}
+
+fn handle_subcommand(
+    matches: &clap::ArgMatches,
+    version: ArqVersion,
+    global_path: &Path,
+    global_path_str: &str,
+) -> Result<(), evu::error::Error> {
     match matches.subcommand() {
         ("show", Some(cmd)) => match version {
             ArqVersion::Arq5 => {
