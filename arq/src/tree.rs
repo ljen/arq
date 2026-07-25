@@ -251,13 +251,7 @@ impl Tree {
     pub fn new_arq5(compressed_content: &[u8], compression_type: CompressionType) -> Result<Tree> {
         let content = CompressionType::decompress(compressed_content, compression_type)?;
         let mut reader = BufReader::new(std::io::Cursor::new(content));
-        let tree_header = reader.read_bytes(8)?; // Reads "TreeV0XX" - ArqRead::read_bytes is unambiguous
-        if &tree_header[..5] != b"TreeV" {
-            return Err(crate::error::Error::InvalidFormat(
-                "Invalid Arq5 tree header".to_string(),
-            ));
-        }
-        let version = std::str::from_utf8(&tree_header[5..])?.parse::<u32>()?;
+        let version = Self::parse_arq5_header(&mut reader)?;
 
         // These fields are specific to the Tree object itself in Arq5 format
         let xattrs_compression_type = reader.read_arq_compression_type()?;
@@ -293,48 +287,8 @@ impl Tree {
             mtime_nsec
         };
 
-        let mut missing_node_count = if version >= 18 {
-            ArqBinaryReader::read_arq_u32(&mut reader)?
-        } else {
-            0
-        };
-        let mut missing_nodes = Vec::new();
-        while missing_node_count > 0 {
-            if let Some(missing_node_name) = ArqBinaryReader::read_arq_string(&mut reader)? {
-                missing_nodes.push(missing_node_name);
-            } else {
-                // Or handle error: return Err(crate::error::Error::InvalidFormat("Missing node name was null".to_string()));
-                // For now, pushing an empty string if it's None, though Arq spec might imply it's always Some(String)
-                missing_nodes.push(String::new());
-            }
-            missing_node_count -= 1;
-        }
-
-        let mut node_count = ArqBinaryReader::read_arq_u32(&mut reader)?;
-        let mut nodes = HashMap::new();
-        while node_count > 0 {
-            let node_name = match ArqBinaryReader::read_arq_string(&mut reader)? {
-                Some(name) if !name.is_empty() => name,
-                Some(_) => {
-                    // Name is Some("")
-                    // Arq documentation states file name can't be null, but handle defensively
-                    return Err(crate::error::Error::InvalidFormat(
-                        "Empty node name in Arq5 tree".to_string(),
-                    ));
-                }
-                None => {
-                    // Name is None
-                    // Arq documentation states file name can't be null
-                    return Err(crate::error::Error::InvalidFormat(
-                        "Null node name in Arq5 tree".to_string(),
-                    ));
-                }
-            };
-            // Pass the tree's version to the node parser, as some node fields are version-dependent
-            let node = crate::node::Node::from_binary_reader_arq5(&mut reader, version)?;
-            nodes.insert(node_name, node);
-            node_count -= 1;
-        }
+        let missing_nodes = Self::parse_arq5_missing_nodes(&mut reader, version)?;
+        let nodes = Self::parse_arq5_child_nodes(&mut reader, version)?;
 
         Ok(Tree {
             version,
@@ -364,6 +318,66 @@ impl Tree {
             missing_nodes,
             nodes,
         })
+    }
+
+    fn parse_arq5_header<R: ArqRead>(reader: &mut R) -> Result<u32> {
+        let tree_header = reader.read_bytes(8)?; // Reads "TreeV0XX" - ArqRead::read_bytes is unambiguous
+        if &tree_header[..5] != b"TreeV" {
+            return Err(crate::error::Error::InvalidFormat(
+                "Invalid Arq5 tree header".to_string(),
+            ));
+        }
+        let version = std::str::from_utf8(&tree_header[5..])?.parse::<u32>()?;
+        Ok(version)
+    }
+
+    fn parse_arq5_missing_nodes<R: ArqBinaryReader>(reader: &mut R, version: u32) -> Result<Vec<String>> {
+        let mut missing_node_count = if version >= 18 {
+            ArqBinaryReader::read_arq_u32(reader)?
+        } else {
+            0
+        };
+        let mut missing_nodes = Vec::new();
+        while missing_node_count > 0 {
+            if let Some(missing_node_name) = ArqBinaryReader::read_arq_string(reader)? {
+                missing_nodes.push(missing_node_name);
+            } else {
+                // Or handle error: return Err(crate::error::Error::InvalidFormat("Missing node name was null".to_string()));
+                // For now, pushing an empty string if it's None, though Arq spec might imply it's always Some(String)
+                missing_nodes.push(String::new());
+            }
+            missing_node_count -= 1;
+        }
+        Ok(missing_nodes)
+    }
+
+    fn parse_arq5_child_nodes<R: ArqRead + ArqBinaryReader + std::io::BufRead>(reader: &mut R, version: u32) -> Result<HashMap<String, crate::node::Node>> {
+        let mut node_count = ArqBinaryReader::read_arq_u32(reader)?;
+        let mut nodes = HashMap::new();
+        while node_count > 0 {
+            let node_name = match ArqBinaryReader::read_arq_string(reader)? {
+                Some(name) if !name.is_empty() => name,
+                Some(_) => {
+                    // Name is Some("")
+                    // Arq documentation states file name can't be null, but handle defensively
+                    return Err(crate::error::Error::InvalidFormat(
+                        "Empty node name in Arq5 tree".to_string(),
+                    ));
+                }
+                None => {
+                    // Name is None
+                    // Arq documentation states file name can't be null
+                    return Err(crate::error::Error::InvalidFormat(
+                        "Null node name in Arq5 tree".to_string(),
+                    ));
+                }
+            };
+            // Pass the tree's version to the node parser, as some node fields are version-dependent
+            let node = crate::node::Node::from_binary_reader_arq5(reader, version)?;
+            nodes.insert(node_name, node);
+            node_count -= 1;
+        }
+        Ok(nodes)
     }
 
     /// Parses an Arq7 format tree from decompressed binary data.
