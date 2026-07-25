@@ -100,7 +100,7 @@ impl EncryptedKeySet {
         let mut derived_key = vec![0u8; 64];
         ring::pbkdf2::derive(
             ring::pbkdf2::PBKDF2_HMAC_SHA256,
-            std::num::NonZeroU32::new(200_000).unwrap(),
+            std::num::NonZeroU32::new(200_000).ok_or(Error::CryptoError)?,
             &salt,
             password.as_bytes(),
             &mut derived_key,
