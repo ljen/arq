@@ -89,7 +89,7 @@ pub struct Commit {
 
 impl Commit {
     pub fn is_commit(content: &[u8]) -> bool {
-        content[..10] == [67, 111, 109, 109, 105, 116, 86, 48, 49, 50] // CommitV012
+        content.len() >= 10 && content[..10] == [67, 111, 109, 109, 105, 116, 86, 48, 49, 50] // CommitV012
     }
 
     pub fn new<R: ArqRead>(mut reader: R) -> Result<Commit> {
@@ -178,5 +178,22 @@ impl Commit {
             config_plist_xml,
             arq_version,
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_is_commit() {
+        let valid_commit = b"CommitV012someotherdata";
+        assert!(Commit::is_commit(valid_commit));
+
+        let invalid_commit = b"CommitV011someotherdata";
+        assert!(!Commit::is_commit(invalid_commit));
+
+        let short_array = [0u8; 5];
+        assert!(!Commit::is_commit(&short_array));
     }
 }
