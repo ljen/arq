@@ -111,25 +111,40 @@ fn restore_object(
         }
     }
 
+    let mut found_blobs = std::collections::HashMap::new();
+    let required_blobs: std::collections::HashSet<_> = node
+        .data_blob_locs
+        .iter()
+        .map(|b| b.blob_identifier.clone())
+        .collect();
+
+    for fname in &cached_index_files {
+        let index_path = path.join(fname);
+        let mut reader = utils::get_file_reader(&index_path)?;
+        let index = packset::PackIndex::new(&mut reader)?;
+        for obj in index.objects {
+            if required_blobs.contains(&obj.sha1) {
+                found_blobs
+                    .entry(obj.sha1)
+                    .or_insert_with(Vec::new)
+                    .push((fname.clone(), obj.offset as u64));
+            }
+        }
+    }
+
     for blob in &node.data_blob_locs {
         // Iterate over a reference to avoid moving
-        for fname in &cached_index_files {
-            let index_path = path.join(fname);
-            let mut reader = utils::get_file_reader(&index_path)?;
-            let index = packset::PackIndex::new(&mut reader)?;
-            for obj in index.objects {
-                if obj.sha1 == blob.blob_identifier {
-                    // Changed blob.sha1 to blob.blob_identifier
-                    let pack_path = path.join(&fname.replace(".index", ".pack"));
-                    let mut reader = std::io::BufReader::new(utils::get_file_reader(&pack_path)?);
-                    reader.seek(SeekFrom::Start(obj.offset as u64))?;
-                    let mut reader = std::io::BufReader::new(reader);
-                    let ob = packset::PackObject::new(&mut reader)?;
-                    let mut f = File::create(filename)?;
-                    let data = ob.original(compression.clone(), master_key)?;
-                    f.write_all(&data)?;
-                    println!("Recovered '{}' to {:?}", absolute_filepath, filename);
-                }
+        if let Some(locations) = found_blobs.get(&blob.blob_identifier) {
+            for (fname, offset) in locations {
+                let pack_path = path.join(&fname.replace(".index", ".pack"));
+                let mut reader = std::io::BufReader::new(utils::get_file_reader(&pack_path)?);
+                reader.seek(SeekFrom::Start(*offset))?;
+                let mut reader = std::io::BufReader::new(reader);
+                let ob = packset::PackObject::new(&mut reader)?;
+                let mut f = File::create(filename)?;
+                let data = ob.original(compression.clone(), master_key)?;
+                f.write_all(&data)?;
+                println!("Recovered '{}' to {:?}", absolute_filepath, filename);
             }
         }
     }
