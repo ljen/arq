@@ -170,3 +170,24 @@ impl EncryptedKeySet {
         })
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_to_master_keys() {
+        let keyset = EncryptedKeySet {
+            encryption_key: vec![1, 2, 3],
+            hmac_key: vec![4, 5, 6],
+            blob_identifier_salt: vec![7, 8, 9],
+        };
+
+        let master_keys = keyset.to_master_keys();
+
+        assert_eq!(master_keys.len(), 3);
+        assert_eq!(master_keys[0], vec![1, 2, 3]);
+        assert_eq!(master_keys[1], vec![4, 5, 6]);
+        assert_eq!(master_keys[2], vec![7, 8, 9]);
+    }
+}
