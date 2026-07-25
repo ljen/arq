@@ -281,9 +281,12 @@ impl EncryptedObject {
                 "Invalid encrypted object header: expected 'ARQO'".to_string(),
             ));
         }
-        let hmac_sha256: [u8; 32] = reader.read_bytes(32)?.try_into().unwrap();
-        let master_iv: [u8; 16] = reader.read_bytes(16)?.try_into().unwrap();
-        let encrypted_data_iv_session: [u8; 64] = reader.read_bytes(64)?.try_into().unwrap();
+        let hmac_sha256: [u8; 32] = reader.read_bytes(32)?.try_into()
+            .map_err(|_| Error::InvalidFormat("Failed to parse HMAC-SHA256: incorrect length".to_string()))?;
+        let master_iv: [u8; 16] = reader.read_bytes(16)?.try_into()
+            .map_err(|_| Error::InvalidFormat("Failed to parse master IV: incorrect length".to_string()))?;
+        let encrypted_data_iv_session: [u8; 64] = reader.read_bytes(64)?.try_into()
+            .map_err(|_| Error::InvalidFormat("Failed to parse encrypted data IV session: incorrect length".to_string()))?;
         let mut ciphertext: Vec<u8> = Vec::new();
         reader.read_to_end(&mut ciphertext)?;
 
