@@ -371,11 +371,9 @@ pub fn list_file_versions(backup_set_path: &Path, file_path_in_backup: &str) -> 
 
     let mut found_versions = 0;
 
-    let all_records: Vec<_> = backup_set.backup_records.iter().flat_map(|(uuid, vec)| {
+    let results: Vec<_> = backup_set.backup_records.par_iter().flat_map_iter(|(uuid, vec)| {
         vec.iter().map(move |rec| (uuid, rec))
-    }).collect();
-
-    let results: Vec<_> = all_records.into_par_iter().map(|(folder_uuid, gen_record)| {
+    }).map(|(folder_uuid, gen_record)| {
         let mut output_lines: Vec<String> = Vec::new();
         let mut found = false;
         match gen_record {
@@ -509,11 +507,9 @@ pub fn list_folder_versions(backup_set_path: &Path, folder_path_in_backup: &str)
         .collect();
     let mut found_versions = 0;
 
-    let all_records: Vec<_> = backup_set.backup_records.iter().flat_map(|(uuid, vec)| {
+    let results: Vec<_> = backup_set.backup_records.par_iter().flat_map_iter(|(uuid, vec)| {
         vec.iter().map(move |rec| (uuid, rec))
-    }).collect();
-
-    let results: Vec<_> = all_records.into_par_iter().map(|(folder_uuid, gen_record)| {
+    }).map(|(folder_uuid, gen_record)| {
         let mut output_lines: Vec<String> = Vec::new();
         let mut found = false;
         match gen_record {
