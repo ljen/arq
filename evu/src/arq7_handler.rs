@@ -16,7 +16,19 @@ fn format_timestamp(ts_f64: f64) -> String {
         0
     };
     DateTime::from_timestamp(secs, nanos)
-        .map(|dt| dt.format("%Y-%m-%d %H:%M:%S UTC").to_string())
+        .map(|dt| {
+            use chrono::{Datelike, Timelike};
+            let naive = dt.naive_utc();
+            format!(
+                "{:04}-{:02}-{:02} {:02}:{:02}:{:02} UTC",
+                naive.year(),
+                naive.month(),
+                naive.day(),
+                naive.hour(),
+                naive.minute(),
+                naive.second()
+            )
+        })
         .unwrap_or_else(|| ts_f64.to_string())
 }
 
@@ -37,7 +49,19 @@ fn format_timestamp_rfc3339(ts_f64: f64) -> String {
 /// Safely format a seconds-since-epoch i64 for display.
 fn format_epoch_secs(secs: i64) -> String {
     DateTime::from_timestamp(secs, 0)
-        .map(|dt| dt.format("%Y-%m-%d %H:%M:%S").to_string())
+        .map(|dt| {
+            use chrono::{Datelike, Timelike};
+            let naive = dt.naive_utc();
+            format!(
+                "{:04}-{:02}-{:02} {:02}:{:02}:{:02}",
+                naive.year(),
+                naive.month(),
+                naive.day(),
+                naive.hour(),
+                naive.minute(),
+                naive.second()
+            )
+        })
         .unwrap_or_else(|| secs.to_string())
 }
 
