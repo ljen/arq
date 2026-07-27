@@ -1,4 +1,5 @@
 {
+  "computerUUID" : "test-uuid",
   "blobIdentifierType" : 2,
   "maxPackedItemLength" : 256000,
   "backupName" : "Back up to arq_storage_location Encrypted",
