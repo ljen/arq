@@ -793,3 +793,20 @@ mod tests {
         assert!(!backup_set.is_encrypted());
     }
 }
+
+#[cfg(test)]
+mod list_all_files_tests {
+    use super::*;
+
+    #[test]
+    fn test_list_all_files() {
+        let root = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/arq_storage_location/D1154AC6-01EB-41FE-B115-114464350B92");
+        let backup_set = BackupSet::from_directory_with_password(root, Some("asdfasdf1234")).unwrap();
+
+        let files = backup_set.list_all_files().unwrap();
+        assert_eq!(files.len(), 4, "Should find 4 files in the backup set");
+        assert!(files.contains(&"Test File 2024.txt".to_string()), "Should contain Test File 2024.txt");
+        assert!(files.contains(&"nested folder/hello.txt".to_string()), "Should contain hello.txt in nested folder");
+        assert!(files.contains(&"another_nested/world.txt".to_string()), "Should contain world.txt");
+    }
+}
