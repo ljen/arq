@@ -8,7 +8,7 @@ use crate::error::Result;
 #[derive(Debug, Clone, Deserialize)]
 pub struct BackupConfig {
     #[serde(rename = "computerUUID")]
-    pub computer_uuid: String,
+    pub computer_uuid: Option<String>,
     /// 1=SHA1, 2=SHA256
     #[serde(rename = "blobIdentifierType")]
     pub blob_identifier_type: u32,
@@ -73,7 +73,7 @@ mod tests {
         let cursor = Cursor::new(json_data);
         let config = BackupConfig::from_reader(cursor).unwrap();
 
-        assert_eq!(config.computer_uuid, "12345-abcde");
+        assert_eq!(config.computer_uuid.as_deref(), Some("12345-abcde"));
         assert_eq!(config.blob_identifier_type, 2);
         assert_eq!(config.max_packed_item_length, 10485760);
         assert_eq!(config.backup_name, "My Backup");
