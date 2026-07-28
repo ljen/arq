@@ -722,6 +722,7 @@ fn list_versions_internal(
     }
     Ok(())
 }
+
 pub fn list_file_versions(backup_set_path: &Path, file_path_in_backup: &str) -> Result<()> {
     list_versions_internal(backup_set_path, file_path_in_backup, false)
 }
@@ -1285,6 +1286,7 @@ struct ExtractionContext<'a> {
     keyset: Option<&'a EncryptedKeySet>,
     stats: &'a mut ExtractionStats,
 }
+
 fn extract_node_to_destination_recursive(
     node: &Node,
     current_materialized_path: &Path,
