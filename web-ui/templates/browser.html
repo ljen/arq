@@ -1,0 +1,106 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="container">
+    <div class="sidebar">
+        <h3>Backup Records</h3>
+        {% if folders.is_empty() %}
+            <p>No backups found.</p>
+        {% endif %}
+        {% for folder in folders %}
+            <h4>{{ folder.name }}</h4>
+            {% for record in folder.records %}
+                <div class="record-item" onclick="loadRecord('{{ record.id }}', this)">
+                    {{ record.date }}
+                </div>
+            {% endfor %}
+        {% endfor %}
+    </div>
+    <div class="main" id="file-browser">
+        <h3>Select a backup record to browse files.</h3>
+    </div>
+</div>
+
+<script>
+    let currentRecordId = null;
+
+    async function loadRecord(recordId, element) {
+        // highlight selection
+        document.querySelectorAll('.record-item').forEach(el => el.style.backgroundColor = '');
+        if (element) {
+            element.style.backgroundColor = '#d0d0d0';
+        }
+
+        currentRecordId = recordId;
+        document.getElementById('file-browser').innerHTML = `<h3>Loading...</h3>`;
+        await loadFolder(recordId, "");
+    }
+
+    async function loadFolder(recordId, path) {
+        try {
+            const encodedPath = encodeURIComponent(path);
+            const response = await fetch(`/api/record/${recordId}/tree?path=${encodedPath}`);
+            if (!response.ok) {
+                const text = await response.text();
+                throw new Error(text || "Failed to load folder");
+            }
+            const data = await response.json();
+
+            let html = `<h3>Browsing: /${path}</h3>`;
+            if (path !== "") {
+                const parentPath = path.split('/').slice(0, -1).join('/');
+                html += `<div class="file-item"><a href="#" onclick="loadFolder('${recordId}', '${parentPath}')" style="text-decoration:none; color:blue;">🔙 .. (Go up)</a></div>`;
+            }
+
+            if (data.items.length === 0) {
+                html += `<p><em>Empty folder</em></p>`;
+            } else {
+                html += `<table style="width:100%; border-collapse: collapse; text-align: left;">
+                    <thead>
+                        <tr style="border-bottom: 1px solid #ccc;">
+                            <th style="padding: 8px;">Name</th>
+                            <th style="padding: 8px;">Size</th>
+                            <th style="padding: 8px;">Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody>`;
+                for (const item of data.items) {
+                    html += `<tr style="border-bottom: 1px solid #eee;">`;
+                    if (item.is_dir) {
+                        const nextPath = path ? `${path}/${item.name}` : item.name;
+                        html += `<td style="padding: 8px;">
+                                    <div class="folder" onclick="loadFolder('${recordId}', '${nextPath.replace(/'/g, "\\'")}')">📁 ${item.name}</div>
+                                 </td>
+                                 <td style="padding: 8px;">--</td>
+                                 <td style="padding: 8px;"></td>`;
+                    } else {
+                        const filePath = path ? `${path}/${item.name}` : item.name;
+                        const sizeStr = formatBytes(item.size);
+                        html += `<td style="padding: 8px;">
+                                    <div class="file">📄 ${item.name}</div>
+                                 </td>
+                                 <td style="padding: 8px; color: #555;">${sizeStr}</td>
+                                 <td style="padding: 8px;">
+                                    <a href="/api/record/${recordId}/download?path=${encodeURIComponent(filePath)}" target="_blank" style="text-decoration: none; padding: 4px 8px; background: #0066cc; color: white; border-radius: 4px; font-size: 0.9em;">Download</a>
+                                 </td>`;
+                    }
+                    html += `</tr>`;
+                }
+                html += `</tbody></table>`;
+            }
+            document.getElementById('file-browser').innerHTML = html;
+        } catch (e) {
+            document.getElementById('file-browser').innerHTML = `<p style="color:red">Error: ${e.message}</p>`;
+        }
+    }
+
+    function formatBytes(bytes, decimals = 2) {
+        if (!+bytes) return '0 Bytes';
+        const k = 1024;
+        const dm = decimals < 0 ? 0 : decimals;
+        const sizes = ['Bytes', 'KiB', 'MiB', 'GiB', 'TiB', 'PiB', 'EiB', 'ZiB', 'YiB'];
+        const i = Math.floor(Math.log(bytes) / Math.log(k));
+        return `${parseFloat((bytes / Math.pow(k, i)).toFixed(dm))} ${sizes[i]}`;
+    }
+</script>
+{% endblock %}
