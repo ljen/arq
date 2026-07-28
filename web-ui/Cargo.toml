@@ -1,0 +1,18 @@
+[package]
+name = "web-ui"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+axum = "0.7"
+tokio = { version = "1.0", features = ["full"] }
+askama = "0.12"
+askama_axum = "0.4"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+chrono = "0.4"
+tower = "0.5"
+tracing = "0.1"
+tracing-subscriber = "0.3"
+arq = { path = "../arq" }
+anyhow = "1.0"
