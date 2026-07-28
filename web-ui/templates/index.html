@@ -1,0 +1,29 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="container" style="display: block; padding: 2rem; max-width: 600px; margin: 2rem auto; border: 1px solid #e9ecef; border-radius: 8px; box-shadow: 0 4px 6px rgba(0,0,0,0.05); overflow: visible; height: auto;">
+    <h2 style="margin-top: 0; color: #343a40;">Load Backup Dataset</h2>
+    <p style="color: #6c757d; margin-bottom: 1.5rem;">Enter the path to your Arq backup dataset to start browsing.</p>
+
+    {% if let Some(error) = error %}
+        <div style="background: #f8d7da; color: #721c24; padding: 1rem; border-radius: 4px; margin-bottom: 1.5rem; border: 1px solid #f5c6cb;">
+            <strong>Error:</strong> {{ error }}
+        </div>
+    {% endif %}
+
+    <form action="/load" method="post">
+        <div class="form-group">
+            <label for="path">Backup Dataset Path</label>
+            <input type="text" id="path" name="path" required placeholder="/path/to/backup/dataset" style="max-width: 100%;">
+        </div>
+
+        <div class="form-group">
+            <label for="password">Password (Optional)</label>
+            <input type="password" id="password" name="password" placeholder="Leave blank if not encrypted" style="max-width: 100%;">
+            <small style="color: #6c757d; display: block; margin-top: 0.25rem;">Required only if the backup set is encrypted.</small>
+        </div>
+
+        <button type="submit" style="width: 100%; margin-top: 0.5rem; padding: 0.8rem;">Load Backup</button>
+    </form>
+</div>
+{% endblock %}
