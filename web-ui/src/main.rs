@@ -15,7 +15,7 @@ use arq::node::Node;
 
 #[derive(Clone)]
 struct AppState {
-    backup_set: Arc<Mutex<Option<BackupSet>>>,
+    backup_set: Arc<Mutex<Option<Arc<BackupSet>>>>,
 }
 
 #[derive(Template)]
@@ -83,7 +83,7 @@ async fn load_backup(State(state): State<AppState>, Form(form): Form<LoadForm>) 
     match bs_result {
         Ok(bs) => {
             let mut state_bs = state.backup_set.lock().await;
-            *state_bs = Some(bs);
+            *state_bs = Some(Arc::new(bs));
             Redirect::to("/browse").into_response()
         }
         Err(e) => {
@@ -167,7 +167,7 @@ async fn get_tree(
     // Resolve the path
     let req_path = query.path.unwrap_or_default();
 
-    let bs_clone = bs.clone();
+    let bs_clone = Arc::clone(bs);
     let root_node = record.node.clone();
 
     let result = tokio::task::spawn_blocking(move || {
@@ -214,7 +214,7 @@ async fn download_file(
         _ => return (StatusCode::BAD_REQUEST, "Path is required").into_response(),
     };
 
-    let bs_clone = bs.clone();
+    let bs_clone = Arc::clone(bs);
     let root_node = record.node.clone();
 
     let result = tokio::task::spawn_blocking(move || {
