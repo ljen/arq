@@ -58,7 +58,8 @@ where
 mod tests {
     use super::*;
     use crate::object_encryption::calculate_hmacsha256;
-    use aes::cipher::{block_padding::Pkcs7, BlockEncryptMut, KeyIvInit};
+    use aes::cipher::{block_padding::Pkcs7, KeyIvInit};
+    use cipher::BlockModeEncrypt;
     use aes::Aes256;
     use cbc::Encryptor;
     use serde::Deserialize;
@@ -87,7 +88,7 @@ mod tests {
 
         let encrypted_data_iv_session = Aes256CbcEnc::new_from_slices(encryption_key, &master_iv)
             .unwrap()
-            .encrypt_padded_mut::<Pkcs7>(&mut data_iv_session, 48)
+            .encrypt_padded::<Pkcs7>(&mut data_iv_session, 48)
             .unwrap()
             .to_vec();
 
@@ -95,7 +96,7 @@ mod tests {
         plaintext_buf[..plaintext.len()].copy_from_slice(plaintext);
         let ciphertext = Aes256CbcEnc::new_from_slices(&session_key, &data_iv)
             .unwrap()
-            .encrypt_padded_mut::<Pkcs7>(&mut plaintext_buf, plaintext.len())
+            .encrypt_padded::<Pkcs7>(&mut plaintext_buf, plaintext.len())
             .unwrap()
             .to_vec();
 

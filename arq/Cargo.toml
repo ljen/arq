@@ -19,21 +19,22 @@ rustdoc-args = ["-C", "target-feature=+aes", "-C", "target-cpu=native"]
 github = { workflow = "CI", repository = "nlopes/arq" }
 
 [dependencies]
-aes = "0.8"
+aes = "0.9"
 byteorder = "1.4"
 cbc = "0.2"
+cipher = "0.5"
 chrono = { version = "0.4", features = ["serde"] }
-digest = "0.10"
-hex-literal = "0.4"
-hmac = "0.12"
-lz4_flex = "0.11"
+digest = "0.11"
+hex-literal = "1.1"
+hmac = "0.13"
+lz4_flex = "0.13"
 plist = "1.3"
-ring = "0.16"
+ring = "0.17"
 serde = "1.0"
 serde_derive = "1.0"
 serde_json = "1.0"
 sha-1 = "0.10"
-sha2 = "0.10"
+sha2 = "0.11"
 filetime = "0.2"
 flate2 = "1.0"
 jwalk = "0.8.1"
@@ -42,14 +43,6 @@ jwalk = "0.8.1"
 criterion = "0.5.1"
 rayon = "1.10.0"
 tempfile = "3.10.0"
-
-[[bench]]
-name = "bench"
-harness = false
-
-[[bench]]
-name = "bench"
-harness = false
 
 [[bench]]
 name = "bench"
