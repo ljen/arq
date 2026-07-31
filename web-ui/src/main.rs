@@ -63,6 +63,17 @@ struct TreeItem {
     size: u64,
 }
 
+#[derive(Serialize)]
+struct TreeDirsResponse {
+    dirs: Vec<TreeDirItem>,
+}
+
+#[derive(Serialize)]
+struct TreeDirItem {
+    name: String,
+    has_children: bool,
+}
+
 async fn index(State(state): State<AppState>) -> impl IntoResponse {
     let bs = state.backup_set.lock().await;
     if bs.is_some() {
@@ -188,6 +199,48 @@ async fn get_tree(
 
     match result {
         Ok(children) => Json(TreeResponse { items: children }).into_response(),
+        Err(status) => status.into_response(),
+    }
+}
+
+async fn get_tree_dirs(
+    State(state): State<AppState>,
+    AxumPath(record_id): AxumPath<String>,
+    Query(query): Query<TreeQuery>,
+) -> impl IntoResponse {
+    let bs_lock = state.backup_set.lock().await;
+    let bs = match bs_lock.as_ref() {
+        Some(b) => b,
+        None => return (StatusCode::BAD_REQUEST, "Not loaded").into_response(),
+    };
+
+    let record = match get_arq7_record(bs, &record_id) {
+        Some(r) => r,
+        None => return (StatusCode::NOT_FOUND, "Record not found").into_response(),
+    };
+
+    let req_path = query.path.unwrap_or_default();
+    let bs_clone = bs.clone();
+    let root_node = record.node.clone();
+
+    let result = tokio::task::spawn_blocking(move || {
+        let keyset = bs_clone.encryption_keyset();
+        match resolve_node(&bs_clone, &root_node, &req_path, keyset) {
+            Ok(node) => {
+                if !node.is_tree {
+                    return Err(StatusCode::BAD_REQUEST);
+                }
+                match list_node_subdirs(&bs_clone, &node, keyset) {
+                    Ok(dirs) => Ok(dirs),
+                    Err(_) => Err(StatusCode::INTERNAL_SERVER_ERROR),
+                }
+            }
+            Err(_) => Err(StatusCode::NOT_FOUND),
+        }
+    }).await.unwrap_or(Err(StatusCode::INTERNAL_SERVER_ERROR));
+
+    match result {
+        Ok(dirs) => Json(TreeDirsResponse { dirs }).into_response(),
         Err(status) => status.into_response(),
     }
 }
@@ -328,6 +381,39 @@ fn list_node_children(
     Ok(items)
 }
 
+fn list_node_subdirs(
+    bs: &BackupSet,
+    node: &Node,
+    keyset: Option<&EncryptedKeySet>,
+) -> anyhow::Result<Vec<TreeDirItem>> {
+    let mut dirs = Vec::new();
+    if !node.is_tree {
+        return Ok(dirs);
+    }
+
+    let tree = node.load_tree_with_encryption(&bs.root_path, keyset)
+        .map_err(|e| anyhow::anyhow!("Failed to read tree: {:?}", e))?
+        .ok_or_else(|| anyhow::anyhow!("Tree data missing"))?;
+
+    for (name, child_node) in &tree.nodes {
+        if child_node.is_tree {
+            // Check if this directory itself has subdirectories
+            let has_children = if let Ok(Some(child_tree)) = child_node.load_tree_with_encryption(&bs.root_path, keyset) {
+                child_tree.nodes.iter().any(|(_, n)| n.is_tree)
+            } else {
+                false // Assume no children if we can't load
+            };
+            dirs.push(TreeDirItem {
+                name: name.clone(),
+                has_children,
+            });
+        }
+    }
+
+    dirs.sort_by(|a, b| a.name.cmp(&b.name));
+    Ok(dirs)
+}
+
 // Simple helper from evu
 fn format_timestamp_rfc3339(ts_f64: f64) -> String {
     let secs = ts_f64 as i64;
@@ -347,6 +433,7 @@ async fn main() {
         .route("/load", post(load_backup))
         .route("/browse", get(browse))
         .route("/api/record/:record_id/tree", get(get_tree))
+        .route("/api/record/:record_id/tree_dirs", get(get_tree_dirs))
         .route("/api/record/:record_id/download", get(download_file))
         .with_state(state);
 
