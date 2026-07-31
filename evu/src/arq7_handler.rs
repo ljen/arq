@@ -138,56 +138,55 @@ fn find_record_by_identifier<'a>(
 }
 
 // Helper function to find a node (file or folder) within a record's tree
-fn find_node_in_record_tree(
-    node: &Node,
+fn find_node_in_record_tree<'a>(
+    node: &'a Node,
     path_parts: &[&str],
     current_depth: usize,
     backup_set_path: &Path,
     keyset: Option<&EncryptedKeySet>,
-) -> Result<Option<Node>> {
+) -> Result<Option<std::borrow::Cow<'a, Node>>> {
     if current_depth == path_parts.len() {
-        return Ok(Some(node.clone()));
+        return Ok(Some(std::borrow::Cow::Borrowed(node)));
     }
 
-    if !node.is_tree {
-        return Ok(None);
-    }
+    let mut current_node = std::borrow::Cow::Borrowed(node);
 
-    match node.load_tree_with_encryption(backup_set_path, keyset) {
-        Ok(Some(tree)) => {
-            let target_child_name = path_parts[current_depth];
-            debug_eprintln!(
-                "DEBUG: find_node_in_record_tree: Depth: {}, Target: '{}', Children: {:?}",
-                current_depth,
-                target_child_name,
-                tree.nodes.keys()
-            );
-            if let Some(child_node) = tree.nodes.get(target_child_name) {
-                return find_node_in_record_tree(
-                    child_node,
-                    path_parts,
-                    current_depth + 1,
-                    backup_set_path,
-                    keyset,
+    for i in current_depth..path_parts.len() {
+        if !current_node.is_tree {
+            return Ok(None);
+        }
+
+        let target_child_name = path_parts[i];
+
+        match current_node.load_tree_with_encryption(backup_set_path, keyset) {
+            Ok(Some(mut tree)) => {
+                debug_eprintln!(
+                    "DEBUG: find_node_in_record_tree: Depth: {}, Target: '{}', Children: {:?}",
+                    i,
+                    target_child_name,
+                    tree.nodes.keys()
                 );
+
+                if let Some(child_node) = tree.nodes.remove(target_child_name) {
+                    current_node = std::borrow::Cow::Owned(child_node);
+                } else {
+                    return Ok(None);
+                }
+            }
+            Ok(None) => {
+                let current_path_segment = if i > 0 { path_parts[i - 1] } else { "root" };
+                return Err(Error::Generic(format!(
+                    "Node was expected to be a tree with loadable data, but found none for path part: {}",
+                    current_path_segment
+                )));
+            }
+            Err(e) => {
+                return Err(Error::ArqError(e)); // Directly use ArqError
             }
         }
-        Ok(None) => {
-            let current_path_segment = if current_depth > 0 {
-                path_parts[current_depth - 1]
-            } else {
-                "root"
-            };
-            return Err(Error::Generic(format!(
-                "Node was expected to be a tree with loadable data, but found none for path part: {}",
-                current_path_segment
-            )));
-        }
-        Err(e) => {
-            return Err(Error::ArqError(e)); // Directly use ArqError
-        }
     }
-    Ok(None)
+
+    Ok(Some(current_node))
 }
 
 pub fn list_backup_records(backup_set_path: &Path) -> Result<()> {
@@ -322,8 +321,7 @@ pub fn list_files(
             .collect();
 
         let start_node =
-            find_node_in_record_tree(&arq7_record.node, &path_parts, 0, backup_set_path, keyset)?
-                .ok_or_else(|| {
+            find_node_in_record_tree(&arq7_record.node, &path_parts, 0, backup_set_path, keyset)?.map(|c| c.into_owned()).ok_or_else(|| {
                 Error::NotFound(format!(
                     "Folder '{}' not found in record '{}'.",
                     folder_path_in_backup.unwrap_or("/"),
@@ -460,7 +458,8 @@ fn process_arq7_record(
         backup_set_path,
         keyset,
     ) {
-        Ok(Some(node)) => {
+        Ok(Some(node_cow)) => {
+            let node = node_cow.as_ref();
             if is_folder {
                 if node.is_tree {
                     let timestamp_str = record
@@ -638,7 +637,8 @@ fn list_versions_internal(
                         backup_set_path,
                         keyset,
                     ) {
-                        Ok(Some(node)) if node.is_tree == is_folder => {
+                        Ok(Some(node_cow)) if node_cow.is_tree == is_folder => {
+                            let node = node_cow.as_ref();
                             if !is_folder {
                                 debug_eprintln!(
                                     "DEBUG list_file_versions: Found file node: {:?}, size: {}",
@@ -668,7 +668,7 @@ fn list_versions_internal(
                             }
                             found = true;
                         }
-                        Ok(Some(_node)) => {}
+                        Ok(Some(_node_cow)) => {}
                         Ok(None) => {}
                         Err(e) => {
                             output_lines.push(format!(
@@ -869,8 +869,7 @@ pub fn restore_specific_file_from_record(
         0,
         backup_set_path,
         keyset,
-    )?
-    .ok_or_else(|| {
+    )?.map(|c| c.into_owned()).ok_or_else(|| {
         Error::NotFound(format!(
             "File '{}' not found in record '{}'.",
             file_path_in_backup, record_identifier
@@ -986,8 +985,7 @@ pub fn restore_specific_folder_from_record(
         0,
         backup_set_path,
         keyset,
-    )?
-    .ok_or_else(|| {
+    )?.map(|c| c.into_owned()).ok_or_else(|| {
         Error::NotFound(format!(
             "Folder '{}' not found in record '{}'.",
             folder_path_in_backup, record_identifier
@@ -1122,7 +1120,7 @@ pub fn restore_all_folder_versions(
                 bf_config_local_path,
             );
 
-            if let Ok(Some(target_node)) = find_node_in_record_tree(
+            if let Ok(Some(target_node_cow)) = find_node_in_record_tree(
                 &arq7_record.node,
                 &effective_path_parts,
                 0,
@@ -1130,7 +1128,7 @@ pub fn restore_all_folder_versions(
                 keyset,
             ) {
                 restore_version_from_record(
-                    &target_node,
+                    target_node_cow.as_ref(),
                     &effective_path_parts,
                     &timestamp_str,
                     destination_root,
