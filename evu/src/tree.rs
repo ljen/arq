@@ -61,14 +61,15 @@ fn render_tree(
     sha: &str,
     keyset: &EncryptedKeySet,
 ) -> Result<()> {
-    let data = packset::restore_blob_with_sha(path, sha, keyset)?;
+    let path_packset = packset::PackSet::new(path);
+    let data = path_packset.restore_blob_with_sha(sha, keyset)?.ok_or_else(|| arq::error::Error::InvalidFormat(format!("SHA not found: {}", sha)))?;
     let commit = Commit::new(Cursor::new(data))?;
     #[cfg(debug_assertions)]
     show_commit(&commit);
 
-    let tree_blob = packset::restore_blob_with_sha(path, &commit.tree_sha1, keyset)?;
+    let tree_blob = path_packset.restore_blob_with_sha(&commit.tree_sha1, keyset)?.ok_or_else(|| arq::error::Error::InvalidFormat(format!("SHA not found: {}", commit.tree_sha1)))?;
     let tree = tree::Tree::new_arq5(&tree_blob, commit.tree_compression_type)?;
-    render_internal_tree(prefix, &path, tree, keyset)?;
+    render_internal_tree(prefix, &path, tree, keyset, &path_packset)?;
     Ok(())
 }
 
@@ -77,6 +78,7 @@ fn render_internal_tree(
     path: &PathBuf,
     tr: tree::Tree,
     keyset: &EncryptedKeySet,
+    path_packset: &packset::PackSet,
 ) -> Result<()> {
     for (k, v) in tr.nodes {
         if v.is_tree {
@@ -84,17 +86,16 @@ fn render_internal_tree(
                 // Changed data_blob_keys to data_blob_locs
                 continue;
             }
-            let data = packset::restore_blob_with_sha(
-                &path,
+            let data = path_packset.restore_blob_with_sha(
                 &v.data_blob_locs[0].blob_identifier,
                 &keyset,
-            )?; // Changed to data_blob_locs and blob_identifier
+            )?.ok_or_else(|| arq::error::Error::InvalidFormat(format!("SHA not found: {}", v.data_blob_locs[0].blob_identifier)))?; // Changed to data_blob_locs and blob_identifier
             let tree = tree::Tree::new_arq5(
                 &data,
                 v.arq5_data_compression_type
                     .unwrap_or(arq::compression::CompressionType::None),
             )?; // Changed to arq5_data_compression_type
-            render_internal_tree(prefix.join(k).as_path(), &path, tree, &keyset)?;
+            render_internal_tree(prefix.join(k).as_path(), &path, tree, &keyset, path_packset)?;
         } else {
             println!("{}", prefix.join(k).as_os_str().to_string_lossy());
         }
