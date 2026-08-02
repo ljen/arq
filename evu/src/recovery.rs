@@ -23,7 +23,7 @@ pub fn restore_file(
     folder: &str,
     absolute_filepath: &str,
 ) -> Result<()> {
-    use rpassword;
+
 
     let trees_path = Path::new(path)
         .join(computer)
@@ -34,11 +34,12 @@ pub fn restore_file(
     let keyset = EncryptedKeySet::from_master_keys(master_keys.clone())?;
     let head_sha = utils::find_latest_folder_sha(path, computer, folder)?;
 
-    let data = packset::restore_blob_with_sha(&trees_path, &head_sha, &keyset)?;
+    let trees_packset = packset::PackSet::new(&trees_path);
+    let data = trees_packset.restore_blob_with_sha(&head_sha, &keyset)?.ok_or_else(|| arq::error::Error::InvalidFormat(format!("SHA not found: {}", head_sha)))?;
     let commit = Commit::new(Cursor::new(data))?;
 
     let arq_folder = utils::read_arq_folder(path, computer, folder, master_keys.clone())?;
-    let tree_blob = packset::restore_blob_with_sha(&trees_path, &commit.tree_sha1, &keyset)?;
+    let tree_blob = trees_packset.restore_blob_with_sha(&commit.tree_sha1, &keyset)?.ok_or_else(|| arq::error::Error::InvalidFormat(format!("SHA not found: {}", commit.tree_sha1)))?;
     let tree = tree::Tree::new_arq5(&tree_blob, commit.tree_compression_type)?;
 
     let options = RestoreOptions {
@@ -48,10 +49,11 @@ pub fn restore_file(
         keyset: &keyset,
     };
 
-    restore_file_in_tree(Path::new(&arq_folder.local_path), tree, &options)
+    let options_packset = packset::PackSet::new(options.path);
+    restore_file_in_tree(Path::new(&arq_folder.local_path), tree, &options, &options_packset)
 }
 
-fn restore_file_in_tree(prefix: &Path, tree: tree::Tree, options: &RestoreOptions) -> Result<()> {
+fn restore_file_in_tree(prefix: &Path, tree: tree::Tree, options: &RestoreOptions, options_packset: &packset::PackSet) -> Result<()> {
     for (name, node) in tree.nodes {
         if !node.is_tree {
             let inner = prefix.join(name);
@@ -66,17 +68,16 @@ fn restore_file_in_tree(prefix: &Path, tree: tree::Tree, options: &RestoreOption
                 // Passed node as reference
             }
         } else {
-            let data = packset::restore_blob_with_sha(
-                options.path,
+            let data = options_packset.restore_blob_with_sha(
                 &node.data_blob_locs[0].blob_identifier,
                 options.keyset,
-            )?; // Changed to data_blob_locs and blob_identifier
+            )?.ok_or_else(|| arq::error::Error::InvalidFormat(format!("SHA not found: {}", node.data_blob_locs[0].blob_identifier)))?; // Changed to data_blob_locs and blob_identifier
             let inner_tree = tree::Tree::new_arq5(
                 &data,
                 node.arq5_data_compression_type
                     .unwrap_or(arq::compression::CompressionType::None),
             )?; // Changed to arq5_data_compression_type
-            restore_file_in_tree(prefix.join(name).as_path(), inner_tree, options)?;
+            restore_file_in_tree(prefix.join(name).as_path(), inner_tree, options, options_packset)?;
         }
     }
     Ok(())
