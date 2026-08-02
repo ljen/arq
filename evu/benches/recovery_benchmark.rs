@@ -1,4 +1,4 @@
-use criterion::{black_box, criterion_group, criterion_main, Criterion};
+use criterion::{Criterion, black_box, criterion_group, criterion_main};
 use std::fs::{self, File};
 use std::io::Write;
 use std::path::PathBuf;
@@ -22,7 +22,8 @@ fn benchmark_read_dir_uncached(c: &mut Criterion) {
     c.bench_function("read_dir_uncached", |b| {
         b.iter(|| {
             let mut matches = 0;
-            for _blob in 0..10 { // Simulate 10 data_blob_locs
+            for _blob in 0..10 {
+                // Simulate 10 data_blob_locs
                 for entry in fs::read_dir(&path).unwrap() {
                     let entry = entry.unwrap();
                     let fname = entry.file_name().to_string_lossy().to_string();
@@ -52,7 +53,8 @@ fn benchmark_read_dir_cached(c: &mut Criterion) {
                 }
             }
 
-            for _blob in 0..10 { // Simulate 10 data_blob_locs
+            for _blob in 0..10 {
+                // Simulate 10 data_blob_locs
                 for fname in &cached_entries {
                     matches += 1;
                 }
@@ -62,5 +64,9 @@ fn benchmark_read_dir_cached(c: &mut Criterion) {
     });
 }
 
-criterion_group!(benches, benchmark_read_dir_uncached, benchmark_read_dir_cached);
+criterion_group!(
+    benches,
+    benchmark_read_dir_uncached,
+    benchmark_read_dir_cached
+);
 criterion_main!(benches);
