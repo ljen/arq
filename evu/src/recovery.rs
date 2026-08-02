@@ -1,6 +1,6 @@
 use std::fs::File;
-use std::io::{Cursor, Seek, SeekFrom, Write};
-use std::path::{Path, PathBuf};
+use std::io::{Cursor, Write};
+use std::path::Path;
 
 use crate::error::{Error, Result};
 use crate::utils;
@@ -11,7 +11,8 @@ use arq::packset;
 use arq::tree;
 
 pub struct RestoreOptions<'a> {
-    pub path: &'a PathBuf,
+    pub trees_packset: &'a arq::packset::PackSet,
+    pub blobs_packset: &'a arq::packset::PackSet,
     pub absolute_filepath: &'a str,
     pub folder: &'a str,
     pub keyset: &'a EncryptedKeySet,
@@ -23,89 +24,80 @@ pub fn restore_file(
     folder: &str,
     absolute_filepath: &str,
 ) -> Result<()> {
-    use rpassword;
-
     let trees_path = Path::new(path)
         .join(computer)
         .join("packsets")
         .join(format!("{}-trees", folder));
 
+    let blobs_path = Path::new(path)
+        .join(computer)
+        .join("packsets")
+        .join(format!("{}-blobs", folder));
+
     let master_keys = utils::get_master_keys(&path, &computer)?;
     let keyset = EncryptedKeySet::from_master_keys(master_keys.clone())?;
     let head_sha = utils::find_latest_folder_sha(path, computer, folder)?;
 
-    let data = packset::restore_blob_with_sha(&trees_path, &head_sha, &keyset)?;
+    let trees_packset = packset::PackSet::new(&trees_path)?;
+    let blobs_packset = packset::PackSet::new(&blobs_path)?;
+
+    let data = trees_packset
+        .restore_blob_with_sha(&head_sha, &keyset)?
+        .ok_or_else(|| Error::NotFound(head_sha.clone()))?;
     let commit = Commit::new(Cursor::new(data))?;
 
     let arq_folder = utils::read_arq_folder(path, computer, folder, master_keys.clone())?;
-    let tree_blob = packset::restore_blob_with_sha(&trees_path, &commit.tree_sha1, &keyset)?;
+    let tree_blob = trees_packset
+        .restore_blob_with_sha(&commit.tree_sha1, &keyset)?
+        .ok_or_else(|| Error::NotFound(commit.tree_sha1.clone()))?;
     let tree = tree::Tree::new_arq5(&tree_blob, commit.tree_compression_type)?;
 
     let options = RestoreOptions {
-        path: &trees_path,
+        trees_packset: &trees_packset,
+        blobs_packset: &blobs_packset,
         absolute_filepath,
         folder,
         keyset: &keyset,
     };
 
-    restore_file_in_tree(
-        Path::new(&arq_folder.local_path),
-        tree,
-        &options,
-    )
+    restore_file_in_tree(Path::new(&arq_folder.local_path), tree, &options)
 }
 
-fn restore_file_in_tree(
-    prefix: &Path,
-    tree: tree::Tree,
-    options: &RestoreOptions,
-) -> Result<()> {
+fn restore_file_in_tree(prefix: &Path, tree: tree::Tree, options: &RestoreOptions) -> Result<()> {
     for (name, node) in tree.nodes {
         if !node.is_tree {
             let inner = prefix.join(name);
             if inner.as_os_str().to_string_lossy() == options.absolute_filepath {
                 restore_object(
-                    options.path,
-                    options.folder,
+                    options.blobs_packset,
                     &node,
                     options.absolute_filepath,
-                    &options.keyset.encryption_key,
+                    options.keyset,
                 )?;
                 // Passed node as reference
             }
         } else {
-            let data = packset::restore_blob_with_sha(
-                options.path,
-                &node.data_blob_locs[0].blob_identifier,
-                options.keyset,
-            )?; // Changed to data_blob_locs and blob_identifier
+            let data = options
+                .trees_packset
+                .restore_blob_with_sha(&node.data_blob_locs[0].blob_identifier, options.keyset)?
+                .ok_or_else(|| Error::NotFound(node.data_blob_locs[0].blob_identifier.clone()))?; // Changed to data_blob_locs and blob_identifier
             let inner_tree = tree::Tree::new_arq5(
                 &data,
                 node.arq5_data_compression_type
                     .unwrap_or(arq::compression::CompressionType::None),
             )?; // Changed to arq5_data_compression_type
-            restore_file_in_tree(
-                prefix.join(name).as_path(),
-                inner_tree,
-                options,
-            )?;
+            restore_file_in_tree(prefix.join(name).as_path(), inner_tree, options)?;
         }
     }
     Ok(())
 }
 
 fn restore_object(
-    path: &Path,
-    folder: &str,
+    blobs_packset: &arq::packset::PackSet,
     node: &arq::node::Node, // Changed to &arq::node::Node
     absolute_filepath: &str,
-    master_key: &[u8],
+    keyset: &EncryptedKeySet,
 ) -> Result<()> {
-    let path = path
-        .parent()
-        .ok_or_else(|| Error::OsError(std::ffi::OsString::from("inexistent parent folder")))?
-        .join(format!("{}-blobs", folder));
-
     let restore_path = Path::new(absolute_filepath);
     let filename = restore_path
         .file_name()
@@ -115,36 +107,16 @@ fn restore_object(
         .arq5_data_compression_type
         .unwrap_or(arq::compression::CompressionType::None); // Changed to arq5_data_compression_type
 
-    let mut cached_index_files = Vec::new();
-    for entry in std::fs::read_dir(&path)? {
-        let fname = entry?.file_name().to_string_lossy().to_string();
-        if fname.ends_with(".index") {
-            cached_index_files.push(fname);
-        }
-    }
+    let mut f = File::create(filename)?;
 
     for blob in &node.data_blob_locs {
-        // Iterate over a reference to avoid moving
-        for fname in &cached_index_files {
-            let index_path = path.join(fname);
-            let mut reader = utils::get_file_reader(&index_path)?;
-            let index = packset::PackIndex::new(&mut reader)?;
-            for obj in index.objects {
-                if obj.sha1 == blob.blob_identifier {
-                    // Changed blob.sha1 to blob.blob_identifier
-                    let pack_path = path.join(&fname.replace(".index", ".pack"));
-                    let mut reader =
-                        std::io::BufReader::new(utils::get_file_reader(&pack_path)?);
-                    reader.seek(SeekFrom::Start(obj.offset as u64))?;
-                    let mut reader = std::io::BufReader::new(reader);
-                    let ob = packset::PackObject::new(&mut reader)?;
-                    let mut f = File::create(filename)?;
-                    let data = ob.original(compression.clone(), master_key)?;
-                    f.write_all(&data)?;
-                    println!("Recovered '{}' to {:?}", absolute_filepath, filename);
-                }
-            }
-        }
+        let data = blobs_packset
+            .restore_blob_with_sha(&blob.blob_identifier, keyset)?
+            .ok_or_else(|| Error::NotFound(blob.blob_identifier.clone()))?;
+        let decompressed = arq::compression::CompressionType::decompress(&data, compression)?;
+        f.write_all(&decompressed)?;
     }
+
+    println!("Recovered '{}' to {:?}", absolute_filepath, filename);
     Ok(())
 }

@@ -38,64 +38,86 @@ use std::io::{BufRead, BufReader, Cursor, Seek, SeekFrom};
 use std::path::Path;
 use std::path::PathBuf;
 
+pub struct PackIndexLocation {
+    pub pack_file: PathBuf,
+    pub offset: usize,
+}
+
 pub struct PackSet {
-    path: PathBuf,
+    pub index_cache: std::collections::HashMap<String, PackIndexLocation>,
 }
 
 impl PackSet {
-    pub fn new(path: &Path) -> Self {
-        Self {
-            path: path.to_path_buf(),
+    pub fn new(path: &Path) -> Result<Self> {
+        let mut index_cache = std::collections::HashMap::new();
+
+        let read_dir_result = fs::read_dir(path);
+        let entries = match read_dir_result {
+            Ok(entries) => entries,
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(Self { index_cache }),
+            Err(e) => return Err(Error::IoError(e)),
+        };
+
+        for entry_result in entries {
+            let entry = entry_result.map_err(Error::IoError)?;
+
+            if entry.file_type().map_err(Error::IoError)?.is_dir() {
+                continue;
+            }
+
+            let fname = entry.file_name();
+            let fname_str = match fname.to_str() {
+                Some(s) => s,
+                None => continue,
+            };
+
+            if fname_str.ends_with(".index") {
+                let index_path = entry.path();
+                let mut reader =
+                    get_file_reader_for_restore(&index_path).map_err(Error::IoError)?;
+
+                let index = PackIndex::new(&mut reader)?;
+                let pack_path = index_path.with_extension("pack");
+
+                for obj in index.objects {
+                    index_cache.insert(
+                        obj.sha1.clone(),
+                        PackIndexLocation {
+                            pack_file: pack_path.clone(),
+                            offset: obj.offset,
+                        },
+                    );
+                }
+            }
         }
+
+        Ok(Self { index_cache })
     }
 
-    // TODO: Do this better - don't read all files multiple times
     pub fn restore_blob_with_sha(
         &self,
         sha: &str,
         keyset: &crate::arq7::EncryptedKeySet,
     ) -> Result<Option<Vec<u8>>> {
-        for entry_result in fs::read_dir(&self.path)? {
-            let entry = entry_result?;
+        if let Some(loc) = self.index_cache.get(sha) {
+            if !loc.pack_file.exists() {
+                return Ok(None);
+            }
+            let mut pack_reader =
+                get_file_reader_for_restore(&loc.pack_file).map_err(Error::IoError)?;
 
-            let fname = entry.file_name();
-            let fname_str = match fname.to_str() {
-                Some(s) => s,
-                None => {
-                    continue;
-                }
-            };
+            pack_reader
+                .seek(SeekFrom::Start(loc.offset as u64))
+                .map_err(Error::IoError)?;
 
-            if fname_str.ends_with(".index") {
-                let index_path = entry.path();
-                let mut reader = get_file_reader_for_restore(&index_path)
-                    .map_err(crate::error::Error::IoError)?;
+            let pack = PackObject::new(&mut pack_reader)?;
 
-                let index = PackIndex::new(&mut reader)?;
-
-                for obj in index.objects {
-                    if obj.sha1 == sha {
-                        let pack_path = index_path.with_extension("pack");
-                        if !pack_path.exists() {
-                            continue;
-                        }
-                        let mut pack_reader = get_file_reader_for_restore(&pack_path)
-                            .map_err(crate::error::Error::IoError)?;
-
-                        pack_reader
-                            .seek(SeekFrom::Start(obj.offset as u64))
-                            .map_err(crate::error::Error::IoError)?;
-
-                        let pack = PackObject::new(&mut pack_reader)?;
-
-                        match pack.data.decrypt(&keyset.encryption_key) {
-                            Ok(data) => return Ok(Some(data)),
-                            Err(e) => return Err(e),
-                        }
-                    }
-                }
+            match pack.data.decrypt(&keyset.encryption_key) {
+                Ok(data) => return Ok(Some(data)),
+                Err(e) => return Err(e),
             }
         }
+
         Ok(None)
     }
 }
