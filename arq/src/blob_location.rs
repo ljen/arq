@@ -392,6 +392,40 @@ mod tests {
     }
 
     #[test]
+    fn parses_official_arq7_binary_blobloc_error_paths() {
+        // 1. Empty data
+        let data = Vec::new();
+        let mut cursor = Cursor::new(data);
+        assert!(BlobLoc::from_binary_reader(&mut cursor).is_err());
+
+        // 2. Null blob_identifier (read_arq_string_required fails)
+        // arq_string null flag is 0
+        let data = vec![0];
+        let mut cursor = Cursor::new(data);
+        assert!(BlobLoc::from_binary_reader(&mut cursor).is_err());
+
+        // 3. Truncated blob_identifier (has is_not_null flag, but no length/data)
+        let data = vec![1];
+        let mut cursor = Cursor::new(data);
+        assert!(BlobLoc::from_binary_reader(&mut cursor).is_err());
+
+        // 4. Missing is_packed flag (has valid identifier, but EOF)
+        let data = arq_string("abc123");
+        let mut cursor = Cursor::new(data);
+        assert!(BlobLoc::from_binary_reader(&mut cursor).is_err());
+
+        // 5. Truncated read_binary_fields (missing some fields)
+        let mut data = Vec::new();
+        data.extend(arq_string("abc123"));
+        data.push(1); // is_packed
+        data.extend(arq_string("/PLAN/blobpacks/AA/example.pack"));
+        data.extend_from_slice(&12u64.to_be_bytes()); // offset
+        // Missing length, stretch_encryption_key, compression_type
+        let mut cursor = Cursor::new(data);
+        assert!(BlobLoc::from_binary_reader(&mut cursor).is_err());
+    }
+
+    #[test]
     fn parses_official_arq7_binary_blobloc_without_large_pack_flag() {
         let mut data = Vec::new();
         data.extend(arq_string("abc123"));
