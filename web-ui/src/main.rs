@@ -220,7 +220,7 @@ async fn get_tree_dirs(
     };
 
     let req_path = query.path.unwrap_or_default();
-    let bs_clone = bs.clone();
+    let bs_clone = Arc::clone(bs);
     let root_node = record.node.clone();
 
     let result = tokio::task::spawn_blocking(move || {
