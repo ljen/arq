@@ -70,3 +70,63 @@ impl CompressionType {
         })
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use flate2::write::GzEncoder;
+    use flate2::Compression;
+    use std::io::Write;
+
+    #[test]
+    fn test_decompress_none() {
+        let data = b"hello world test data";
+        let decompressed = CompressionType::decompress(data, CompressionType::None).unwrap();
+        assert_eq!(decompressed, data);
+    }
+
+    #[test]
+    fn test_decompress_gzip() {
+        let data = b"hello world test data";
+        let mut encoder = GzEncoder::new(Vec::new(), Compression::default());
+        encoder.write_all(data).unwrap();
+        let compressed = encoder.finish().unwrap();
+
+        let decompressed = CompressionType::decompress(&compressed, CompressionType::Gzip).unwrap();
+        assert_eq!(decompressed, data);
+    }
+
+    #[test]
+    fn test_decompress_invalid_gzip() {
+        let invalid_compressed = b"not gzip data";
+        let result = CompressionType::decompress(invalid_compressed, CompressionType::Gzip);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_decompress_lz4() {
+        let data = b"hello world test data";
+        let length: [u8; 4] = (data.len() as i32).to_be_bytes();
+        let compressed_data = lz4_flex::compress(data);
+        let compressed = [&length[..], &compressed_data].concat();
+
+        let decompressed = CompressionType::decompress(&compressed, CompressionType::LZ4).unwrap();
+        assert_eq!(decompressed, data);
+    }
+
+    #[test]
+    fn test_decompress_invalid_lz4() {
+        // First 4 bytes are original length (10 in big endian)
+        // Rest is invalid LZ4 data
+        let invalid_compressed = [0, 0, 0, 10, 255, 255, 255, 255];
+        let result = CompressionType::decompress(&invalid_compressed, CompressionType::LZ4);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    #[should_panic(expected = "not implemented")]
+    fn test_decompress_lzfse() {
+        let data = b"hello world test data";
+        let _ = CompressionType::decompress(data, CompressionType::Lzfse);
+    }
+}
