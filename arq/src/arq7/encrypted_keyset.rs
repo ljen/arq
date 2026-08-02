@@ -115,11 +115,12 @@ impl EncryptedKeySet {
 
         // Decrypt the ciphertext using AES-256-CBC
         let mut decrypted_data = ciphertext;
-        use aes::cipher::{block_padding::Pkcs7, BlockDecryptMut, KeyIvInit};
+        use aes::cipher::{block_padding::Pkcs7, KeyIvInit};
+        use cipher::BlockModeDecrypt;
         type Aes256CbcDec = cbc::Decryptor<aes::Aes256>;
 
         let plaintext = Aes256CbcDec::new_from_slices(&derived_key[..32], &iv)?
-            .decrypt_padded_mut::<Pkcs7>(&mut decrypted_data)?;
+            .decrypt_padded::<Pkcs7>(&mut decrypted_data)?;
 
         // Parse the plaintext structure
         let mut reader = std::io::Cursor::new(plaintext);

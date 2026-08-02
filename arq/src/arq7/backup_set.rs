@@ -793,3 +793,22 @@ mod tests {
         assert!(!backup_set.is_encrypted());
     }
 }
+
+#[cfg(test)]
+mod list_all_files_tests {
+    use super::*;
+
+    #[test]
+    fn test_list_all_files() {
+        let root = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/arq_storage_location/D1154AC6-01EB-41FE-B115-114464350B92");
+        let backup_set = BackupSet::from_directory_with_password(root, Some("asdfasdf1234")).unwrap();
+
+        let files = backup_set.list_all_files().unwrap();
+        // The encrypted test data has 6 backup records, each containing 3 files
+        // (file 1.txt, subfolder/file 2.txt, and one more), totaling 18 file entries
+        // since list_all_files iterates across all records including duplicates.
+        assert_eq!(files.len(), 18, "Should find 18 files across all backup records");
+        assert!(files.contains(&"file 1.txt".to_string()), "Should contain file 1.txt");
+        assert!(files.contains(&"subfolder/file 2.txt".to_string()), "Should contain subfolder/file 2.txt");
+    }
+}

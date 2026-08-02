@@ -7,9 +7,10 @@
 use std::io::{BufRead, Seek};
 use std::str;
 
-use aes::cipher::BlockEncryptMut;
-use aes::cipher::{block_padding::Pkcs7, BlockDecryptMut, KeyIvInit};
+use aes::cipher::{block_padding::Pkcs7, KeyIvInit};
+use cipher::{BlockModeDecrypt, BlockModeEncrypt};
 use hmac::{Hmac, Mac};
+use digest::KeyInit;
 use ring::{
     pbkdf2,
     rand::{SecureRandom, SystemRandom},
@@ -178,7 +179,7 @@ impl EncryptionDat {
         //buf.copy_from_slice(&[&master_keys_buf[..], &[0; 16][..]].concat());
         buf[..master_keys_buf.len()].copy_from_slice(&master_keys_buf);
         let encrypted = Aes256CbcEnc::new_from_slices(&encryption_key[..32], &iv)?
-            .encrypt_padded_mut::<Pkcs7>(&mut buf, 96)
+            .encrypt_padded::<Pkcs7>(&mut buf, 96)
             .unwrap();
         // 6. Calculate the HMAC-SHA256 of (IV + encrypted master keys) using the second
         // 32 bytes of the derived key from step 4.
@@ -218,7 +219,7 @@ impl EncryptionDat {
         }
 
         let pt = Aes256CbcDec::new_from_slices(&encryption_key[0..32], &iv[..])?
-            .decrypt_padded_mut::<Pkcs7>(&mut encrypted_master_keys)?;
+            .decrypt_padded::<Pkcs7>(&mut encrypted_master_keys)?;
 
         Ok(EncryptionDat {
             master_keys: Self::parse_master_keys(pt.to_vec()),
@@ -317,13 +318,13 @@ impl EncryptedObject {
         let master_iv = self.master_iv;
 
         let data_iv_session = Aes256CbcDec::new_from_slices(master_key, &master_iv)?
-            .decrypt_padded_mut::<Pkcs7>(&mut enc_data_iv_session)?;
+            .decrypt_padded::<Pkcs7>(&mut enc_data_iv_session)?;
         let data_iv = &data_iv_session[0..16];
         let session_key = &data_iv_session[16..48];
 
         let mut ciphertext = self.ciphertext.clone();
         let content = Aes256CbcDec::new_from_slices(session_key, data_iv)?
-            .decrypt_padded_mut::<Pkcs7>(&mut ciphertext)?;
+            .decrypt_padded::<Pkcs7>(&mut ciphertext)?;
         Ok(content.to_owned())
     }
 }
