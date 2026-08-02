@@ -423,7 +423,7 @@ fn format_timestamp_rfc3339(ts_f64: f64) -> String {
 }
 
 #[tokio::main]
-async fn main() {
+async fn main() -> std::io::Result<()> {
     let state = AppState {
         backup_set: Arc::new(Mutex::new(None)),
     };
@@ -437,7 +437,9 @@ async fn main() {
         .route("/api/record/:record_id/download", get(download_file))
         .with_state(state);
 
-    let listener = tokio::net::TcpListener::bind("127.0.0.1:3000").await.unwrap();
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:3000").await?;
     println!("Listening on http://127.0.0.1:3000");
-    axum::serve(listener, app).await.unwrap();
+    axum::serve(listener, app).await?;
+
+    Ok(())
 }
