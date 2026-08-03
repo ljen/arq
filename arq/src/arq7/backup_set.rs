@@ -194,29 +194,57 @@ impl BackupSet {
         self.backup_config.is_encrypted
     }
 
-    /// Recursively load backup record files from a directory
+    /// Load backup record files from a directory using an iterative concurrent approach
     fn load_backup_records_recursive(
         dir: &std::path::Path,
         records: &mut Vec<GenericBackupRecord>,
     ) -> Result<()> {
-        for entry in std::fs::read_dir(dir)? {
-            let entry = entry?;
-            let path = entry.path();
+        let mut files_to_parse = Vec::new();
 
-            if entry.file_type()?.is_dir() {
-                // Recursively search subdirectories
-                Self::load_backup_records_recursive(&path, records)?;
-            } else if path.extension().and_then(|s| s.to_str()) == Some("backuprecord") {
-                // Try to parse backup record file
-                match GenericBackupRecord::from_file(&path) {
-                    Ok(record) => records.push(record),
-                    Err(e) => {
-                        // Log error but continue processing other files
-                        eprintln!("Warning: Failed to parse backup record {:?}: {}", path, e);
-                    }
-                }
+        for entry_result in jwalk::WalkDir::new(dir) {
+            let entry = entry_result.map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))?;
+            let path = entry.path();
+            if entry.file_type.is_file() && path.extension().is_some_and(|s| s == "backuprecord") {
+                files_to_parse.push(path);
             }
         }
+
+        let num_threads = std::thread::available_parallelism()
+            .map(|n| n.get())
+            .unwrap_or(4);
+        let chunk_size = (files_to_parse.len() + num_threads - 1) / num_threads;
+
+        if chunk_size > 0 {
+            std::thread::scope(|s| {
+                let mut handles = Vec::with_capacity(num_threads);
+
+                for chunk in files_to_parse.chunks(chunk_size) {
+                    let handle = s.spawn(move || {
+                        let mut local_records = Vec::with_capacity(chunk.len());
+                        for path in chunk {
+                            match GenericBackupRecord::from_file(path) {
+                                Ok(record) => local_records.push(record),
+                                Err(e) => {
+                                    eprintln!(
+                                        "Warning: Failed to parse backup record {:?}: {}",
+                                        path, e
+                                    );
+                                }
+                            }
+                        }
+                        local_records
+                    });
+                    handles.push(handle);
+                }
+
+                for handle in handles {
+                    if let Ok(mut local_records) = handle.join() {
+                        records.append(&mut local_records);
+                    }
+                }
+            });
+        }
+
         Ok(())
     }
 
@@ -252,7 +280,7 @@ impl BackupSet {
 
                             if path.is_dir() {
                                 collect_records(&path, records, keyset)?;
-                            } else if path.extension().map_or(false, |ext| ext == "backuprecord") {
+                            } else if path.extension().is_some_and(|ext| ext == "backuprecord") {
                                 match GenericBackupRecord::from_file_with_encryption(&path, keyset)
                                 {
                                     Ok(record) => records.push(record),
@@ -295,7 +323,7 @@ impl BackupSet {
         output_path: P2,
     ) -> Result<()> {
         // Find the file in the backup records
-        for (_, records) in &self.backup_records {
+        for records in self.backup_records.values() {
             for generic_record in records {
                 if let GenericBackupRecord::Arq7(record) = generic_record {
                     // Only Arq7 records have a direct node
@@ -363,12 +391,13 @@ impl BackupSet {
         let mut files = Vec::new();
         let backup_set_dir_ref = self.root_path.as_ref();
 
-        for (_, records) in &self.backup_records {
+        for records in self.backup_records.values() {
             for generic_record in records {
                 if let GenericBackupRecord::Arq7(record) = generic_record {
+                    let mut path_buffer = String::new();
                     self.collect_files_recursive(
                         &record.node, // This is now crate::node::Node
-                        String::new(),
+                        &mut path_buffer,
                         &mut files,
                         backup_set_dir_ref,
                     )?;
@@ -379,17 +408,16 @@ impl BackupSet {
         Ok(files)
     }
 
-    // collect_files_recursive remains largely the same.
     fn collect_files_recursive(
         &self,
         node: &crate::node::Node,
-        current_path: String,
+        current_path: &mut String,
         files: &mut Vec<String>,
         backup_set_dir: &Path,
     ) -> Result<()> {
         if !node.is_tree {
             if !current_path.is_empty() {
-                files.push(current_path);
+                files.push(current_path.clone());
             }
             return Ok(());
         }
@@ -397,12 +425,20 @@ impl BackupSet {
             node.load_tree_with_encryption(backup_set_dir, self.encryption_keyset.as_ref())?
         {
             for (name, child_node_entry) in &tree.nodes {
-                let child_path = if current_path.is_empty() {
-                    name.clone()
-                } else {
-                    format!("{}/{}", current_path, name)
-                };
-                self.collect_files_recursive(child_node_entry, child_path, files, backup_set_dir)?;
+                let original_len = current_path.len();
+                if !current_path.is_empty() {
+                    current_path.push('/');
+                }
+                current_path.push_str(name);
+
+                self.collect_files_recursive(
+                    child_node_entry,
+                    current_path,
+                    files,
+                    backup_set_dir,
+                )?;
+
+                current_path.truncate(original_len);
             }
         }
         Ok(())
@@ -413,7 +449,7 @@ impl BackupSet {
         let mut stats: BackupStatistics = BackupStatistics::default();
         let backup_set_dir_ref = self.root_path.as_ref();
 
-        for (_, records_vec) in &self.backup_records {
+        for records_vec in self.backup_records.values() {
             stats.folder_count += 1; // This counts folders in backup_records map, not file system folders.
             stats.record_count += records_vec.len() as u32;
 
@@ -493,7 +529,7 @@ impl BackupSet {
             Ok(DirectoryEntry::Directory(DirectoryEntryNode {
                 name,
                 children: None, // Children are not loaded initially
-                tree_blob_loc: node.tree_blob_loc.as_ref().map(|loc| loc.clone().into()), // Convert to blob_location::BlobLoc
+                tree_blob_loc: node.tree_blob_loc.as_ref().map(|loc| loc.clone()), // Convert to blob_location::BlobLoc
                 modification_time_sec: node.modification_time_sec,
                 creation_time_sec: node.creation_time_sec,
                 mode: node.st_mode, // Using st_mode from crate::node::Node
@@ -503,11 +539,7 @@ impl BackupSet {
             Ok(DirectoryEntry::File(FileEntry {
                 name,
                 size: node.item_size,
-                data_blob_locs: node
-                    .data_blob_locs
-                    .iter()
-                    .map(|loc| loc.clone().into())
-                    .collect(), // Convert to blob_location::BlobLoc
+                data_blob_locs: node.data_blob_locs.iter().map(|loc| loc.clone()).collect(), // Convert to blob_location::BlobLoc
                 modification_time_sec: node.modification_time_sec,
                 creation_time_sec: node.creation_time_sec,
                 mode: node.st_mode, // Using st_mode from crate::node::Node
@@ -657,7 +689,7 @@ impl BackupSet {
     pub fn find_all_blob_locations(&self) -> Vec<crate::blob_location::BlobLoc> {
         let mut blob_locations = Vec::new();
 
-        for (_, records_vec) in &self.backup_records {
+        for records_vec in self.backup_records.values() {
             for generic_record in records_vec {
                 match generic_record {
                     GenericBackupRecord::Arq7(record) => {
@@ -692,21 +724,24 @@ fn collect_blob_locations_from_node(
     node: &crate::node::Node,
     blob_locations: &mut Vec<crate::blob_location::BlobLoc>,
 ) {
+    let additional_capacity = node.data_blob_locs.len()
+        + if node.tree_blob_loc.is_some() { 1 } else { 0 }
+        + node.xattrs_blob_locs.as_ref().map(|x| x.len()).unwrap_or(0)
+        + if node.acl_blob_loc.is_some() { 1 } else { 0 };
+
+    blob_locations.reserve(additional_capacity);
+
     // Add data blob locations from this node
-    for blob_loc in &node.data_blob_locs {
-        blob_locations.push(blob_loc.clone().into());
-    }
+    blob_locations.extend(node.data_blob_locs.iter().cloned());
 
     // Add tree blob location if present
     if let Some(tree_blob_loc) = &node.tree_blob_loc {
-        blob_locations.push(tree_blob_loc.clone().into());
+        blob_locations.push(tree_blob_loc.clone());
     }
 
     // Add xattrs blob locations if present
     if let Some(xattrs_blob_locs) = &node.xattrs_blob_locs {
-        for blob_loc in xattrs_blob_locs {
-            blob_locations.push(blob_loc.clone());
-        }
+        blob_locations.extend(xattrs_blob_locs.iter().cloned());
     }
     // Add acl blob location if present
     if let Some(acl_blob_loc) = &node.acl_blob_loc {
@@ -731,7 +766,7 @@ fn count_files_in_node(
     let mut total_size = 0u64;
 
     if let Some(tree) = node.load_tree_with_encryption(backup_set_dir, keyset)? {
-        for (_, child_node_entry) in &tree.nodes {
+        for child_node_entry in tree.nodes.values() {
             // Use tree.nodes
             let (child_files, child_size) =
                 count_files_in_node(child_node_entry, backup_set_dir, keyset)?;
@@ -740,4 +775,40 @@ fn count_files_in_node(
         }
     }
     Ok((file_count, total_size))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_backup_set_is_encrypted() {
+        let root = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/arq_storage_location/D1154AC6-01EB-41FE-B115-114464350B92");
+        let mut backup_set = BackupSet::from_directory_with_password(root, Some("asdfasdf1234")).unwrap();
+
+        backup_set.backup_config.is_encrypted = true;
+        assert!(backup_set.is_encrypted());
+
+        backup_set.backup_config.is_encrypted = false;
+        assert!(!backup_set.is_encrypted());
+    }
+}
+
+#[cfg(test)]
+mod list_all_files_tests {
+    use super::*;
+
+    #[test]
+    fn test_list_all_files() {
+        let root = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/arq_storage_location/D1154AC6-01EB-41FE-B115-114464350B92");
+        let backup_set = BackupSet::from_directory_with_password(root, Some("asdfasdf1234")).unwrap();
+
+        let files = backup_set.list_all_files().unwrap();
+        // The encrypted test data has 6 backup records, each containing 3 files
+        // (file 1.txt, subfolder/file 2.txt, and one more), totaling 18 file entries
+        // since list_all_files iterates across all records including duplicates.
+        assert_eq!(files.len(), 18, "Should find 18 files across all backup records");
+        assert!(files.contains(&"file 1.txt".to_string()), "Should contain file 1.txt");
+        assert!(files.contains(&"subfolder/file 2.txt".to_string()), "Should contain subfolder/file 2.txt");
+    }
 }

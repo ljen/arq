@@ -28,6 +28,9 @@ mod tests {
 
         // Test full range of a few values
         let data2: Vec<u8> = (0..=15).collect();
-        assert_eq!(convert_to_hex_string(&data2), "000102030405060708090a0b0c0d0e0f");
+        assert_eq!(
+            convert_to_hex_string(&data2),
+            "000102030405060708090a0b0c0d0e0f"
+        );
     }
 }

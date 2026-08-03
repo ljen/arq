@@ -34,88 +34,75 @@ use crate::utils::convert_to_hex_string;
 use byteorder::{NetworkEndian, ReadBytesExt};
 use std::fs;
 use std::fs::File;
-use std::collections::HashMap;
 use std::io::{BufRead, BufReader, Cursor, Seek, SeekFrom};
 use std::path::Path;
 use std::path::PathBuf;
 
 pub struct PackSet {
     path: PathBuf,
-    // Maps sha1 to (index_path, offset)
-    index_cache: Option<HashMap<String, (PathBuf, u64)>>,
+    blob_cache: std::sync::Mutex<Option<std::collections::HashMap<String, (PathBuf, usize)>>>,
 }
 
 impl PackSet {
     pub fn new(path: &Path) -> Self {
         Self {
             path: path.to_path_buf(),
-            index_cache: None,
+            blob_cache: std::sync::Mutex::new(None),
         }
-    }
-
-    fn ensure_cache(&mut self) -> Result<()> {
-        if self.index_cache.is_some() {
-            return Ok(());
-        }
-
-        let mut cache = HashMap::new();
-        for entry_result in fs::read_dir(&self.path)? {
-            let entry = entry_result?;
-
-            let fname = entry.file_name();
-            let fname_str = match fname.to_str() {
-                Some(s) => s,
-                None => {
-                    continue;
-                }
-            };
-
-            if fname_str.ends_with(".index") {
-                let index_path = entry.path();
-                let mut reader = get_file_reader_for_restore(&index_path)
-                    .map_err(|e| crate::error::Error::IoError(e))?;
-
-                // Propagate errors from reading invalid indexes as the original code did
-                let index = PackIndex::new(&mut reader)?;
-                for obj in index.objects {
-                    cache.insert(obj.sha1, (index_path.clone(), obj.offset as u64));
-                }
-            }
-        }
-        self.index_cache = Some(cache);
-        Ok(())
     }
 
     pub fn restore_blob_with_sha(
-        &mut self,
+        &self,
         sha: &str,
         keyset: &crate::arq7::EncryptedKeySet,
     ) -> Result<Option<Vec<u8>>> {
-        self.ensure_cache()?;
+        let cached_val = {
+            let mut cache_lock = self.blob_cache.lock().unwrap();
+            if cache_lock.is_none() {
+                let mut map = std::collections::HashMap::new();
+                for entry_result in fs::read_dir(&self.path)? {
+                    let entry = entry_result?;
+                    let fname = entry.file_name();
+                    let fname_str = match fname.to_str() {
+                        Some(s) => s,
+                        None => continue,
+                    };
 
-        if let Some(cache) = &self.index_cache {
-            if let Some((index_path, offset)) = cache.get(sha) {
-                let pack_path = index_path.with_extension("pack");
-                if !pack_path.exists() {
-                    return Ok(None);
+                    if fname_str.ends_with(".index") {
+                        let index_path = entry.path();
+                        let mut reader = get_file_reader_for_restore(&index_path)
+                            .map_err(crate::error::Error::IoError)?;
+
+                        let index = PackIndex::new(&mut reader)?;
+                        let pack_path = index_path.with_extension("pack");
+
+                        if pack_path.exists() {
+                            for obj in index.objects {
+                                map.insert(obj.sha1, (pack_path.clone(), obj.offset));
+                            }
+                        }
+                    }
                 }
+                *cache_lock = Some(map);
+            }
+            cache_lock.as_ref().unwrap().get(sha).cloned()
+        };
 
-                let mut pack_reader = get_file_reader_for_restore(&pack_path)
-                    .map_err(|e| crate::error::Error::IoError(e))?;
+        if let Some((pack_path, offset)) = cached_val {
+            let mut pack_reader = get_file_reader_for_restore(&pack_path)
+                .map_err(crate::error::Error::IoError)?;
 
-                pack_reader
-                    .seek(SeekFrom::Start(*offset))
-                    .map_err(|e| crate::error::Error::IoError(e))?;
+            pack_reader
+                .seek(SeekFrom::Start(offset as u64))
+                .map_err(crate::error::Error::IoError)?;
 
-                let pack = PackObject::new(&mut pack_reader)?;
+            let pack = PackObject::new(&mut pack_reader)?;
 
-                match pack.data.decrypt(&keyset.encryption_key) {
-                    Ok(data) => return Ok(Some(data)),
-                    Err(e) => return Err(e),
-                }
+            match pack.data.decrypt(&keyset.encryption_key) {
+                Ok(data) => return Ok(Some(data)),
+                Err(e) => return Err(e),
             }
         }
-
         Ok(None)
     }
 }
@@ -463,13 +450,46 @@ impl PackObject {
     }
 }
 
-// This function initializes a PackSet, so it inherently caches index data if called multiple times on the same object,
-// but since it creates a new PackSet each time, it is not efficient for repeated calls. We provide a warning in the docs.
-/// It is recommended to use `PackSet::new(path).restore_blob_with_sha(sha, keyset)` directly if you are going to call this multiple times.
 pub fn restore_blob_with_sha(path: &Path, sha: &str, keyset: &EncryptedKeySet) -> Result<Vec<u8>> {
-    let mut packset = PackSet::new(path);
-    match packset.restore_blob_with_sha(sha, keyset)? {
-        Some(data) => Ok(data),
-        None => Err(Error::InvalidFormat(format!("SHA not found: {}", sha))),
+    for entry_result in fs::read_dir(path)? {
+        let entry = entry_result?;
+
+        let fname = entry.file_name();
+        let fname_str = match fname.to_str() {
+            Some(s) => s,
+            None => {
+                continue;
+            }
+        };
+
+        if fname_str.ends_with(".index") {
+            let index_path = entry.path();
+            let mut reader = get_file_reader_for_restore(&index_path).map_err(Error::IoError)?;
+
+            let index = PackIndex::new(&mut reader)?;
+
+            for obj in index.objects {
+                if obj.sha1 == sha {
+                    let pack_path = index_path.with_extension("pack");
+                    if !pack_path.exists() {
+                        continue;
+                    }
+                    let mut pack_reader =
+                        get_file_reader_for_restore(&pack_path).map_err(Error::IoError)?;
+
+                    pack_reader
+                        .seek(SeekFrom::Start(obj.offset as u64))
+                        .map_err(Error::IoError)?;
+
+                    let pack = PackObject::new(&mut pack_reader)?;
+
+                    match pack.data.decrypt(&keyset.encryption_key) {
+                        Ok(data) => return Ok(data),
+                        Err(e) => return Err(e),
+                    }
+                }
+            }
+        }
     }
+    Err(Error::InvalidFormat(format!("SHA not found: {}", sha)))
 }

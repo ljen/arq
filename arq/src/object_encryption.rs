@@ -7,9 +7,10 @@
 use std::io::{BufRead, Seek};
 use std::str;
 
-use aes::cipher::BlockEncryptMut;
-use aes::cipher::{block_padding::Pkcs7, BlockDecryptMut, KeyIvInit};
+use aes::cipher::{block_padding::Pkcs7, KeyIvInit};
+use cipher::{BlockModeDecrypt, BlockModeEncrypt};
 use hmac::{Hmac, Mac};
+use digest::KeyInit;
 use ring::{
     pbkdf2,
     rand::{SecureRandom, SystemRandom},
@@ -139,14 +140,15 @@ impl EncryptionDat {
         ]
     }
 
-    fn derive_encryption_key(password: &[u8], salt: &[u8], result: &mut [u8]) {
+    fn derive_encryption_key(password: &[u8], salt: &[u8], result: &mut [u8]) -> Result<()> {
         pbkdf2::derive(
             pbkdf2::PBKDF2_HMAC_SHA1,
-            std::num::NonZeroU32::new(200_000).unwrap(), // this unwrap will always succeed
+            std::num::NonZeroU32::new(200_000).ok_or(Error::CryptoError)?,
             salt,
             password,
             result,
         );
+        Ok(())
     }
 
     /// Generate EncryptionDat given a user-supplied password
@@ -170,14 +172,14 @@ impl EncryptionDat {
         // 4. Derive 64-byte encryption key from user-supplied encryption password using
         // PBKDF2/HMACSHA1 (200000 rounds) and the salt from step 1.
         let mut encryption_key: [u8; 64] = [0; 64];
-        Self::derive_encryption_key(password.as_bytes(), &salt, &mut encryption_key);
+        Self::derive_encryption_key(password.as_bytes(), &salt, &mut encryption_key)?;
         // 5. Encrypt the master keys with AES256-CBC using the first 32 bytes of the
         // derived key from step 4 and IV from step 2.
         let mut buf = [0; 160];
         //buf.copy_from_slice(&[&master_keys_buf[..], &[0; 16][..]].concat());
         buf[..master_keys_buf.len()].copy_from_slice(&master_keys_buf);
         let encrypted = Aes256CbcEnc::new_from_slices(&encryption_key[..32], &iv)?
-            .encrypt_padded_mut::<Pkcs7>(&mut buf, 96)
+            .encrypt_padded::<Pkcs7>(&mut buf, 96)
             .unwrap();
         // 6. Calculate the HMAC-SHA256 of (IV + encrypted master keys) using the second
         // 32 bytes of the derived key from step 4.
@@ -208,7 +210,7 @@ impl EncryptionDat {
         let mut encrypted_master_keys = reader.read_bytes(112)?;
 
         let mut encryption_key: [u8; 64] = [0u8; 64];
-        Self::derive_encryption_key(password.as_bytes(), &salt[..], &mut encryption_key);
+        Self::derive_encryption_key(password.as_bytes(), &salt[..], &mut encryption_key)?;
 
         let iv_and_keys = [&iv[..], &encrypted_master_keys[..]].concat();
         let calculated_hmacsha256 = calculate_hmacsha256(&encryption_key[32..64], &iv_and_keys)?;
@@ -217,7 +219,7 @@ impl EncryptionDat {
         }
 
         let pt = Aes256CbcDec::new_from_slices(&encryption_key[0..32], &iv[..])?
-            .decrypt_padded_mut::<Pkcs7>(&mut encrypted_master_keys)?;
+            .decrypt_padded::<Pkcs7>(&mut encrypted_master_keys)?;
 
         Ok(EncryptionDat {
             master_keys: Self::parse_master_keys(pt.to_vec()),
@@ -280,9 +282,12 @@ impl EncryptedObject {
                 "Invalid encrypted object header: expected 'ARQO'".to_string(),
             ));
         }
-        let hmac_sha256: [u8; 32] = reader.read_bytes(32)?.try_into().unwrap();
-        let master_iv: [u8; 16] = reader.read_bytes(16)?.try_into().unwrap();
-        let encrypted_data_iv_session: [u8; 64] = reader.read_bytes(64)?.try_into().unwrap();
+        let hmac_sha256: [u8; 32] = reader.read_bytes(32)?.try_into()
+            .map_err(|_| Error::InvalidFormat("Failed to parse HMAC-SHA256: incorrect length".to_string()))?;
+        let master_iv: [u8; 16] = reader.read_bytes(16)?.try_into()
+            .map_err(|_| Error::InvalidFormat("Failed to parse master IV: incorrect length".to_string()))?;
+        let encrypted_data_iv_session: [u8; 64] = reader.read_bytes(64)?.try_into()
+            .map_err(|_| Error::InvalidFormat("Failed to parse encrypted data IV session: incorrect length".to_string()))?;
         let mut ciphertext: Vec<u8> = Vec::new();
         reader.read_to_end(&mut ciphertext)?;
 
@@ -313,13 +318,13 @@ impl EncryptedObject {
         let master_iv = self.master_iv;
 
         let data_iv_session = Aes256CbcDec::new_from_slices(master_key, &master_iv)?
-            .decrypt_padded_mut::<Pkcs7>(&mut enc_data_iv_session)?;
+            .decrypt_padded::<Pkcs7>(&mut enc_data_iv_session)?;
         let data_iv = &data_iv_session[0..16];
         let session_key = &data_iv_session[16..48];
 
         let mut ciphertext = self.ciphertext.clone();
         let content = Aes256CbcDec::new_from_slices(session_key, data_iv)?
-            .decrypt_padded_mut::<Pkcs7>(&mut ciphertext)?;
+            .decrypt_padded::<Pkcs7>(&mut ciphertext)?;
         Ok(content.to_owned())
     }
 }

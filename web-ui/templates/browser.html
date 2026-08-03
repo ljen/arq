@@ -1,0 +1,643 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="explorer-container">
+    <!-- LEFT: Folder Tree -->
+    <div class="tree-panel" id="tree-panel">
+        <div class="tree-panel-header">Backups</div>
+        <div class="tree-content" id="tree-content">
+            {% if folders.is_empty() %}
+                <div class="tree-placeholder">No backups found.</div>
+            {% else %}
+                {% for folder in folders %}
+                    <div class="tree-group">
+                        <div class="tree-group-label">{{ folder.name }}</div>
+                        {% for record in folder.records %}
+                            <div class="tree-node" data-record-id="{{ record.id }}">
+                                <div class="tree-node-row tree-record-row" style="padding-left:8px" data-record-id="{{ record.id }}" data-path="" onclick="onRecordClick(event, this)">
+                                    <span class="tree-toggle has-children" onclick="onToggleClick(event, this)">▸</span>
+                                    <span class="tree-icon">💾</span>
+                                    <span class="tree-label">{{ record.date }}</span>
+                                </div>
+                                <div class="tree-children" data-loaded="false"></div>
+                            </div>
+                        {% endfor %}
+                    </div>
+                {% endfor %}
+            {% endif %}
+        </div>
+    </div>
+
+    <!-- Resize handle -->
+    <div class="resize-handle" id="resize-handle"></div>
+
+    <!-- RIGHT: File/folder listing -->
+    <div class="file-panel" id="file-panel">
+        <div class="breadcrumb-bar" id="breadcrumb-bar"></div>
+        <div class="file-content" id="file-content">
+            <div class="file-placeholder">
+                <div class="placeholder-icon">📂</div>
+                <div>Expand a backup record to browse files.</div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<style>
+    .explorer-container {
+        display: flex;
+        flex: 1;
+        overflow: hidden;
+    }
+
+    /* Tree panel */
+    .tree-panel {
+        width: 320px;
+        min-width: 180px;
+        max-width: 500px;
+        display: flex;
+        flex-direction: column;
+        background: #f8f9fa;
+        border-right: 1px solid #d0d5dd;
+        user-select: none;
+    }
+    .tree-panel-header {
+        padding: 0.5rem 0.75rem;
+        font-weight: 600;
+        font-size: 0.8rem;
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
+        color: #6c757d;
+        background: #eef1f5;
+        border-bottom: 1px solid #d0d5dd;
+    }
+    .tree-content {
+        flex: 1;
+        overflow-y: auto;
+        padding: 0.25rem 0;
+        font-size: 0.85rem;
+    }
+    .tree-placeholder {
+        padding: 1.5rem 1rem;
+        color: #999;
+        text-align: center;
+        font-style: italic;
+    }
+
+    /* Tree group (folder name heading) */
+    .tree-group {
+        margin-bottom: 2px;
+    }
+    .tree-group-label {
+        padding: 6px 10px 3px 10px;
+        font-weight: 600;
+        font-size: 0.78rem;
+        text-transform: uppercase;
+        letter-spacing: 0.04em;
+        color: #0056b3;
+        margin-top: 4px;
+    }
+
+    /* Tree node styles */
+    .tree-node-row {
+        display: flex;
+        align-items: center;
+        padding: 3px 6px 3px 0;
+        cursor: pointer;
+        border-radius: 3px;
+        margin: 0 4px;
+        transition: background 0.1s;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+    }
+    .tree-node-row:hover {
+        background: #e2e6ea;
+    }
+    .tree-node-row.selected {
+        background: #cce5ff;
+        color: #004085;
+    }
+    .tree-record-row {
+        font-weight: 500;
+    }
+    .tree-toggle {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        width: 18px;
+        height: 18px;
+        font-size: 10px;
+        color: #666;
+        flex-shrink: 0;
+    }
+    .tree-toggle.has-children {
+        cursor: pointer;
+    }
+    .tree-toggle.has-children:hover {
+        color: #333;
+    }
+    .tree-icon {
+        margin-right: 4px;
+        font-size: 0.95em;
+        flex-shrink: 0;
+    }
+    .tree-label {
+        overflow: hidden;
+        text-overflow: ellipsis;
+    }
+    .tree-children {
+        display: none;
+    }
+    .tree-children.expanded {
+        display: block;
+    }
+
+    /* Resize handle */
+    .resize-handle {
+        width: 4px;
+        cursor: col-resize;
+        background: transparent;
+        transition: background 0.15s;
+        flex-shrink: 0;
+    }
+    .resize-handle:hover,
+    .resize-handle.active {
+        background: #80b4ff;
+    }
+
+    /* File panel */
+    .file-panel {
+        flex: 1;
+        display: flex;
+        flex-direction: column;
+        overflow: hidden;
+        min-width: 0;
+    }
+    .breadcrumb-bar {
+        display: flex;
+        align-items: center;
+        padding: 0.4rem 0.75rem;
+        background: #fff;
+        border-bottom: 1px solid #e9ecef;
+        font-size: 0.85rem;
+        min-height: 1.6rem;
+        gap: 0.15rem;
+        flex-wrap: wrap;
+    }
+    .breadcrumb-bar:empty {
+        display: none;
+    }
+    .breadcrumb-sep {
+        color: #aaa;
+        margin: 0 2px;
+    }
+    .breadcrumb-link {
+        color: #0056b3;
+        cursor: pointer;
+        text-decoration: none;
+        padding: 2px 4px;
+        border-radius: 3px;
+    }
+    .breadcrumb-link:hover {
+        background: #e8f0fe;
+        text-decoration: underline;
+    }
+    .breadcrumb-current {
+        font-weight: 600;
+        color: #333;
+        padding: 2px 4px;
+    }
+    .file-content {
+        flex: 1;
+        overflow-y: auto;
+        padding: 0;
+    }
+    .file-placeholder {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        height: 100%;
+        color: #999;
+        gap: 0.75rem;
+    }
+    .placeholder-icon {
+        font-size: 3rem;
+        opacity: 0.4;
+    }
+
+    /* File table */
+    .file-table {
+        width: 100%;
+        border-collapse: collapse;
+        font-size: 0.85rem;
+    }
+    .file-table thead th {
+        position: sticky;
+        top: 0;
+        background: #f0f2f5;
+        padding: 6px 12px;
+        text-align: left;
+        font-weight: 600;
+        color: #555;
+        border-bottom: 1px solid #d0d5dd;
+        font-size: 0.8rem;
+        text-transform: uppercase;
+        letter-spacing: 0.03em;
+    }
+    .file-table tbody tr {
+        border-bottom: 1px solid #f0f0f0;
+        transition: background 0.1s;
+    }
+    .file-table tbody tr:hover {
+        background: #f5f8ff;
+    }
+    .file-table td {
+        padding: 5px 12px;
+        vertical-align: middle;
+    }
+    .file-table .col-name {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        cursor: default;
+    }
+    .file-table .col-name.clickable {
+        cursor: pointer;
+        color: #0056b3;
+    }
+    .file-table .col-name.clickable:hover {
+        text-decoration: underline;
+    }
+    .file-table .col-size {
+        color: #888;
+        white-space: nowrap;
+        width: 100px;
+    }
+    .file-table .col-actions {
+        width: 90px;
+    }
+    .download-btn {
+        display: inline-block;
+        text-decoration: none;
+        padding: 3px 10px;
+        background: #0066cc;
+        color: white;
+        border-radius: 4px;
+        font-size: 0.8em;
+        transition: background 0.15s;
+    }
+    .download-btn:hover {
+        background: #004da6;
+    }
+    .empty-folder {
+        padding: 2rem;
+        text-align: center;
+        color: #999;
+        font-style: italic;
+    }
+    .loading-spinner {
+        padding: 2rem;
+        text-align: center;
+        color: #888;
+    }
+</style>
+
+<script>
+    let currentRecordId = null;
+    let currentPath = '';
+
+    // ── Record node click (select record, show root contents) ──
+
+    function onRecordClick(event, rowEl) {
+        event.stopPropagation();
+        const recordId = rowEl.getAttribute('data-record-id');
+        currentRecordId = recordId;
+        currentPath = '';
+        selectTreeRow(rowEl);
+        loadFolderContents(recordId, '');
+        // Also expand if not already
+        const nodeEl = rowEl.closest('.tree-node');
+        const childrenEl = nodeEl.querySelector(':scope > .tree-children');
+        if (childrenEl && !childrenEl.classList.contains('expanded')) {
+            toggleTreeNode(rowEl);
+        }
+    }
+
+    // ── Directory node click (select folder, show contents) ──
+
+    function onDirNodeClick(event, rowEl) {
+        event.stopPropagation();
+        const path = rowEl.getAttribute('data-path');
+        const recordId = getRecordIdForRow(rowEl);
+        currentRecordId = recordId;
+        currentPath = path;
+        selectTreeRow(rowEl);
+        loadFolderContents(recordId, path);
+    }
+
+    function onDirNodeDblClick(event, rowEl) {
+        event.stopPropagation();
+        const toggle = rowEl.querySelector('.tree-toggle.has-children');
+        if (toggle) {
+            toggleTreeNode(rowEl);
+        }
+    }
+
+    // ── Toggle (expand/collapse arrow) ──
+
+    function onToggleClick(event, toggleEl) {
+        event.stopPropagation();
+        const rowEl = toggleEl.closest('.tree-node-row');
+        toggleTreeNode(rowEl);
+
+        // Also select this node
+        if (rowEl.classList.contains('tree-record-row')) {
+            const recordId = rowEl.getAttribute('data-record-id');
+            currentRecordId = recordId;
+            currentPath = '';
+            selectTreeRow(rowEl);
+            loadFolderContents(recordId, '');
+        } else {
+            const path = rowEl.getAttribute('data-path');
+            const recordId = getRecordIdForRow(rowEl);
+            currentRecordId = recordId;
+            currentPath = path;
+            selectTreeRow(rowEl);
+            loadFolderContents(recordId, path);
+        }
+    }
+
+    // ── Expand / Collapse logic ──
+
+    async function toggleTreeNode(rowEl) {
+        const nodeEl = rowEl.closest('.tree-node');
+        const childrenEl = nodeEl.querySelector(':scope > .tree-children');
+        if (!childrenEl) return;
+
+        const isExpanded = childrenEl.classList.contains('expanded');
+
+        if (isExpanded) {
+            // Collapse
+            childrenEl.classList.remove('expanded');
+            const toggle = rowEl.querySelector('.tree-toggle');
+            if (toggle) toggle.textContent = '▸';
+            const icon = rowEl.querySelector('.tree-icon');
+            if (icon && !rowEl.classList.contains('tree-record-row')) {
+                icon.textContent = '📁';
+            }
+        } else {
+            // Expand — lazy load if needed
+            if (childrenEl.getAttribute('data-loaded') === 'false') {
+                const recordId = getRecordIdForRow(rowEl);
+                const path = rowEl.classList.contains('tree-record-row') ? '' : rowEl.getAttribute('data-path');
+                childrenEl.innerHTML = '<div class="loading-spinner" style="padding:4px 8px;font-size:0.8em;">Loading…</div>';
+                childrenEl.classList.add('expanded');
+                try {
+                    const data = await fetchTreeDirs(recordId, path);
+                    let html = '';
+                    const depth = getNodeDepth(rowEl) + 1;
+                    for (const d of data.dirs) {
+                        const childPath = path ? `${path}/${d.name}` : d.name;
+                        html += buildDirNode(d.name, childPath, depth, d.has_children);
+                    }
+                    if (data.dirs.length === 0) {
+                        html = '<div style="padding:3px 8px 3px ' + (depth * 16 + 4) + 'px;color:#aaa;font-size:0.8em;font-style:italic;">No subfolders</div>';
+                    }
+                    childrenEl.innerHTML = html;
+                    childrenEl.setAttribute('data-loaded', 'true');
+                } catch (e) {
+                    childrenEl.innerHTML = `<div style="color:#c00;padding:4px 16px;font-size:0.8em;">Error loading</div>`;
+                }
+            } else {
+                childrenEl.classList.add('expanded');
+            }
+            const toggle = rowEl.querySelector('.tree-toggle');
+            if (toggle) toggle.textContent = '▾';
+            const icon = rowEl.querySelector('.tree-icon');
+            if (icon && !rowEl.classList.contains('tree-record-row')) {
+                icon.textContent = '📂';
+            }
+        }
+    }
+
+    // ── Build directory tree nodes (for lazy-loaded children) ──
+
+    function buildDirNode(name, path, depth, hasChildren) {
+        const indent = depth * 16;
+        const toggleClass = hasChildren ? 'tree-toggle has-children' : 'tree-toggle';
+        const toggleIcon = hasChildren ? '▸' : '';
+
+        let html = `<div class="tree-node">`;
+        html += `<div class="tree-node-row" style="padding-left:${indent + 4}px" data-path="${escapeAttr(path)}" onclick="onDirNodeClick(event, this)" ondblclick="onDirNodeDblClick(event, this)">`;
+        html += `<span class="${toggleClass}" onclick="onToggleClick(event, this)">${toggleIcon}</span>`;
+        html += `<span class="tree-icon">📁</span>`;
+        html += `<span class="tree-label">${escapeHtml(name)}</span>`;
+        html += `</div>`;
+        if (hasChildren) {
+            html += `<div class="tree-children" data-loaded="false"></div>`;
+        }
+        html += '</div>';
+        return html;
+    }
+
+    // ── Selection highlight ──
+
+    function selectTreeRow(rowEl) {
+        document.querySelectorAll('.tree-node-row.selected').forEach(el => el.classList.remove('selected'));
+        rowEl.classList.add('selected');
+    }
+
+    // ── Helper: find the record ID for any tree row by walking up ──
+
+    function getRecordIdForRow(rowEl) {
+        // Walk up from the row to find the closest .tree-node with data-record-id
+        let el = rowEl.closest('.tree-node[data-record-id]');
+        if (el) return el.getAttribute('data-record-id');
+        // Fallback: check the row itself
+        return rowEl.getAttribute('data-record-id') || currentRecordId;
+    }
+
+    // ── Helper: compute visual depth from indent ──
+
+    function getNodeDepth(rowEl) {
+        // Record rows are depth 0, each level adds 16px
+        if (rowEl.classList.contains('tree-record-row')) return 0;
+        const pl = parseInt(rowEl.style.paddingLeft) || 4;
+        return Math.round((pl - 4) / 16);
+    }
+
+    // ── File/Folder Listing (right panel) ──
+
+    async function loadFolderContents(recordId, path) {
+        const fileContent = document.getElementById('file-content');
+        fileContent.innerHTML = '<div class="loading-spinner">Loading…</div>';
+        updateBreadcrumbs(path);
+
+        try {
+            const encodedPath = encodeURIComponent(path);
+            const response = await fetch(`/api/record/${recordId}/tree?path=${encodedPath}`);
+            if (!response.ok) {
+                const text = await response.text();
+                throw new Error(text || 'Failed to load folder');
+            }
+            const data = await response.json();
+
+            if (data.items.length === 0) {
+                fileContent.innerHTML = '<div class="empty-folder">This folder is empty.</div>';
+                return;
+            }
+
+            let html = '<table class="file-table"><thead><tr>';
+            html += '<th>Name</th><th>Size</th><th>Actions</th>';
+            html += '</tr></thead><tbody>';
+
+            for (const item of data.items) {
+                html += '<tr>';
+                if (item.is_dir) {
+                    const nextPath = path ? `${path}/${item.name}` : item.name;
+                    html += `<td><div class="col-name clickable" onclick="navigateToFolder('${escapeAttr(nextPath)}')">📁 ${escapeHtml(item.name)}</div></td>`;
+                    html += `<td class="col-size">—</td>`;
+                    html += `<td class="col-actions"></td>`;
+                } else {
+                    const filePath = path ? `${path}/${item.name}` : item.name;
+                    html += `<td><div class="col-name">📄 ${escapeHtml(item.name)}</div></td>`;
+                    html += `<td class="col-size">${formatBytes(item.size)}</td>`;
+                    html += `<td class="col-actions"><a class="download-btn" href="/api/record/${recordId}/download?path=${encodeURIComponent(filePath)}" target="_blank">Download</a></td>`;
+                }
+                html += '</tr>';
+            }
+
+            html += '</tbody></table>';
+            fileContent.innerHTML = html;
+        } catch (e) {
+            fileContent.innerHTML = `<div class="empty-folder" style="color:#c00;">Error: ${e.message}</div>`;
+        }
+    }
+
+    function navigateToFolder(path) {
+        if (!currentRecordId) return;
+        selectTreeFolder(path);
+        expandTreeToPath(path);
+        loadFolderContents(currentRecordId, path);
+    }
+
+    async function expandTreeToPath(path) {
+        if (!path || !currentRecordId) return;
+
+        // First make sure the record node is expanded
+        const recordNode = document.querySelector(`.tree-node[data-record-id="${CSS.escape(currentRecordId)}"]`);
+        if (recordNode) {
+            const recordRow = recordNode.querySelector(':scope > .tree-record-row');
+            const recordChildren = recordNode.querySelector(':scope > .tree-children');
+            if (recordRow && recordChildren && !recordChildren.classList.contains('expanded')) {
+                await toggleTreeNode(recordRow);
+            }
+        }
+
+        // Now walk the path segments
+        const parts = path.split('/');
+        let accumulated = '';
+        for (let i = 0; i < parts.length; i++) {
+            accumulated = i === 0 ? parts[0] : accumulated + '/' + parts[i];
+            const nodeRow = document.querySelector(`.tree-node-row[data-path="${CSS.escape(accumulated)}"]`);
+            if (nodeRow) {
+                const nodeEl = nodeRow.closest('.tree-node');
+                const childrenEl = nodeEl.querySelector(':scope > .tree-children');
+                if (childrenEl && !childrenEl.classList.contains('expanded')) {
+                    await toggleTreeNode(nodeRow);
+                }
+            }
+        }
+        selectTreeFolder(path);
+    }
+
+    function selectTreeFolder(path) {
+        currentPath = path;
+        document.querySelectorAll('.tree-node-row.selected').forEach(el => el.classList.remove('selected'));
+        // Try to find the directory row
+        const targetRow = document.querySelector(`.tree-node-row[data-path="${CSS.escape(path)}"]`);
+        if (targetRow) targetRow.classList.add('selected');
+    }
+
+    function updateBreadcrumbs(path) {
+        const bar = document.getElementById('breadcrumb-bar');
+        let html = `<span class="breadcrumb-link" onclick="navigateToFolder('')">🏠 Root</span>`;
+
+        if (path) {
+            const parts = path.split('/');
+            let accumulated = '';
+            for (let i = 0; i < parts.length; i++) {
+                accumulated = i === 0 ? parts[0] : accumulated + '/' + parts[i];
+                html += `<span class="breadcrumb-sep">›</span>`;
+                if (i === parts.length - 1) {
+                    html += `<span class="breadcrumb-current">${escapeHtml(parts[i])}</span>`;
+                } else {
+                    html += `<span class="breadcrumb-link" onclick="navigateToFolder('${escapeAttr(accumulated)}')">${escapeHtml(parts[i])}</span>`;
+                }
+            }
+        }
+        bar.innerHTML = html;
+    }
+
+    // ── API helpers ──
+
+    async function fetchTreeDirs(recordId, path) {
+        const encodedPath = encodeURIComponent(path);
+        const response = await fetch(`/api/record/${recordId}/tree_dirs?path=${encodedPath}`);
+        if (!response.ok) throw new Error('Failed to fetch tree directories');
+        return await response.json();
+    }
+
+    // ── Resize handle ──
+
+    (function() {
+        const handle = document.getElementById('resize-handle');
+        const treePanel = document.getElementById('tree-panel');
+        let startX, startWidth;
+
+        handle.addEventListener('mousedown', (e) => {
+            e.preventDefault();
+            startX = e.clientX;
+            startWidth = treePanel.offsetWidth;
+            handle.classList.add('active');
+            document.addEventListener('mousemove', onMouseMove);
+            document.addEventListener('mouseup', onMouseUp);
+        });
+
+        function onMouseMove(e) {
+            const dx = e.clientX - startX;
+            const newWidth = Math.max(180, Math.min(500, startWidth + dx));
+            treePanel.style.width = newWidth + 'px';
+        }
+
+        function onMouseUp() {
+            handle.classList.remove('active');
+            document.removeEventListener('mousemove', onMouseMove);
+            document.removeEventListener('mouseup', onMouseUp);
+        }
+    })();
+
+    // ── Utilities ──
+
+    function formatBytes(bytes, decimals = 2) {
+        if (!+bytes) return '0 Bytes';
+        const k = 1024;
+        const dm = decimals < 0 ? 0 : decimals;
+        const sizes = ['Bytes', 'KiB', 'MiB', 'GiB', 'TiB', 'PiB'];
+        const i = Math.floor(Math.log(bytes) / Math.log(k));
+        return `${parseFloat((bytes / Math.pow(k, i)).toFixed(dm))} ${sizes[i]}`;
+    }
+
+    function escapeHtml(str) {
+        const div = document.createElement('div');
+        div.appendChild(document.createTextNode(str));
+        return div.innerHTML;
+    }
+
+    function escapeAttr(str) {
+        return str.replace(/&/g, '&amp;').replace(/'/g, '&#39;').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    }
+</script>
+{% endblock %}

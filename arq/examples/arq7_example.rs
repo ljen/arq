@@ -265,7 +265,7 @@ fn print_backup_records(backup_set: &BackupSet, backup_set_path: &str) -> Option
                                 }
                             };
 
-                            let mut packset = PackSet::new(&trees_path);
+                            let packset = PackSet::new(&trees_path);
                             let data = match packset.restore_blob_with_sha(&sha, keyset_ref) {
                                 Ok(d) => d.unwrap(),
                                 Err(e) => {

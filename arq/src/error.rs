@@ -54,8 +54,8 @@ impl std::convert::From<digest::InvalidLength> for Error {
     }
 }
 
-impl std::convert::From<aes::cipher::block_padding::UnpadError> for Error {
-    fn from(_: aes::cipher::block_padding::UnpadError) -> Self {
+impl std::convert::From<cipher::block_padding::Error> for Error {
+    fn from(_: cipher::block_padding::Error) -> Self {
         Error::CipherError
     }
 }

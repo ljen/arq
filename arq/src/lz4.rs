@@ -31,4 +31,13 @@ mod tests {
         // with zeros
         assert_eq!(test[..], decompressed[..test.len()]);
     }
+
+    #[test]
+    fn test_lz4_decompress_error() {
+        // First 4 bytes are original length (10 in big endian)
+        // Rest is invalid LZ4 data
+        let invalid_compressed = [0, 0, 0, 10, 255, 255, 255, 255];
+        let result = decompress(&invalid_compressed);
+        assert!(result.is_err());
+    }
 }
