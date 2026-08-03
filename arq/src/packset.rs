@@ -89,8 +89,8 @@ impl PackSet {
         };
 
         if let Some((pack_path, offset)) = cached_val {
-            let mut pack_reader = get_file_reader_for_restore(&pack_path)
-                .map_err(crate::error::Error::IoError)?;
+            let mut pack_reader =
+                get_file_reader_for_restore(&pack_path).map_err(crate::error::Error::IoError)?;
 
             pack_reader
                 .seek(SeekFrom::Start(offset as u64))
