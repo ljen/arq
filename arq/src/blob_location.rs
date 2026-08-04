@@ -301,8 +301,23 @@ impl BlobLoc {
                 } // Empty data is valid
 
                 let length_prefix = &data[0..4];
-                let actual_decompressed_length =
-                    u32::from_be_bytes(length_prefix.try_into().unwrap()) as usize;
+                let length_array: [u8; 4] = length_prefix
+                    .try_into()
+                    .map_err(|_| Error::InvalidFormat("Invalid LZ4 length prefix".to_string()))?;
+                let actual_decompressed_length_u32 = u32::from_be_bytes(length_array);
+
+                let actual_decompressed_length = usize::try_from(actual_decompressed_length_u32)
+                    .map_err(|_| Error::DecompressionDataLengthOutOfBounds)?;
+
+                // MAX_BLOB_SIZE is 4GB (4294967296 bytes).
+                // The max value of u32 is 4294967295, which is strictly less than 4GB.
+                // However, on some embedded 16-bit systems `usize` might be 16-bit (max 65535)
+                // in which case `try_from(actual_decompressed_length_u32)` will fail if > 65535.
+                // We add a safety check just in case MAX_BLOB_SIZE changes in the future.
+                if actual_decompressed_length as u64 > MAX_BLOB_SIZE {
+                    return Err(Error::DecompressionDataLengthOutOfBounds);
+                }
+
                 let compressed_data_body = &data[4..];
 
                 Ok(lz4_flex::block::decompress(
@@ -401,6 +416,38 @@ mod tests {
     }
 
     #[test]
+    fn test_is_valid_path() {
+        // Valid paths
+        assert!(BlobLoc::is_valid_path("/path/to/backup"));
+        assert!(BlobLoc::is_valid_path("/path/to/backup.pack"));
+        assert!(BlobLoc::is_valid_path("/backup-123_456.pack"));
+        assert!(BlobLoc::is_valid_path("/a:b(c) d")); // valid chars: ':', '(', ')', ' '
+        assert!(BlobLoc::is_valid_path("treepacks/something"));
+        assert!(BlobLoc::is_valid_path("blobpacks/something"));
+        assert!(BlobLoc::is_valid_path("largeblobpacks/something"));
+        assert!(BlobLoc::is_valid_path("standardobjects/something"));
+        assert!(BlobLoc::is_valid_path("blob/something"));
+        assert!(BlobLoc::is_valid_path("something.pack"));
+
+        // Invalid paths
+        assert!(!BlobLoc::is_valid_path(""));
+
+        let long_path = "a".repeat(4097);
+        assert!(!BlobLoc::is_valid_path(&long_path));
+
+        // Missing leading slash and no backup pattern
+        assert!(!BlobLoc::is_valid_path("just/a/normal/path"));
+
+        // Invalid characters
+        assert!(!BlobLoc::is_valid_path("/invalid/path\n")); // control char
+        assert!(!BlobLoc::is_valid_path("/invalid/path*")); // forbidden char '*'
+        assert!(!BlobLoc::is_valid_path("/invalid/path?")); // forbidden char '?'
+        assert!(!BlobLoc::is_valid_path("/invalid/path<")); // forbidden char '<'
+        assert!(!BlobLoc::is_valid_path("/invalid/path>")); // forbidden char '>'
+        assert!(!BlobLoc::is_valid_path("/invalid/path|")); // forbidden char '|'
+    }
+
+    #[test]
     fn parses_official_arq7_binary_blobloc_from_non_seek_reader() {
         let mut data = Vec::new();
         data.extend(arq_string("abc123"));
@@ -418,5 +465,127 @@ mod tests {
 
         assert_eq!(loc.blob_identifier, "abc123");
         assert_eq!(loc.relative_path, "/PLAN/blobpacks/AA/example.pack");
+    }
+
+    fn create_test_blobloc(compression_type: u32) -> BlobLoc {
+        BlobLoc {
+            blob_identifier: "test".to_string(),
+            compression_type,
+            is_packed: false,
+            length: 0,
+            offset: 0,
+            relative_path: "".to_string(),
+            stretch_encryption_key: false,
+            is_large_pack: None,
+        }
+    }
+
+    #[test]
+    fn decompress_data_no_compression() {
+        let loc = create_test_blobloc(0);
+        let data = b"hello world".to_vec();
+        let result = loc.decompress_data(data.clone()).unwrap();
+        assert_eq!(result, data);
+    }
+
+    #[test]
+    fn decompress_data_gzip() {
+        use flate2::write::GzEncoder;
+        use flate2::Compression;
+        use std::io::Write;
+
+        let loc = create_test_blobloc(1);
+        let original_data = b"hello world".to_vec();
+
+        let mut encoder = GzEncoder::new(Vec::new(), Compression::default());
+        encoder.write_all(&original_data).unwrap();
+        let compressed_data = encoder.finish().unwrap();
+
+        let result = loc.decompress_data(compressed_data).unwrap();
+        assert_eq!(result, original_data);
+    }
+
+    #[test]
+    fn decompress_data_lz4() {
+        let loc = create_test_blobloc(2);
+        let original_data = b"hello world".to_vec();
+
+        let compressed_body = lz4_flex::block::compress(&original_data);
+        let mut compressed_data = Vec::new();
+        let uncompressed_len = original_data.len() as u32;
+        compressed_data.extend_from_slice(&uncompressed_len.to_be_bytes());
+        compressed_data.extend_from_slice(&compressed_body);
+
+        let result = loc.decompress_data(compressed_data).unwrap();
+        assert_eq!(result, original_data);
+    }
+
+    #[test]
+    fn decompress_data_lz4_empty() {
+        let loc = create_test_blobloc(2);
+        let empty_data = Vec::new();
+        let result = loc.decompress_data(empty_data.clone()).unwrap();
+        assert_eq!(result, empty_data);
+    }
+
+    #[test]
+    fn decompress_data_lz4_too_short() {
+        let loc = create_test_blobloc(2);
+        let short_data = b"123".to_vec();
+        let result = loc.decompress_data(short_data);
+        assert!(matches!(result, Err(Error::InvalidFormat(_))));
+    }
+
+    #[test]
+    fn decompress_data_unsupported_type() {
+        let loc = create_test_blobloc(3);
+        let data = b"hello world".to_vec();
+        let result = loc.decompress_data(data);
+        assert!(matches!(result, Err(Error::InvalidFormat(_))));
+    }
+
+    #[test]
+    fn test_normalize_relative_path() {
+        let backup_set_dir = std::path::Path::new("/backup/12345678-1234-1234-1234-123456789012");
+
+        // Scenario 1: Path starts with backup_set_dir's UUID
+        let loc1 = BlobLoc {
+            relative_path: "/12345678-1234-1234-1234-123456789012/pack/123.pack".to_string(),
+            ..create_test_blobloc(0)
+        };
+        assert_eq!(
+            loc1.normalize_relative_path(backup_set_dir),
+            backup_set_dir.join("pack/123.pack")
+        );
+
+        // Scenario 2: Path starts with a different UUID (fallback logic strips the first directory regardless)
+        let loc2 = BlobLoc {
+            relative_path: "/87654321-4321-4321-4321-210987654321/pack/123.pack".to_string(),
+            ..create_test_blobloc(0)
+        };
+        assert_eq!(
+            loc2.normalize_relative_path(backup_set_dir),
+            backup_set_dir.join("pack/123.pack")
+        );
+
+        // Scenario 3: Path without any prefix UUID component
+        let loc3 = BlobLoc {
+            relative_path: "/123.pack".to_string(),
+            ..create_test_blobloc(0)
+        };
+        assert_eq!(
+            loc3.normalize_relative_path(backup_set_dir),
+            backup_set_dir.join("123.pack")
+        );
+
+        // Scenario 4: Path without a leading slash
+        let loc4 = BlobLoc {
+            relative_path: "pack/123.pack".to_string(),
+            ..create_test_blobloc(0)
+        };
+        assert_eq!(
+            loc4.normalize_relative_path(backup_set_dir),
+            backup_set_dir.join("pack/123.pack")
+        );
     }
 }

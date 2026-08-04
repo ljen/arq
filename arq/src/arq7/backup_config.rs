@@ -7,6 +7,8 @@ use crate::error::Result;
 /// small files together, etc.
 #[derive(Debug, Clone, Deserialize)]
 pub struct BackupConfig {
+    #[serde(rename = "computerUUID")]
+    pub computer_uuid: Option<String>,
     /// 1=SHA1, 2=SHA256
     #[serde(rename = "blobIdentifierType")]
     pub blob_identifier_type: u32,
@@ -43,5 +45,57 @@ impl BackupConfig {
     pub fn from_file<P: AsRef<std::path::Path>>(path: P) -> Result<Self> {
         let file = std::fs::File::open(path)?;
         Self::from_reader(file)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::io::Cursor;
+
+    #[test]
+    fn test_backup_config_from_reader() {
+        let json_data = r#"{
+            "computerUUID": "12345-abcde",
+            "blobIdentifierType": 2,
+            "maxPackedItemLength": 10485760,
+            "backupName": "My Backup",
+            "isWORM": false,
+            "containsGlacierArchives": false,
+            "additionalUnpackedBlobDirs": [],
+            "chunkerVersion": 3,
+            "computerName": "My Mac",
+            "computerSerial": "C02XYZ123ABC",
+            "blobStorageClass": "STANDARD",
+            "isEncrypted": true
+        }"#;
+
+        let cursor = Cursor::new(json_data);
+        let config = BackupConfig::from_reader(cursor).unwrap();
+
+        assert_eq!(config.computer_uuid.as_deref(), Some("12345-abcde"));
+        assert_eq!(config.blob_identifier_type, 2);
+        assert_eq!(config.max_packed_item_length, 10485760);
+        assert_eq!(config.backup_name, "My Backup");
+        assert_eq!(config.is_worm, false);
+        assert_eq!(config.contains_glacier_archives, false);
+        assert!(config.additional_unpacked_blob_dirs.is_empty());
+        assert_eq!(config.chunker_version, 3);
+        assert_eq!(config.computer_name, "My Mac");
+        assert_eq!(config.computer_serial, "C02XYZ123ABC");
+        assert_eq!(config.blob_storage_class, "STANDARD");
+        assert_eq!(config.is_encrypted, true);
+    }
+
+    #[test]
+    fn test_backup_config_missing_field() {
+        let json_data = r#"{
+            "blobIdentifierType": 2,
+            "backupName": "My Backup"
+        }"#;
+
+        let cursor = Cursor::new(json_data);
+        let result = BackupConfig::from_reader(cursor);
+        assert!(result.is_err());
     }
 }

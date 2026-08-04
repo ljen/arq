@@ -10,6 +10,13 @@ use arq::commit::Commit;
 use arq::packset;
 use arq::tree;
 
+pub struct RestoreOptions<'a> {
+    pub path: &'a PathBuf,
+    pub absolute_filepath: &'a str,
+    pub folder: &'a str,
+    pub keyset: &'a EncryptedKeySet,
+}
+
 pub fn restore_file(
     path: &str,
     computer: &str,
@@ -33,56 +40,43 @@ pub fn restore_file(
     let arq_folder = utils::read_arq_folder(path, computer, folder, master_keys.clone())?;
     let tree_blob = packset::restore_blob_with_sha(&trees_path, &commit.tree_sha1, &keyset)?;
     let tree = tree::Tree::new_arq5(&tree_blob, commit.tree_compression_type)?;
-    restore_file_in_tree(
-        Path::new(&arq_folder.local_path),
-        &trees_path,
+
+    let options = RestoreOptions {
+        path: &trees_path,
         absolute_filepath,
         folder,
-        tree,
-        &keyset,
-    )
+        keyset: &keyset,
+    };
+
+    restore_file_in_tree(Path::new(&arq_folder.local_path), tree, &options)
 }
 
-fn restore_file_in_tree(
-    prefix: &Path,
-    path: &PathBuf,
-    absolute_filepath: &str,
-    folder: &str,
-    tree: tree::Tree,
-    keyset: &EncryptedKeySet,
-) -> Result<()> {
+fn restore_file_in_tree(prefix: &Path, tree: tree::Tree, options: &RestoreOptions) -> Result<()> {
     for (name, node) in tree.nodes {
         if !node.is_tree {
             let inner = prefix.join(name);
-            if inner.as_os_str().to_string_lossy() == absolute_filepath {
+            if inner.as_os_str().to_string_lossy() == options.absolute_filepath {
                 restore_object(
-                    path,
-                    folder,
+                    options.path,
+                    options.folder,
                     &node,
-                    absolute_filepath,
-                    &keyset.encryption_key,
+                    options.absolute_filepath,
+                    &options.keyset.encryption_key,
                 )?;
                 // Passed node as reference
             }
         } else {
             let data = packset::restore_blob_with_sha(
-                path,
+                options.path,
                 &node.data_blob_locs[0].blob_identifier,
-                keyset,
+                options.keyset,
             )?; // Changed to data_blob_locs and blob_identifier
             let inner_tree = tree::Tree::new_arq5(
                 &data,
                 node.arq5_data_compression_type
                     .unwrap_or(arq::compression::CompressionType::None),
             )?; // Changed to arq5_data_compression_type
-            restore_file_in_tree(
-                prefix.join(name).as_path(),
-                path,
-                absolute_filepath,
-                folder,
-                inner_tree,
-                keyset,
-            )?;
+            restore_file_in_tree(prefix.join(name).as_path(), inner_tree, options)?;
         }
     }
     Ok(())
@@ -109,27 +103,48 @@ fn restore_object(
         .arq5_data_compression_type
         .unwrap_or(arq::compression::CompressionType::None); // Changed to arq5_data_compression_type
 
+    let mut cached_index_files = Vec::new();
+    for entry in std::fs::read_dir(&path)? {
+        let fname = entry?.file_name().to_string_lossy().to_string();
+        if fname.ends_with(".index") {
+            cached_index_files.push(fname);
+        }
+    }
+
+    let mut found_blobs = std::collections::HashMap::new();
+    let required_blobs: std::collections::HashSet<_> = node
+        .data_blob_locs
+        .iter()
+        .map(|b| b.blob_identifier.clone())
+        .collect();
+
+    for fname in &cached_index_files {
+        let index_path = path.join(fname);
+        let mut reader = utils::get_file_reader(&index_path)?;
+        let index = packset::PackIndex::new(&mut reader)?;
+        for obj in index.objects {
+            if required_blobs.contains(&obj.sha1) {
+                found_blobs
+                    .entry(obj.sha1)
+                    .or_insert_with(Vec::new)
+                    .push((fname.clone(), obj.offset as u64));
+            }
+        }
+    }
+
     for blob in &node.data_blob_locs {
         // Iterate over a reference to avoid moving
-        for entry in std::fs::read_dir(&path)? {
-            let fname = entry?.file_name().to_string_lossy().to_string();
-            if fname.ends_with(".index") {
-                let index_path = path.join(&fname);
-                let mut reader = utils::get_file_reader(&index_path)?;
-                let index = packset::PackIndex::new(&mut reader)?;
-                for obj in index.objects {
-                    if obj.sha1 == blob.blob_identifier {
-                        // Changed blob.sha1 to blob.blob_identifier
-                        let pack_path = path.join(&fname.replace(".index", ".pack"));
-                        let mut reader = utils::get_file_reader(&pack_path)?;
-                        reader.seek(SeekFrom::Start(obj.offset as u64))?;
-                        let ob = packset::PackObject::new(&mut reader)?;
-                        let mut f = File::create(filename)?;
-                        let data = ob.original(compression.clone(), master_key)?;
-                        f.write_all(&data)?;
-                        println!("Recovered '{}' to {:?}", absolute_filepath, filename);
-                    }
-                }
+        if let Some(locations) = found_blobs.get(&blob.blob_identifier) {
+            for (fname, offset) in locations {
+                let pack_path = path.join(&fname.replace(".index", ".pack"));
+                let mut reader = std::io::BufReader::new(utils::get_file_reader(&pack_path)?);
+                reader.seek(SeekFrom::Start(*offset))?;
+                let mut reader = std::io::BufReader::new(reader);
+                let ob = packset::PackObject::new(&mut reader)?;
+                let mut f = File::create(filename)?;
+                let data = ob.original(compression.clone(), master_key)?;
+                f.write_all(&data)?;
+                println!("Recovered '{}' to {:?}", absolute_filepath, filename);
             }
         }
     }

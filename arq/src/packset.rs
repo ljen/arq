@@ -40,60 +40,67 @@ use std::path::PathBuf;
 
 pub struct PackSet {
     path: PathBuf,
+    blob_cache: std::sync::Mutex<Option<std::collections::HashMap<String, (PathBuf, usize)>>>,
 }
 
 impl PackSet {
     pub fn new(path: &Path) -> Self {
         Self {
             path: path.to_path_buf(),
+            blob_cache: std::sync::Mutex::new(None),
         }
     }
 
-    // TODO: Do this better - don't read all files multiple times
     pub fn restore_blob_with_sha(
         &self,
         sha: &str,
         keyset: &crate::arq7::EncryptedKeySet,
     ) -> Result<Option<Vec<u8>>> {
-        for entry_result in fs::read_dir(&self.path)? {
-            let entry = entry_result?;
+        let cached_val = {
+            let mut cache_lock = self.blob_cache.lock().unwrap();
+            if cache_lock.is_none() {
+                let mut map = std::collections::HashMap::new();
+                for entry_result in fs::read_dir(&self.path)? {
+                    let entry = entry_result?;
+                    let fname = entry.file_name();
+                    let fname_str = match fname.to_str() {
+                        Some(s) => s,
+                        None => continue,
+                    };
 
-            let fname = entry.file_name();
-            let fname_str = match fname.to_str() {
-                Some(s) => s,
-                None => {
-                    continue;
-                }
-            };
+                    if fname_str.ends_with(".index") {
+                        let index_path = entry.path();
+                        let mut reader = get_file_reader_for_restore(&index_path)
+                            .map_err(crate::error::Error::IoError)?;
 
-            if fname_str.ends_with(".index") {
-                let index_path = entry.path();
-                let mut reader = get_file_reader_for_restore(&index_path)
-                    .map_err(|e| crate::error::Error::IoError(e))?;
-
-                let index = PackIndex::new(&mut reader)?;
-
-                for obj in index.objects {
-                    if obj.sha1 == sha {
+                        let index = PackIndex::new(&mut reader)?;
                         let pack_path = index_path.with_extension("pack");
-                        if !pack_path.exists() {
-                            continue;
-                        }
-                        let mut pack_reader = get_file_reader_for_restore(&pack_path)
-                            .map_err(|e| crate::error::Error::IoError(e))?;
 
-                        pack_reader
-                            .seek(SeekFrom::Start(obj.offset as u64))
-                            .map_err(|e| crate::error::Error::IoError(e))?;
-
-                        let pack = PackObject::new(&mut pack_reader)?;
-
-                        match pack.data.decrypt(&keyset.encryption_key) {
-                            Ok(data) => return Ok(Some(data)),
-                            Err(e) => return Err(e),
+                        if pack_path.exists() {
+                            for obj in index.objects {
+                                map.insert(obj.sha1, (pack_path.clone(), obj.offset));
+                            }
                         }
                     }
                 }
+                *cache_lock = Some(map);
+            }
+            cache_lock.as_ref().unwrap().get(sha).cloned()
+        };
+
+        if let Some((pack_path, offset)) = cached_val {
+            let mut pack_reader = get_file_reader_for_restore(&pack_path)
+                .map_err(crate::error::Error::IoError)?;
+
+            pack_reader
+                .seek(SeekFrom::Start(offset as u64))
+                .map_err(crate::error::Error::IoError)?;
+
+            let pack = PackObject::new(&mut pack_reader)?;
+
+            match pack.data.decrypt(&keyset.encryption_key) {
+                Ok(data) => return Ok(Some(data)),
+                Err(e) => return Err(e),
             }
         }
         Ok(None)
@@ -457,8 +464,7 @@ pub fn restore_blob_with_sha(path: &Path, sha: &str, keyset: &EncryptedKeySet) -
 
         if fname_str.ends_with(".index") {
             let index_path = entry.path();
-            let mut reader =
-                get_file_reader_for_restore(&index_path).map_err(|e| Error::IoError(e))?;
+            let mut reader = get_file_reader_for_restore(&index_path).map_err(Error::IoError)?;
 
             let index = PackIndex::new(&mut reader)?;
 
@@ -469,11 +475,11 @@ pub fn restore_blob_with_sha(path: &Path, sha: &str, keyset: &EncryptedKeySet) -
                         continue;
                     }
                     let mut pack_reader =
-                        get_file_reader_for_restore(&pack_path).map_err(|e| Error::IoError(e))?;
+                        get_file_reader_for_restore(&pack_path).map_err(Error::IoError)?;
 
                     pack_reader
                         .seek(SeekFrom::Start(obj.offset as u64))
-                        .map_err(|e| Error::IoError(e))?;
+                        .map_err(Error::IoError)?;
 
                     let pack = PackObject::new(&mut pack_reader)?;
 

@@ -175,6 +175,13 @@ mod tests {
     }
 
     #[test]
+    fn test_read_arq_string_invalid_utf8() {
+        let mut reader_invalid = Cursor::new(vec![1, 0, 0, 0, 0, 0, 0, 0, 2, 255, 255]);
+        let result = reader_invalid.read_arq_string();
+        assert!(result.is_err());
+    }
+
+    #[test]
     fn test_read_arq_data() {
         let empty: Vec<u8> = vec![];
 

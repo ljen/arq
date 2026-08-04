@@ -100,7 +100,7 @@ impl EncryptedKeySet {
         let mut derived_key = vec![0u8; 64];
         ring::pbkdf2::derive(
             ring::pbkdf2::PBKDF2_HMAC_SHA256,
-            std::num::NonZeroU32::new(200_000).unwrap(),
+            std::num::NonZeroU32::new(200_000).ok_or(Error::CryptoError)?,
             &salt,
             password.as_bytes(),
             &mut derived_key,
@@ -115,11 +115,12 @@ impl EncryptedKeySet {
 
         // Decrypt the ciphertext using AES-256-CBC
         let mut decrypted_data = ciphertext;
-        use aes::cipher::{block_padding::Pkcs7, BlockDecryptMut, KeyIvInit};
+        use aes::cipher::{block_padding::Pkcs7, KeyIvInit};
+        use cipher::BlockModeDecrypt;
         type Aes256CbcDec = cbc::Decryptor<aes::Aes256>;
 
         let plaintext = Aes256CbcDec::new_from_slices(&derived_key[..32], &iv)?
-            .decrypt_padded_mut::<Pkcs7>(&mut decrypted_data)?;
+            .decrypt_padded::<Pkcs7>(&mut decrypted_data)?;
 
         // Parse the plaintext structure
         let mut reader = std::io::Cursor::new(plaintext);
@@ -168,5 +169,55 @@ impl EncryptedKeySet {
             hmac_key,
             blob_identifier_salt,
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_to_master_keys() {
+        let keyset = EncryptedKeySet {
+            encryption_key: vec![1, 2, 3],
+            hmac_key: vec![4, 5, 6],
+            blob_identifier_salt: vec![7, 8, 9],
+        };
+
+        let master_keys = keyset.to_master_keys();
+
+        assert_eq!(master_keys.len(), 3);
+        assert_eq!(master_keys[0], vec![1, 2, 3]);
+        assert_eq!(master_keys[1], vec![4, 5, 6]);
+        assert_eq!(master_keys[2], vec![7, 8, 9]);
+    }
+
+    #[test]
+    fn test_from_master_keys_success() {
+        let key1 = vec![1, 2, 3];
+        let key2 = vec![4, 5, 6];
+        let key3 = vec![7, 8, 9];
+        let master_keys = vec![key1.clone(), key2.clone(), key3.clone()];
+
+        let result = EncryptedKeySet::from_master_keys(master_keys);
+        assert!(result.is_ok());
+
+        let keyset = result.unwrap();
+        assert_eq!(keyset.encryption_key, key1);
+        assert_eq!(keyset.hmac_key, key2);
+        assert_eq!(keyset.blob_identifier_salt, key3);
+    }
+
+    #[test]
+    fn test_from_master_keys_invalid_length() {
+        // Too few keys
+        let master_keys_short = vec![vec![1, 2, 3], vec![4, 5, 6]];
+        let result_short = EncryptedKeySet::from_master_keys(master_keys_short);
+        assert!(matches!(result_short, Err(Error::InvalidFormat(_))));
+
+        // Too many keys
+        let master_keys_long = vec![vec![1], vec![2], vec![3], vec![4]];
+        let result_long = EncryptedKeySet::from_master_keys(master_keys_long);
+        assert!(matches!(result_long, Err(Error::InvalidFormat(_))));
     }
 }

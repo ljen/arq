@@ -3,6 +3,7 @@ use crate::error::{Error, Result};
 use arq::arq7::{BackupSet, EncryptedKeySet};
 use arq::node::Node;
 use chrono::DateTime;
+use rayon::prelude::*;
 use std::path::Path;
 
 /// Safely convert an f64 timestamp (seconds since epoch) to a formatted string.
@@ -15,7 +16,19 @@ fn format_timestamp(ts_f64: f64) -> String {
         0
     };
     DateTime::from_timestamp(secs, nanos)
-        .map(|dt| dt.format("%Y-%m-%d %H:%M:%S UTC").to_string())
+        .map(|dt| {
+            use chrono::{Datelike, Timelike};
+            let naive = dt.naive_utc();
+            format!(
+                "{:04}-{:02}-{:02} {:02}:{:02}:{:02} UTC",
+                naive.year(),
+                naive.month(),
+                naive.day(),
+                naive.hour(),
+                naive.minute(),
+                naive.second()
+            )
+        })
         .unwrap_or_else(|| ts_f64.to_string())
 }
 
@@ -36,7 +49,19 @@ fn format_timestamp_rfc3339(ts_f64: f64) -> String {
 /// Safely format a seconds-since-epoch i64 for display.
 fn format_epoch_secs(secs: i64) -> String {
     DateTime::from_timestamp(secs, 0)
-        .map(|dt| dt.format("%Y-%m-%d %H:%M:%S").to_string())
+        .map(|dt| {
+            use chrono::{Datelike, Timelike};
+            let naive = dt.naive_utc();
+            format!(
+                "{:04}-{:02}-{:02} {:02}:{:02}:{:02}",
+                naive.year(),
+                naive.month(),
+                naive.day(),
+                naive.hour(),
+                naive.minute(),
+                naive.second()
+            )
+        })
         .unwrap_or_else(|| secs.to_string())
 }
 
@@ -67,9 +92,12 @@ fn record_timestamp_dir_name(timestamp: f64) -> String {
 fn load_backup_set(backup_set_path: &Path) -> Result<BackupSet> {
     match BackupSet::from_directory_with_password(backup_set_path, None) {
         Ok(set) => Ok(set),
-        Err(arq::error::Error::InvalidFormat(msg)) if msg == "Encrypted backup requires password" => {
+        Err(arq::error::Error::InvalidFormat(msg))
+            if msg == "Encrypted backup requires password" =>
+        {
             let password = crate::utils::get_password()?;
-            BackupSet::from_directory_with_password(backup_set_path, Some(&password)).map_err(Error::ArqError)
+            BackupSet::from_directory_with_password(backup_set_path, Some(&password))
+                .map_err(Error::ArqError)
         }
         Err(e) => Err(Error::ArqError(e)),
     }
@@ -110,56 +138,55 @@ fn find_record_by_identifier<'a>(
 }
 
 // Helper function to find a node (file or folder) within a record's tree
-fn find_node_in_record_tree(
-    node: &Node,
+fn find_node_in_record_tree<'a>(
+    node: &'a Node,
     path_parts: &[&str],
     current_depth: usize,
     backup_set_path: &Path,
     keyset: Option<&EncryptedKeySet>,
-) -> Result<Option<Node>> {
+) -> Result<Option<std::borrow::Cow<'a, Node>>> {
     if current_depth == path_parts.len() {
-        return Ok(Some(node.clone()));
+        return Ok(Some(std::borrow::Cow::Borrowed(node)));
     }
 
-    if !node.is_tree {
-        return Ok(None);
-    }
+    let mut current_node = std::borrow::Cow::Borrowed(node);
 
-    match node.load_tree_with_encryption(backup_set_path, keyset) {
-        Ok(Some(tree)) => {
-            let target_child_name = path_parts[current_depth];
-            debug_eprintln!(
-                "DEBUG: find_node_in_record_tree: Depth: {}, Target: '{}', Children: {:?}",
-                current_depth,
-                target_child_name,
-                tree.nodes.keys()
-            );
-            if let Some(child_node) = tree.nodes.get(target_child_name) {
-                return find_node_in_record_tree(
-                    child_node,
-                    path_parts,
-                    current_depth + 1,
-                    backup_set_path,
-                    keyset,
+    for i in current_depth..path_parts.len() {
+        if !current_node.is_tree {
+            return Ok(None);
+        }
+
+        let target_child_name = path_parts[i];
+
+        match current_node.load_tree_with_encryption(backup_set_path, keyset) {
+            Ok(Some(mut tree)) => {
+                debug_eprintln!(
+                    "DEBUG: find_node_in_record_tree: Depth: {}, Target: '{}', Children: {:?}",
+                    i,
+                    target_child_name,
+                    tree.nodes.keys()
                 );
+
+                if let Some(child_node) = tree.nodes.remove(target_child_name) {
+                    current_node = std::borrow::Cow::Owned(child_node);
+                } else {
+                    return Ok(None);
+                }
+            }
+            Ok(None) => {
+                let current_path_segment = if i > 0 { path_parts[i - 1] } else { "root" };
+                return Err(Error::Generic(format!(
+                    "Node was expected to be a tree with loadable data, but found none for path part: {}",
+                    current_path_segment
+                )));
+            }
+            Err(e) => {
+                return Err(Error::ArqError(e)); // Directly use ArqError
             }
         }
-        Ok(None) => {
-            let current_path_segment = if current_depth > 0 {
-                path_parts[current_depth - 1]
-            } else {
-                "root"
-            };
-            return Err(Error::Generic(format!(
-                "Node was expected to be a tree with loadable data, but found none for path part: {}",
-                current_path_segment
-            )));
-        }
-        Err(e) => {
-            return Err(Error::ArqError(e)); // Directly use ArqError
-        }
     }
-    Ok(None)
+
+    Ok(Some(current_node))
 }
 
 pub fn list_backup_records(backup_set_path: &Path) -> Result<()> {
@@ -294,8 +321,7 @@ pub fn list_files(
             .collect();
 
         let start_node =
-            find_node_in_record_tree(&arq7_record.node, &path_parts, 0, backup_set_path, keyset)?
-                .ok_or_else(|| {
+            find_node_in_record_tree(&arq7_record.node, &path_parts, 0, backup_set_path, keyset)?.map(|c| c.into_owned()).ok_or_else(|| {
                 Error::NotFound(format!(
                     "Folder '{}' not found in record '{}'.",
                     folder_path_in_backup.unwrap_or("/"),
@@ -351,73 +377,257 @@ fn list_node_contents_recursive(
     Ok(())
 }
 
-pub fn list_file_versions(
+fn get_effective_path_parts<'a>(
+    target_path: &'a str,
+    record_local_path: &str,
+    folder_uuid: &str,
+    backup_set: &arq::arq7::BackupSet,
+    default_parts: &'a [&'a str],
+    is_folder: bool,
+) -> std::borrow::Cow<'a, [&'a str]> {
+    let mut effective_path_parts = std::borrow::Cow::Borrowed(default_parts);
+
+    if is_folder && (target_path == "/" || target_path.is_empty()) {
+        effective_path_parts = std::borrow::Cow::Borrowed(&[]);
+    } else if !record_local_path.is_empty() && target_path.starts_with(record_local_path) {
+        let relative_path = target_path
+            .strip_prefix(record_local_path)
+            .unwrap_or(target_path);
+        let relative_path_trimmed = relative_path.trim_start_matches('/');
+        let mut temp_parts: Vec<&str> = relative_path_trimmed
+            .split('/')
+            .filter(|s| !s.is_empty())
+            .collect();
+
+        if is_folder {
+            if relative_path_trimmed.is_empty() && !relative_path.is_empty() && target_path != "/" {
+                temp_parts = Vec::new();
+            }
+        } else {
+            if temp_parts.is_empty() && !relative_path_trimmed.is_empty() {
+                temp_parts = vec![relative_path_trimmed];
+            }
+        }
+        effective_path_parts = std::borrow::Cow::Owned(temp_parts);
+    } else if record_local_path.is_empty() {
+        if let Some(bf_config) = backup_set.backup_folder_configs.get(folder_uuid) {
+            if target_path.starts_with(&bf_config.local_path) {
+                let relative_path = target_path
+                    .strip_prefix(&bf_config.local_path)
+                    .unwrap_or(target_path);
+                let relative_path_trimmed = relative_path.trim_start_matches('/');
+                let mut temp_parts: Vec<&str> = relative_path_trimmed
+                    .split('/')
+                    .filter(|s| !s.is_empty())
+                    .collect();
+
+                if is_folder {
+                    if relative_path_trimmed.is_empty()
+                        && !relative_path.is_empty()
+                        && target_path != "/"
+                    {
+                        temp_parts = Vec::new();
+                    }
+                } else {
+                    if temp_parts.is_empty() && !relative_path_trimmed.is_empty() {
+                        temp_parts = vec![relative_path_trimmed];
+                    }
+                }
+                effective_path_parts = std::borrow::Cow::Owned(temp_parts);
+            }
+        }
+    }
+
+    effective_path_parts
+}
+
+fn process_arq7_record(
+    record: &arq::arq7::Arq7BackupRecord,
+    effective_path_parts: &[&str],
     backup_set_path: &Path,
-    file_path_in_backup: &str,
+    keyset: Option<&arq::arq7::EncryptedKeySet>,
+    is_folder: bool,
+) -> (Vec<String>, bool) {
+    let mut output_lines = Vec::new();
+    let mut found = false;
+
+    match find_node_in_record_tree(
+        &record.node,
+        effective_path_parts,
+        0,
+        backup_set_path,
+        keyset,
+    ) {
+        Ok(Some(node_cow)) => {
+            let node = node_cow.as_ref();
+            if is_folder {
+                if node.is_tree {
+                    let timestamp_str = record
+                        .creation_date
+                        .map_or_else(|| "Unknown Timestamp".to_string(), format_timestamp);
+                    output_lines.push(format!(
+                        "  - Record Timestamp: {} (Arq7, Raw: {:?}), Items: ~{}, Modified: {}",
+                        timestamp_str,
+                        record.creation_date.unwrap_or(0.0),
+                        node.contained_files_count.unwrap_or(0),
+                        format_epoch_secs(node.modification_time_sec),
+                    ));
+                    found = true;
+                }
+            } else {
+                if !node.is_tree {
+                    debug_eprintln!(
+                        "DEBUG list_file_versions: Found file node: {:?}, size: {}",
+                        node.data_blob_locs.first().map(|b| &b.blob_identifier),
+                        node.item_size
+                    );
+                    let timestamp_str = record
+                        .creation_date
+                        .map_or_else(|| "Unknown Timestamp".to_string(), format_timestamp);
+                    output_lines.push(format!(
+                        "  - Record Timestamp: {} (Arq7, Raw: {:?}), Size: {} bytes, Modified: {}",
+                        timestamp_str,
+                        record.creation_date.unwrap_or(0.0),
+                        node.item_size,
+                        format_epoch_secs(node.modification_time_sec),
+                    ));
+                    found = true;
+                }
+            }
+        }
+        Ok(None) => {}
+        Err(e) => {
+            output_lines.push(format!(
+                "DEBUG: Warning: Error processing Arq7 record {:?}: {}",
+                record.creation_date, e
+            ));
+        }
+    }
+
+    (output_lines, found)
+}
+
+fn print_versions(results: Vec<(Vec<String>, bool)>, item_name: &str) {
+    let mut found_versions = 0;
+    for (lines, found) in results {
+        for line in lines {
+            if line.starts_with("DEBUG:") {
+                debug_eprintln!("{}", line.trim_start_matches("DEBUG: ").trim());
+            } else {
+                println!("{}", line);
+            }
+        }
+        if found {
+            found_versions += 1;
+        }
+    }
+
+    if found_versions == 0 {
+        println!("No versions found for this {}.", item_name);
+    }
+}
+
+fn adjust_path_parts<'a>(
+    path_in_backup: &'a str,
+    path_parts: &'a [&'a str],
+    record_local_path_str: &str,
+    folder_uuid: &str,
+    backup_set: &arq::arq7::BackupSet,
+    is_folder: bool,
+) -> std::borrow::Cow<'a, [&'a str]> {
+    let mut effective_path_parts = std::borrow::Cow::Borrowed(path_parts);
+
+    if is_folder && (path_in_backup == "/" || path_in_backup.is_empty()) {
+        return std::borrow::Cow::Borrowed(&[]);
+    }
+
+    if !record_local_path_str.is_empty() && path_in_backup.starts_with(record_local_path_str) {
+        let relative_path = path_in_backup
+            .strip_prefix(record_local_path_str)
+            .unwrap_or(path_in_backup);
+        let relative_path_trimmed = relative_path.trim_start_matches('/');
+        let mut temp_parts: Vec<&str> = relative_path_trimmed.split('/').filter(|s| !s.is_empty()).collect();
+
+        if is_folder && relative_path_trimmed.is_empty() && !relative_path.is_empty() && path_in_backup != "/" {
+            temp_parts = Vec::new();
+        } else if !is_folder && temp_parts.is_empty() && !relative_path_trimmed.is_empty() {
+            temp_parts = vec![relative_path_trimmed];
+        }
+        effective_path_parts = std::borrow::Cow::Owned(temp_parts);
+    } else if record_local_path_str.is_empty() {
+        if let Some(bf_config) = backup_set.backup_folder_configs.get(folder_uuid) {
+            if path_in_backup.starts_with(&bf_config.local_path) {
+                let relative_path = path_in_backup.strip_prefix(&bf_config.local_path).unwrap_or(path_in_backup);
+                let relative_path_trimmed = relative_path.trim_start_matches('/');
+                let mut temp_parts: Vec<&str> = relative_path_trimmed.split('/').filter(|s| !s.is_empty()).collect();
+                if is_folder && relative_path_trimmed.is_empty() && !relative_path.is_empty() && path_in_backup != "/" {
+                    temp_parts = Vec::new();
+                } else if !is_folder && temp_parts.is_empty() && !relative_path_trimmed.is_empty() {
+                    temp_parts = vec![relative_path_trimmed];
+                }
+                effective_path_parts = std::borrow::Cow::Owned(temp_parts);
+            }
+        }
+    }
+    effective_path_parts
+}
+
+fn list_versions_internal(
+    backup_set_path: &Path,
+    path_in_backup: &str,
+    is_folder: bool,
 ) -> Result<()> {
     let backup_set = load_backup_set(backup_set_path)?;
     let keyset = backup_set.encryption_keyset();
-    println!("Versions for file: {}", file_path_in_backup);
-    println!("------------------------------------");
+    let type_str = if is_folder { "folder" } else { "file" };
+    println!("Versions for {}: {}", type_str, path_in_backup);
+    if is_folder {
+        println!("--------------------------------------");
+    } else {
+        println!("------------------------------------");
+    }
 
-    let path_parts: Vec<&str> = file_path_in_backup
+    let path_parts: Vec<&str> = path_in_backup
         .split('/')
         .filter(|s| !s.is_empty())
         .collect();
-    if path_parts.is_empty() {
+
+    if !is_folder && path_parts.is_empty() {
         return Err(Error::Generic("File path cannot be empty".to_string()));
     }
 
     let mut found_versions = 0;
 
-    for (folder_uuid, records_vec) in &backup_set.backup_records {
-        for gen_record in records_vec {
+    let results: Vec<_> = backup_set
+        .backup_records
+        .par_iter()
+        .flat_map(|(uuid, vec)| vec.par_iter().map(move |rec| (uuid, rec)))
+        .map(|(folder_uuid, gen_record)| {
+            let mut output_lines: Vec<String> = Vec::new();
+            let mut found = false;
             match gen_record {
                 arq::arq7::GenericBackupRecord::Arq7(record) => {
                     let record_local_path_str = record.local_path.as_deref().unwrap_or("");
-                    let mut effective_path_parts = path_parts.clone();
 
-                    // Path adjustment logic (remains largely the same, uses record.local_path)
-                    if !record_local_path_str.is_empty()
-                        && file_path_in_backup.starts_with(record_local_path_str)
-                    {
-                        let relative_file_path = file_path_in_backup
-                            .strip_prefix(record_local_path_str)
-                            .unwrap_or(file_path_in_backup);
-                        let relative_file_path_trimmed = relative_file_path.trim_start_matches('/');
-                        effective_path_parts = relative_file_path_trimmed
-                            .split('/')
-                            .filter(|s| !s.is_empty())
-                            .collect();
-                        if effective_path_parts.is_empty() && !relative_file_path_trimmed.is_empty()
-                        {
-                            effective_path_parts = vec![relative_file_path_trimmed];
-                        }
-                    } else if record_local_path_str.is_empty()
-                        && backup_set.backup_folder_configs.get(folder_uuid).is_some()
-                    {
-                        if let Some(bf_config) = backup_set.backup_folder_configs.get(folder_uuid) {
-                            if file_path_in_backup.starts_with(&bf_config.local_path) {
-                                let relative_file_path = file_path_in_backup
-                                    .strip_prefix(&bf_config.local_path)
-                                    .unwrap_or(file_path_in_backup);
-                                let relative_file_path_trimmed =
-                                    relative_file_path.trim_start_matches('/');
-                                effective_path_parts = relative_file_path_trimmed
-                                    .split('/')
-                                    .filter(|s| !s.is_empty())
-                                    .collect();
-                                if effective_path_parts.is_empty()
-                                    && !relative_file_path_trimmed.is_empty()
-                                {
-                                    effective_path_parts = vec![relative_file_path_trimmed];
-                                }
-                            }
-                        }
+                    if is_folder {
+                        debug_eprintln!(
+                            "DEBUG list_folder_versions: Folder: '{}', Record LocalPath: '{}'",
+                            path_in_backup,
+                            record_local_path_str
+                        );
                     }
 
-                    if effective_path_parts.is_empty() {
-                        continue;
+                    let effective_path_parts = adjust_path_parts(
+                        path_in_backup,
+                        &path_parts,
+                        record_local_path_str,
+                        folder_uuid,
+                        &backup_set,
+                        is_folder,
+                    );
+
+                    if !is_folder && effective_path_parts.is_empty() {
+                        return (output_lines, found);
                     }
 
                     match find_node_in_record_tree(
@@ -427,32 +637,45 @@ pub fn list_file_versions(
                         backup_set_path,
                         keyset,
                     ) {
-                        Ok(Some(node)) if !node.is_tree => {
-                            debug_eprintln!(
-                                "DEBUG list_file_versions: Found file node: {:?}, size: {}",
-                                node.data_blob_locs.first().map(|b| &b.blob_identifier),
-                                node.item_size
-                            );
+                        Ok(Some(node_cow)) if node_cow.is_tree == is_folder => {
+                            let node = node_cow.as_ref();
+                            if !is_folder {
+                                debug_eprintln!(
+                                    "DEBUG list_file_versions: Found file node: {:?}, size: {}",
+                                    node.data_blob_locs.first().map(|b| &b.blob_identifier),
+                                    node.item_size
+                                );
+                            }
                             let timestamp_str = record
                                 .creation_date
                                 .map_or_else(|| "Unknown Timestamp".to_string(), format_timestamp);
-                            println!(
-                                "  - Record Timestamp: {} (Arq7, Raw: {:?}), Size: {} bytes, Modified: {}",
-                                timestamp_str,
-                                record.creation_date.unwrap_or(0.0),
-                                node.item_size,
-                                format_epoch_secs(node.modification_time_sec),
-                            );
-                            found_versions += 1;
+                            if is_folder {
+                                output_lines.push(format!(
+                                    "  - Record Timestamp: {} (Arq7, Raw: {:?}), Items: ~{}, Modified: {}",
+                                    timestamp_str,
+                                    record.creation_date.unwrap_or(0.0),
+                                    node.contained_files_count.unwrap_or(0),
+                                    format_epoch_secs(node.modification_time_sec),
+                                ));
+                            } else {
+                                output_lines.push(format!(
+                                    "  - Record Timestamp: {} (Arq7, Raw: {:?}), Size: {} bytes, Modified: {}",
+                                    timestamp_str,
+                                    record.creation_date.unwrap_or(0.0),
+                                    node.item_size,
+                                    format_epoch_secs(node.modification_time_sec),
+                                ));
+                            }
+                            found = true;
                         }
-                        Ok(Some(_node)) => {} // Found a directory when expecting a file
-                        Ok(None) => {}        // Path not found in this record
+                        Ok(Some(_node_cow)) => {}
+                        Ok(None) => {}
                         Err(e) => {
-                            debug_eprintln!(
-                                "Warning: Error processing Arq7 record {:?}: {}",
+                            output_lines.push(format!(
+                                "DEBUG: Warning: Error processing Arq7 record {:?}: {}",
                                 record.creation_date,
                                 e
-                            );
+                            ));
                         }
                     }
                 }
@@ -460,148 +683,52 @@ pub fn list_file_versions(
                     let timestamp_str = record
                         .creation_date
                         .map_or_else(|| "Unknown Timestamp".to_string(), format_timestamp);
-                    println!(
-                        "  - Record Timestamp: {} (Arq5, Raw: {:?})",
+                    let info_not_supported = if is_folder {
+                        "detailed folder version info not supported"
+                    } else {
+                        "detailed file version info not supported"
+                    };
+                    output_lines.push(format!(
+                        "  - Record Timestamp: {} (Arq5, Raw: {:?})\n    (Arq5 record - {})",
                         timestamp_str,
-                        record.creation_date.unwrap_or(0.0)
-                    );
-                    println!("    (Arq5 record - detailed file version info not supported)");
-                    found_versions += 1;
+                        record.creation_date.unwrap_or(0.0),
+                        info_not_supported
+                    ));
+                    found = true;
                 }
             }
+        (output_lines, found)
+    }).collect();
+
+    for (lines, found) in results {
+        for line in lines {
+            if line.starts_with("DEBUG:") {
+                debug_eprintln!("{}", line.trim_start_matches("DEBUG: ").trim());
+            } else {
+                println!("{}", line);
+            }
+        }
+        if found {
+            found_versions += 1;
         }
     }
 
     if found_versions == 0 {
-        println!("No versions found for this file."); // Reverted to expect "file"
+        if is_folder {
+            println!("No versions found for this folder.");
+        } else {
+            println!("No versions found for this file."); // Reverted to expect "file"
+        }
     }
     Ok(())
 }
 
-pub fn list_folder_versions(
-    backup_set_path: &Path,
-    folder_path_in_backup: &str,
-) -> Result<()> {
-    let backup_set = load_backup_set(backup_set_path)?;
-    let keyset = backup_set.encryption_keyset();
-    println!("Versions for folder: {}", folder_path_in_backup);
-    println!("--------------------------------------");
+pub fn list_file_versions(backup_set_path: &Path, file_path_in_backup: &str) -> Result<()> {
+    list_versions_internal(backup_set_path, file_path_in_backup, false)
+}
 
-    let path_parts: Vec<&str> = folder_path_in_backup
-        .split('/')
-        .filter(|s| !s.is_empty())
-        .collect();
-    let mut found_versions = 0;
-
-    for (folder_uuid, records_vec) in &backup_set.backup_records {
-        for gen_record in records_vec {
-            match gen_record {
-                arq::arq7::GenericBackupRecord::Arq7(record) => {
-                    let record_local_path_str = record.local_path.as_deref().unwrap_or("");
-                    let mut effective_path_parts = path_parts.clone();
-
-                    debug_eprintln!(
-                        "DEBUG list_folder_versions: Folder: '{}', Record LocalPath: '{}'",
-                        folder_path_in_backup,
-                        record_local_path_str
-                    );
-
-                    // Path adjustment logic
-                    if folder_path_in_backup == "/" || folder_path_in_backup.is_empty() {
-                        effective_path_parts = Vec::new();
-                    } else if !record_local_path_str.is_empty()
-                        && folder_path_in_backup.starts_with(record_local_path_str)
-                    {
-                        let relative_folder_path = folder_path_in_backup
-                            .strip_prefix(record_local_path_str)
-                            .unwrap_or(folder_path_in_backup);
-                        let relative_folder_path_trimmed =
-                            relative_folder_path.trim_start_matches('/');
-                        effective_path_parts = relative_folder_path_trimmed
-                            .split('/')
-                            .filter(|s| !s.is_empty())
-                            .collect();
-                        if relative_folder_path_trimmed.is_empty()
-                            && !relative_folder_path.is_empty()
-                            && folder_path_in_backup != "/"
-                        {
-                            effective_path_parts = Vec::new();
-                        }
-                    } else if record_local_path_str.is_empty()
-                        && backup_set.backup_folder_configs.get(folder_uuid).is_some()
-                    {
-                        if let Some(bf_config) = backup_set.backup_folder_configs.get(folder_uuid) {
-                            if folder_path_in_backup.starts_with(&bf_config.local_path) {
-                                let relative_folder_path = folder_path_in_backup
-                                    .strip_prefix(&bf_config.local_path)
-                                    .unwrap_or(folder_path_in_backup);
-                                let relative_folder_path_trimmed =
-                                    relative_folder_path.trim_start_matches('/');
-                                effective_path_parts = relative_folder_path_trimmed
-                                    .split('/')
-                                    .filter(|s| !s.is_empty())
-                                    .collect();
-                                if relative_folder_path_trimmed.is_empty()
-                                    && !relative_folder_path.is_empty()
-                                    && folder_path_in_backup != "/"
-                                {
-                                    effective_path_parts = Vec::new();
-                                }
-                            }
-                        }
-                    }
-                    // End of path adjustment logic
-
-                    match find_node_in_record_tree(
-                        &record.node,
-                        &effective_path_parts,
-                        0,
-                        backup_set_path,
-                        keyset,
-                    ) {
-                        Ok(Some(node)) if node.is_tree => {
-                            let timestamp_str = record
-                                .creation_date
-                                .map_or_else(|| "Unknown Timestamp".to_string(), format_timestamp);
-                            println!(
-                                "  - Record Timestamp: {} (Arq7, Raw: {:?}), Items: ~{}, Modified: {}",
-                                timestamp_str,
-                                record.creation_date.unwrap_or(0.0),
-                                node.contained_files_count.unwrap_or(0),
-                                format_epoch_secs(node.modification_time_sec),
-                            );
-                            found_versions += 1;
-                        }
-                        Ok(Some(_node)) => {}
-                        Ok(None) => {}
-                        Err(e) => {
-                            debug_eprintln!(
-                                "Warning: Error processing Arq7 record {:?}: {}",
-                                record.creation_date,
-                                e
-                            );
-                        }
-                    }
-                }
-                arq::arq7::GenericBackupRecord::Arq5(record) => {
-                    let timestamp_str = record
-                        .creation_date
-                        .map_or_else(|| "Unknown Timestamp".to_string(), format_timestamp);
-                    println!(
-                        "  - Record Timestamp: {} (Arq5, Raw: {:?})",
-                        timestamp_str,
-                        record.creation_date.unwrap_or(0.0)
-                    );
-                    println!("    (Arq5 record - detailed folder version info not supported)");
-                    found_versions += 1;
-                }
-            }
-        }
-    }
-    if found_versions == 0 {
-        println!("No versions found for this folder.");
-    }
-    Ok(())
+pub fn list_folder_versions(backup_set_path: &Path, folder_path_in_backup: &str) -> Result<()> {
+    list_versions_internal(backup_set_path, folder_path_in_backup, true)
 }
 
 pub fn restore_full_record(
@@ -638,13 +765,16 @@ pub fn restore_full_record(
             );
 
             let mut stats = ExtractionStats::default();
-            extract_node_to_destination_recursive(
-                &arq7_record.node, // Access node from arq7_record
+            let mut ctx = ExtractionContext {
                 backup_set_path,
                 keyset,
+                stats: &mut stats,
+            };
+            extract_node_to_destination_recursive(
+                &arq7_record.node, // Access node from arq7_record
                 &final_destination,
                 "",
-                &mut stats,
+                &mut ctx,
             )?;
             println!(
                 "Successfully restored record. Files: {}, Dirs: {}, Total Size: {} bytes. Errors: {}",
@@ -691,19 +821,20 @@ pub fn restore_specific_file_from_record(
     }
 
     let record_local_path_str = arq7_record.local_path.as_deref().unwrap_or("");
-    let mut effective_path_parts = path_parts.clone();
+    let mut effective_path_parts = std::borrow::Cow::Borrowed(path_parts.as_slice());
     if !record_local_path_str.is_empty() && file_path_in_backup.starts_with(record_local_path_str) {
         let relative_file_path = file_path_in_backup
             .strip_prefix(record_local_path_str)
             .unwrap_or(file_path_in_backup);
         let relative_file_path_trimmed = relative_file_path.trim_start_matches('/');
-        effective_path_parts = relative_file_path_trimmed
+        let mut temp_parts: Vec<&str> = relative_file_path_trimmed
             .split('/')
             .filter(|s| !s.is_empty())
             .collect();
-        if effective_path_parts.is_empty() && !relative_file_path_trimmed.is_empty() {
-            effective_path_parts = vec![relative_file_path_trimmed];
+        if temp_parts.is_empty() && !relative_file_path_trimmed.is_empty() {
+            temp_parts = vec![relative_file_path_trimmed];
         }
+        effective_path_parts = std::borrow::Cow::Owned(temp_parts);
     } else if record_local_path_str.is_empty() {
         if let Some(bf_config) = backup_set
             .backup_folder_configs
@@ -714,13 +845,14 @@ pub fn restore_specific_file_from_record(
                     .strip_prefix(&bf_config.local_path)
                     .unwrap_or(file_path_in_backup);
                 let relative_file_path_trimmed = relative_file_path.trim_start_matches('/');
-                effective_path_parts = relative_file_path_trimmed
+                let mut temp_parts: Vec<&str> = relative_file_path_trimmed
                     .split('/')
                     .filter(|s| !s.is_empty())
                     .collect();
-                if effective_path_parts.is_empty() && !relative_file_path_trimmed.is_empty() {
-                    effective_path_parts = vec![relative_file_path_trimmed];
+                if temp_parts.is_empty() && !relative_file_path_trimmed.is_empty() {
+                    temp_parts = vec![relative_file_path_trimmed];
                 }
+                effective_path_parts = std::borrow::Cow::Owned(temp_parts);
             }
         }
     }
@@ -737,8 +869,7 @@ pub fn restore_specific_file_from_record(
         0,
         backup_set_path,
         keyset,
-    )?
-    .ok_or_else(|| {
+    )?.map(|c| c.into_owned()).ok_or_else(|| {
         Error::NotFound(format!(
             "File '{}' not found in record '{}'.",
             file_path_in_backup, record_identifier
@@ -801,10 +932,10 @@ pub fn restore_specific_folder_from_record(
         .split('/')
         .filter(|s| !s.is_empty())
         .collect();
-    let mut effective_path_parts = path_parts.clone();
+    let mut effective_path_parts = std::borrow::Cow::Borrowed(path_parts.as_slice());
     let record_local_path_str = arq7_record.local_path.as_deref().unwrap_or("");
     if folder_path_in_backup == "/" || folder_path_in_backup.is_empty() {
-        effective_path_parts = Vec::new();
+        effective_path_parts = std::borrow::Cow::Borrowed(&[]);
     } else if !record_local_path_str.is_empty()
         && folder_path_in_backup.starts_with(record_local_path_str)
     {
@@ -812,7 +943,7 @@ pub fn restore_specific_folder_from_record(
             .strip_prefix(record_local_path_str)
             .unwrap_or(folder_path_in_backup);
         let trimmed_relative_path = relative_path.trim_start_matches('/');
-        effective_path_parts = trimmed_relative_path
+        let mut temp_parts: Vec<&str> = trimmed_relative_path
             .split('/')
             .filter(|s| !s.is_empty())
             .collect();
@@ -820,8 +951,9 @@ pub fn restore_specific_folder_from_record(
             && !relative_path.is_empty()
             && folder_path_in_backup != "/"
         {
-            effective_path_parts = Vec::new();
+            temp_parts = Vec::new();
         }
+        effective_path_parts = std::borrow::Cow::Owned(temp_parts);
     } else if record_local_path_str.is_empty() {
         if let Some(bf_config) = backup_set
             .backup_folder_configs
@@ -832,7 +964,7 @@ pub fn restore_specific_folder_from_record(
                     .strip_prefix(&bf_config.local_path)
                     .unwrap_or(folder_path_in_backup);
                 let trimmed_relative_path = relative_path.trim_start_matches('/');
-                effective_path_parts = trimmed_relative_path
+                let mut temp_parts: Vec<&str> = trimmed_relative_path
                     .split('/')
                     .filter(|s| !s.is_empty())
                     .collect();
@@ -840,8 +972,9 @@ pub fn restore_specific_folder_from_record(
                     && !relative_path.is_empty()
                     && folder_path_in_backup != "/"
                 {
-                    effective_path_parts = Vec::new();
+                    temp_parts = Vec::new();
                 }
+                effective_path_parts = std::borrow::Cow::Owned(temp_parts);
             }
         }
     }
@@ -852,8 +985,7 @@ pub fn restore_specific_folder_from_record(
         0,
         backup_set_path,
         keyset,
-    )?
-    .ok_or_else(|| {
+    )?.map(|c| c.into_owned()).ok_or_else(|| {
         Error::NotFound(format!(
             "Folder '{}' not found in record '{}'.",
             folder_path_in_backup, record_identifier
@@ -891,13 +1023,16 @@ pub fn restore_specific_folder_from_record(
     );
 
     let mut stats = ExtractionStats::default();
-    extract_node_to_destination_recursive(
-        &target_node,
+    let mut ctx = ExtractionContext {
         backup_set_path,
         keyset,
+        stats: &mut stats,
+    };
+    extract_node_to_destination_recursive(
+        &target_node,
         &final_destination_for_folder_content,
         "",
-        &mut stats,
+        &mut ctx,
     )?;
 
     println!(
@@ -941,134 +1076,21 @@ pub fn restore_all_folder_versions(
         .split('/')
         .filter(|s| !s.is_empty())
         .collect();
-    let mut versions_restored_count = 0;
 
+    let mut records_to_process = Vec::new();
+    let mut ts_idx = 0;
     for (folder_uuid, gen_records_vec) in &backup_set.backup_records {
         for gen_record in gen_records_vec {
             match gen_record {
                 arq::arq7::GenericBackupRecord::Arq7(arq7_record) => {
-                    // Handle Arq7 variant
-
                     let timestamp_str = arq7_record.creation_date.map_or_else(
-                        || format!("unknown_ts_{}", versions_restored_count),
+                        || format!("unknown_ts_{}", ts_idx),
                         format_timestamp_rfc3339,
                     );
-
-                    debug_eprintln!(
-                        "DEBUG: restore_all_folder_versions: Arq7 record timestamp: {}",
-                        timestamp_str
-                    );
-                    let record_local_path_str = arq7_record.local_path.as_deref().unwrap_or("");
-                    let mut effective_path_parts = path_parts.clone();
-
-                    if folder_path_in_backup == "/" || folder_path_in_backup.is_empty() {
-                        effective_path_parts = Vec::new();
-                    } else if !record_local_path_str.is_empty()
-                        && folder_path_in_backup.starts_with(record_local_path_str)
-                    {
-                        let relative_path = folder_path_in_backup
-                            .strip_prefix(record_local_path_str)
-                            .unwrap_or(folder_path_in_backup);
-                        let trimmed_relative_path = relative_path.trim_start_matches('/');
-                        effective_path_parts = trimmed_relative_path
-                            .split('/')
-                            .filter(|s| !s.is_empty())
-                            .collect();
-                        if trimmed_relative_path.is_empty()
-                            && !relative_path.is_empty()
-                            && folder_path_in_backup != "/"
-                        {
-                            effective_path_parts = Vec::new();
-                        }
-                    } else if record_local_path_str.is_empty() {
-                        if let Some(bf_config) = backup_set.backup_folder_configs.get(folder_uuid) {
-                            if folder_path_in_backup.starts_with(&bf_config.local_path) {
-                                let relative_path = folder_path_in_backup
-                                    .strip_prefix(&bf_config.local_path)
-                                    .unwrap_or(folder_path_in_backup);
-                                let trimmed_relative_path = relative_path.trim_start_matches('/');
-                                effective_path_parts = trimmed_relative_path
-                                    .split('/')
-                                    .filter(|s| !s.is_empty())
-                                    .collect();
-                                if trimmed_relative_path.is_empty()
-                                    && !relative_path.is_empty()
-                                    && folder_path_in_backup != "/"
-                                {
-                                    effective_path_parts = Vec::new();
-                                }
-                            }
-                        }
-                    }
-
-                    if let Ok(Some(target_node)) = find_node_in_record_tree(
-                        &arq7_record.node,
-                        &effective_path_parts,
-                        0,
-                        backup_set_path,
-                        keyset,
-                    ) {
-                        if target_node.is_tree {
-                            let timestamp_str = arq7_record.creation_date.map_or_else(
-                                || format!("unknown_ts_{}", versions_restored_count),
-                                format_timestamp_rfc3339,
-                            );
-
-                            let version_dest_dir_name = format!("{}", timestamp_str);
-                            let version_destination = destination_root.join(version_dest_dir_name);
-
-                            let content_dest_dir_name =
-                                effective_path_parts.last().map_or("root_content", |n| *n);
-                            let final_content_destination =
-                                version_destination.join(content_dest_dir_name);
-
-                            if !final_content_destination.exists() {
-                                std::fs::create_dir_all(&final_content_destination)?;
-                            }
-
-                            println!(
-                                "  Restoring version from record (Timestamp: {}) to {}...",
-                                timestamp_str,
-                                final_content_destination.display()
-                            );
-                            let mut stats = ExtractionStats::default();
-                            match extract_node_to_destination_recursive(
-                                &target_node,
-                                backup_set_path,
-                                keyset,
-                                &final_content_destination,
-                                "",
-                                &mut stats,
-                            ) {
-                                Ok(_) => {
-                                    println!(
-                                        "    Successfully restored version. Files: {}, Dirs: {}, Size: {} bytes. Errors: {}",
-                                        stats.files_restored,
-                                        stats.dirs_created,
-                                        stats.bytes_restored,
-                                        stats.errors
-                                    );
-                                    if stats.errors > 0 {
-                                        debug_eprintln!(
-                                            "    Warning: {} errors occurred during this version's restoration.",
-                                            stats.errors
-                                        );
-                                    }
-                                    versions_restored_count += 1;
-                                }
-                                Err(e) => {
-                                    debug_eprintln!(
-                                        "    Error restoring version from record {}: {}",
-                                        timestamp_str,
-                                        e
-                                    );
-                                }
-                            }
-                        }
-                    }
+                    ts_idx += 1;
+                    records_to_process.push((folder_uuid, arq7_record, timestamp_str));
                 }
                 arq::arq7::GenericBackupRecord::Arq5(_arq5_record) => {
-                    // Arq5 records lack the direct node structure needed for folder restoration.
                     debug_eprintln!(
                         "DEBUG restore_all_folder_versions: Skipping Arq5 record for folder version restoration."
                     );
@@ -1077,7 +1099,50 @@ pub fn restore_all_folder_versions(
         }
     }
 
-    if versions_restored_count == 0 {
+    let versions_restored_count = std::sync::atomic::AtomicUsize::new(0);
+
+    records_to_process.into_par_iter().try_for_each(
+        |(folder_uuid, arq7_record, timestamp_str)| -> Result<()> {
+            debug_eprintln!(
+                "DEBUG: restore_all_folder_versions: Arq7 record timestamp: {}",
+                timestamp_str
+            );
+            let record_local_path_str = arq7_record.local_path.as_deref().unwrap_or("");
+            let bf_config_local_path = backup_set
+                .backup_folder_configs
+                .get(folder_uuid)
+                .map(|bf| bf.local_path.as_str());
+
+            let effective_path_parts = resolve_effective_path_parts(
+                folder_path_in_backup,
+                &path_parts,
+                record_local_path_str,
+                bf_config_local_path,
+            );
+
+            if let Ok(Some(target_node_cow)) = find_node_in_record_tree(
+                &arq7_record.node,
+                &effective_path_parts,
+                0,
+                backup_set_path,
+                keyset,
+            ) {
+                restore_version_from_record(
+                    target_node_cow.as_ref(),
+                    &effective_path_parts,
+                    &timestamp_str,
+                    destination_root,
+                    backup_set_path,
+                    keyset,
+                    &versions_restored_count,
+                )?;
+            }
+            Ok(())
+        },
+    )?;
+
+    let final_count = versions_restored_count.load(std::sync::atomic::Ordering::Relaxed);
+    if final_count == 0 {
         println!(
             "No versions of folder '{}' found to restore.",
             folder_path_in_backup
@@ -1085,14 +1150,127 @@ pub fn restore_all_folder_versions(
     } else {
         println!(
             "Finished restoring {} versions of folder '{}'.",
-            versions_restored_count, folder_path_in_backup
+            final_count, folder_path_in_backup
         );
     }
 
     Ok(())
 }
 
-// --- Helper for recursive extraction (based on arq7_test.rs logic) ---
+fn resolve_effective_path_parts<'a>(
+    folder_path_in_backup: &'a str,
+    path_parts: &'a [&'a str],
+    record_local_path_str: &str,
+    bf_config_local_path: Option<&str>,
+) -> std::borrow::Cow<'a, [&'a str]> {
+    let mut effective_path_parts = std::borrow::Cow::Borrowed(path_parts);
+
+    if folder_path_in_backup == "/" || folder_path_in_backup.is_empty() {
+        effective_path_parts = std::borrow::Cow::Borrowed(&[][..]);
+    } else if !record_local_path_str.is_empty()
+        && folder_path_in_backup.starts_with(record_local_path_str)
+    {
+        let relative_path = folder_path_in_backup
+            .strip_prefix(record_local_path_str)
+            .unwrap_or(folder_path_in_backup);
+        let trimmed_relative_path = relative_path.trim_start_matches('/');
+        let mut temp_parts: Vec<&str> = trimmed_relative_path
+            .split('/')
+            .filter(|s| !s.is_empty())
+            .collect();
+        if trimmed_relative_path.is_empty()
+            && !relative_path.is_empty()
+            && folder_path_in_backup != "/"
+        {
+            temp_parts = Vec::new();
+        }
+        effective_path_parts = std::borrow::Cow::Owned(temp_parts);
+    } else if record_local_path_str.is_empty() {
+        if let Some(local_path) = bf_config_local_path {
+            if folder_path_in_backup.starts_with(local_path) {
+                let relative_path = folder_path_in_backup
+                    .strip_prefix(local_path)
+                    .unwrap_or(folder_path_in_backup);
+                let trimmed_relative_path = relative_path.trim_start_matches('/');
+                let mut temp_parts: Vec<&str> = trimmed_relative_path
+                    .split('/')
+                    .filter(|s| !s.is_empty())
+                    .collect();
+                if trimmed_relative_path.is_empty()
+                    && !relative_path.is_empty()
+                    && folder_path_in_backup != "/"
+                {
+                    temp_parts = Vec::new();
+                }
+                effective_path_parts = std::borrow::Cow::Owned(temp_parts);
+            }
+        }
+    }
+
+    effective_path_parts
+}
+
+fn restore_version_from_record(
+    target_node: &Node,
+    effective_path_parts: &[&str],
+    timestamp_str: &str,
+    destination_root: &Path,
+    backup_set_path: &Path,
+    keyset: Option<&EncryptedKeySet>,
+    versions_restored_count: &std::sync::atomic::AtomicUsize,
+) -> Result<()> {
+    if target_node.is_tree {
+        let version_dest_dir_name = format!("{}", timestamp_str);
+        let version_destination = destination_root.join(version_dest_dir_name);
+
+        let content_dest_dir_name = effective_path_parts.last().map_or("root_content", |n| *n);
+        let final_content_destination = version_destination.join(content_dest_dir_name);
+
+        if !final_content_destination.exists() {
+            std::fs::create_dir_all(&final_content_destination)?;
+        }
+
+        println!(
+            "  Restoring version from record (Timestamp: {}) to {}...",
+            timestamp_str,
+            final_content_destination.display()
+        );
+        let mut stats = ExtractionStats::default();
+        let mut ctx = ExtractionContext {
+            backup_set_path,
+            keyset,
+            stats: &mut stats,
+        };
+        match extract_node_to_destination_recursive(
+            target_node,
+            &final_content_destination,
+            "",
+            &mut ctx,
+        ) {
+            Ok(_) => {
+                println!(
+                    "    Successfully restored version. Files: {}, Dirs: {}, Size: {} bytes. Errors: {}",
+                    stats.files_restored, stats.dirs_created, stats.bytes_restored, stats.errors
+                );
+                if stats.errors > 0 {
+                    debug_eprintln!(
+                        "    Warning: {} errors occurred during this version's restoration.",
+                        stats.errors
+                    );
+                }
+                versions_restored_count.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+            }
+            Err(e) => {
+                debug_eprintln!(
+                    "    Error restoring version from record {}: {}",
+                    timestamp_str,
+                    e
+                );
+            }
+        }
+    }
+    Ok(())
+}
 #[derive(Debug, Default, Clone, Copy)]
 struct ExtractionStats {
     files_restored: usize,
@@ -1101,39 +1279,44 @@ struct ExtractionStats {
     errors: usize,
 }
 
+struct ExtractionContext<'a> {
+    backup_set_path: &'a Path,
+    keyset: Option<&'a EncryptedKeySet>,
+    stats: &'a mut ExtractionStats,
+}
+
 fn extract_node_to_destination_recursive(
     node: &Node,
-    backup_set_path: &Path,
-    keyset: Option<&EncryptedKeySet>,
     current_materialized_path: &Path,
     relative_path_for_node: &str,
-    stats: &mut ExtractionStats,
+    ctx: &mut ExtractionContext<'_>,
 ) -> Result<()> {
     let node_output_path = if relative_path_for_node.is_empty() {
         current_materialized_path.to_path_buf()
     } else {
-        current_materialized_path.join(relative_path_for_node)
+        let safe_name = std::path::Path::new(relative_path_for_node)
+            .file_name()
+            .unwrap_or_else(|| std::ffi::OsStr::new("invalid_node_name"));
+        current_materialized_path.join(safe_name)
     };
 
     if node.is_tree {
         if !node_output_path.exists() {
             std::fs::create_dir_all(&node_output_path).map_err(Error::IoError)?;
-            stats.dirs_created += 1;
+            ctx.stats.dirs_created += 1;
         }
 
-        match node.load_tree_with_encryption(backup_set_path, keyset) {
+        match node.load_tree_with_encryption(ctx.backup_set_path, ctx.keyset) {
             Ok(Some(tree)) => {
                 for (child_name, child_node) in &tree.nodes {
                     if let Err(e) = extract_node_to_destination_recursive(
                         child_node,
-                        backup_set_path,
-                        keyset,
                         &node_output_path,
                         child_name,
-                        stats,
+                        ctx,
                     ) {
                         debug_eprintln!("Error processing child '{}': {}", child_name, e);
-                        stats.errors += 1;
+                        ctx.stats.errors += 1;
                     }
                 }
             }
@@ -1149,7 +1332,7 @@ fn extract_node_to_destination_recursive(
                     node_output_path.display(),
                     e
                 );
-                stats.errors += 1;
+                ctx.stats.errors += 1;
             }
         }
     } else {
@@ -1159,11 +1342,11 @@ fn extract_node_to_destination_recursive(
             }
         }
 
-        match node.reconstruct_file_data_with_encryption(backup_set_path, keyset) {
+        match node.reconstruct_file_data_with_encryption(ctx.backup_set_path, ctx.keyset) {
             Ok(file_data) => {
                 std::fs::write(&node_output_path, &file_data).map_err(Error::IoError)?;
-                stats.files_restored += 1;
-                stats.bytes_restored += file_data.len() as u64;
+                ctx.stats.files_restored += 1;
+                ctx.stats.bytes_restored += file_data.len() as u64;
 
                 if node.modification_time_sec > 0 {
                     use std::time::UNIX_EPOCH;
@@ -1183,7 +1366,7 @@ fn extract_node_to_destination_recursive(
                     node_output_path.display(),
                     e
                 );
-                stats.errors += 1;
+                ctx.stats.errors += 1;
             }
         }
     }
