@@ -59,9 +59,9 @@ mod tests {
     use super::*;
     use crate::object_encryption::calculate_hmacsha256;
     use aes::cipher::{block_padding::Pkcs7, KeyIvInit};
-    use cipher::BlockModeEncrypt;
     use aes::Aes256;
     use cbc::Encryptor;
+    use cipher::BlockModeEncrypt;
     use serde::Deserialize;
     use std::io::Write;
     use std::time::{SystemTime, UNIX_EPOCH};
