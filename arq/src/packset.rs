@@ -403,7 +403,7 @@ impl PackIndexObject {
         let offset = reader.read_u64::<NetworkEndian>()?;
         let data_len = reader.read_u64::<NetworkEndian>()?;
         let sha1 = reader.read_bytes(20)?;
-        let _padding = reader.read_bytes(4)?;
+        reader.read_bytes(4)?; // unused padding
 
         Ok(PackIndexObject {
             offset: offset as usize,
