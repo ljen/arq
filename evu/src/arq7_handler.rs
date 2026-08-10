@@ -545,6 +545,7 @@ fn adjust_path_parts<'a>(
         return std::borrow::Cow::Borrowed(&[]);
     }
 
+    let mut handled = false;
     if !record_local_path_str.is_empty() && path_in_backup.starts_with(record_local_path_str) {
         let relative_path = path_in_backup
             .strip_prefix(record_local_path_str)
@@ -565,7 +566,10 @@ fn adjust_path_parts<'a>(
             temp_parts = vec![relative_path_trimmed];
         }
         effective_path_parts = std::borrow::Cow::Owned(temp_parts);
-    } else if record_local_path_str.is_empty() {
+        handled = true;
+    }
+
+    if !handled {
         if let Some(bf_config) = backup_set.backup_folder_configs.get(folder_uuid) {
             if path_in_backup.starts_with(&bf_config.local_path) {
                 let relative_path = path_in_backup
@@ -586,9 +590,22 @@ fn adjust_path_parts<'a>(
                     temp_parts = vec![relative_path_trimmed];
                 }
                 effective_path_parts = std::borrow::Cow::Owned(temp_parts);
+                handled = true;
             }
         }
     }
+
+    if !handled
+        && (!record_local_path_str.is_empty()
+            || backup_set.backup_folder_configs.get(folder_uuid).is_some())
+    {
+        if !is_folder {
+            effective_path_parts = std::borrow::Cow::Owned(Vec::new());
+        } else {
+            effective_path_parts = std::borrow::Cow::Owned(vec!["__arq_internal_no_match__"]);
+        }
+    }
+
     effective_path_parts
 }
 
@@ -841,6 +858,8 @@ pub fn restore_specific_file_from_record(
 
     let record_local_path_str = arq7_record.local_path.as_deref().unwrap_or("");
     let mut effective_path_parts = std::borrow::Cow::Borrowed(path_parts.as_slice());
+    let mut handled = false;
+
     if !record_local_path_str.is_empty() && file_path_in_backup.starts_with(record_local_path_str) {
         let relative_file_path = file_path_in_backup
             .strip_prefix(record_local_path_str)
@@ -854,7 +873,10 @@ pub fn restore_specific_file_from_record(
             temp_parts = vec![relative_file_path_trimmed];
         }
         effective_path_parts = std::borrow::Cow::Owned(temp_parts);
-    } else if record_local_path_str.is_empty() {
+        handled = true;
+    }
+
+    if !handled {
         if let Some(bf_config) = backup_set
             .backup_folder_configs
             .get(&arq7_record.backup_folder_uuid)
@@ -872,8 +894,22 @@ pub fn restore_specific_file_from_record(
                     temp_parts = vec![relative_file_path_trimmed];
                 }
                 effective_path_parts = std::borrow::Cow::Owned(temp_parts);
+                handled = true;
             }
         }
+    }
+
+    if !handled
+        && (!record_local_path_str.is_empty()
+            || backup_set
+                .backup_folder_configs
+                .get(&arq7_record.backup_folder_uuid)
+                .is_some())
+    {
+        return Err(Error::NotFound(format!(
+            "Adjusted file path is empty for '{}' relative to record's local path '{}'. Cannot restore directory root as a file.",
+            file_path_in_backup, record_local_path_str
+        )));
     }
     if effective_path_parts.is_empty() {
         return Err(Error::NotFound(format!(
@@ -955,8 +991,11 @@ pub fn restore_specific_folder_from_record(
         .collect();
     let mut effective_path_parts = std::borrow::Cow::Borrowed(path_parts.as_slice());
     let record_local_path_str = arq7_record.local_path.as_deref().unwrap_or("");
+    let mut handled = false;
+
     if folder_path_in_backup == "/" || folder_path_in_backup.is_empty() {
         effective_path_parts = std::borrow::Cow::Borrowed(&[]);
+        handled = true;
     } else if !record_local_path_str.is_empty()
         && folder_path_in_backup.starts_with(record_local_path_str)
     {
@@ -975,7 +1014,10 @@ pub fn restore_specific_folder_from_record(
             temp_parts = Vec::new();
         }
         effective_path_parts = std::borrow::Cow::Owned(temp_parts);
-    } else if record_local_path_str.is_empty() {
+        handled = true;
+    }
+
+    if !handled {
         if let Some(bf_config) = backup_set
             .backup_folder_configs
             .get(&arq7_record.backup_folder_uuid)
@@ -996,8 +1038,22 @@ pub fn restore_specific_folder_from_record(
                     temp_parts = Vec::new();
                 }
                 effective_path_parts = std::borrow::Cow::Owned(temp_parts);
+                handled = true;
             }
         }
+    }
+
+    if !handled
+        && (!record_local_path_str.is_empty()
+            || backup_set
+                .backup_folder_configs
+                .get(&arq7_record.backup_folder_uuid)
+                .is_some())
+    {
+        return Err(Error::NotFound(format!(
+            "Adjusted file path is empty for '{}' relative to record's local path '{}'. Cannot restore directory root as a file.",
+            folder_path_in_backup, record_local_path_str
+        )));
     }
 
     let target_node = find_node_in_record_tree(
@@ -1187,9 +1243,11 @@ fn resolve_effective_path_parts<'a>(
     bf_config_local_path: Option<&str>,
 ) -> std::borrow::Cow<'a, [&'a str]> {
     let mut effective_path_parts = std::borrow::Cow::Borrowed(path_parts);
+    let mut handled = false;
 
     if folder_path_in_backup == "/" || folder_path_in_backup.is_empty() {
         effective_path_parts = std::borrow::Cow::Borrowed(&[][..]);
+        handled = true;
     } else if !record_local_path_str.is_empty()
         && folder_path_in_backup.starts_with(record_local_path_str)
     {
@@ -1208,7 +1266,10 @@ fn resolve_effective_path_parts<'a>(
             temp_parts = Vec::new();
         }
         effective_path_parts = std::borrow::Cow::Owned(temp_parts);
-    } else if record_local_path_str.is_empty() {
+        handled = true;
+    }
+
+    if !handled {
         if let Some(local_path) = bf_config_local_path {
             if folder_path_in_backup.starts_with(local_path) {
                 let relative_path = folder_path_in_backup

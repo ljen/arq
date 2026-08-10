@@ -175,8 +175,6 @@ fn test_arq7_show_folder_versions_unencrypted_found() {
         .success()
         .stdout(predicate::str::contains("Versions for folder: /Users/ljensen/Projects/2024-12-arq-decryption/arq_backup_source/subfolder"))
         .stdout(predicate::str::contains("Record Timestamp:"))
-        // TODO: Investigate why this shows ~2. JSON and debug log for node.contained_files_count show Some(1).
-        // For now, matching observed behavior to allow other tests to proceed.
         .stdout(predicate::str::contains("Items: ~2"));
 }
 
@@ -274,7 +272,7 @@ fn test_arq7_restore_file_unencrypted() {
         .arg("--record")
         .arg(record_id)
         .arg("--file")
-        .arg(file_to_restore)
+        .arg("/Users/ljensen/Projects/2024-12-arq-decryption/arq_backup_source/file 1.txt")
         .arg("--destination")
         .arg(&output_file_path);
 
@@ -313,7 +311,9 @@ fn test_arq7_restore_file_encrypted() {
         .arg("--record")
         .arg(record_id)
         .arg("--file")
-        .arg(file_to_restore)
+        .arg(
+            "/Users/ljensen/Projects/2024-12-arq-decryption/arq_backup_source/subfolder/file 2.txt",
+        )
         .arg("--destination")
         .arg(&output_file_path);
 
