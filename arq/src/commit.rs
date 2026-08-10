@@ -89,7 +89,8 @@ pub struct Commit {
 
 impl Commit {
     pub fn is_commit(content: &[u8]) -> bool {
-        content.len() >= 10 && content[..10] == [67, 111, 109, 109, 105, 116, 86, 48, 49, 50] // CommitV012
+        content.len() >= 10 && content[..10] == [67, 111, 109, 109, 105, 116, 86, 48, 49, 50]
+        // CommitV012
     }
 
     pub fn new<R: ArqRead>(mut reader: R) -> Result<Commit> {
