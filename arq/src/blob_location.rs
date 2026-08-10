@@ -450,12 +450,22 @@ mod tests {
     }
 
     #[test]
-    fn test_is_valid_path() {
-        // Valid paths
-        assert!(BlobLoc::is_valid_path("/path/to/backup"));
-        assert!(BlobLoc::is_valid_path("/path/to/backup.pack"));
-        assert!(BlobLoc::is_valid_path("/backup-123_456.pack"));
-        assert!(BlobLoc::is_valid_path("/a:b(c) d")); // valid chars: ':', '(', ')', ' '
+    fn test_is_valid_path_length_limits() {
+        // Empty path is invalid
+        assert!(!BlobLoc::is_valid_path(""));
+
+        // Max allowed length (4096)
+        let exact_max_path = format!("/{}", "a".repeat(4095));
+        assert!(BlobLoc::is_valid_path(&exact_max_path));
+
+        // Beyond max allowed length (4097)
+        let long_path = format!("/{}", "a".repeat(4096));
+        assert!(!BlobLoc::is_valid_path(&long_path));
+    }
+
+    #[test]
+    fn test_is_valid_path_keywords() {
+        // Valid backup-related patterns (can be relative paths)
         assert!(BlobLoc::is_valid_path("treepacks/something"));
         assert!(BlobLoc::is_valid_path("blobpacks/something"));
         assert!(BlobLoc::is_valid_path("largeblobpacks/something"));
@@ -463,22 +473,45 @@ mod tests {
         assert!(BlobLoc::is_valid_path("blob/something"));
         assert!(BlobLoc::is_valid_path("something.pack"));
 
-        // Invalid paths
-        assert!(!BlobLoc::is_valid_path(""));
+        // Pattern mixed in an absolute path
+        assert!(BlobLoc::is_valid_path("/path/to/blobpacks/data"));
 
-        let long_path = "a".repeat(4097);
-        assert!(!BlobLoc::is_valid_path(&long_path));
-
-        // Missing leading slash and no backup pattern
+        // Missing leading slash and no backup pattern is invalid
         assert!(!BlobLoc::is_valid_path("just/a/normal/path"));
 
-        // Invalid characters
-        assert!(!BlobLoc::is_valid_path("/invalid/path\n")); // control char
+        // Exact backup pattern alone is valid
+        assert!(BlobLoc::is_valid_path("blob"));
+
+        // Checking case sensitivity (if expected to fail since code does not to_lowercase)
+        // If code expects case-sensitive matching, "Blobpacks" shouldn't pass the keyword check
+        // unless it has a leading slash. Without a leading slash:
+        assert!(!BlobLoc::is_valid_path("Blobpacks/something"));
+    }
+
+    #[test]
+    fn test_is_valid_path_characters() {
+        // Valid characters
+        assert!(BlobLoc::is_valid_path("/path/to/backup"));
+        assert!(BlobLoc::is_valid_path("/backup-123_456.pack"));
+        assert!(BlobLoc::is_valid_path("/a:b(c) d")); // valid chars: ':', '(', ')', ' ', '_', '-', '.'
+
+        // Invalid characters (forbidden chars)
         assert!(!BlobLoc::is_valid_path("/invalid/path*")); // forbidden char '*'
         assert!(!BlobLoc::is_valid_path("/invalid/path?")); // forbidden char '?'
         assert!(!BlobLoc::is_valid_path("/invalid/path<")); // forbidden char '<'
         assert!(!BlobLoc::is_valid_path("/invalid/path>")); // forbidden char '>'
         assert!(!BlobLoc::is_valid_path("/invalid/path|")); // forbidden char '|'
+        assert!(!BlobLoc::is_valid_path("/invalid\\path")); // backslash
+
+        // Control characters
+        assert!(!BlobLoc::is_valid_path("/invalid/path\n")); // newline
+        assert!(!BlobLoc::is_valid_path("/invalid/path\t")); // tab
+        assert!(!BlobLoc::is_valid_path("/invalid/path\r")); // carriage return
+        assert!(!BlobLoc::is_valid_path("/invalid/path\0")); // null byte
+
+        // Non-ASCII and Unicode (emoji)
+        assert!(!BlobLoc::is_valid_path("/invalid/path/🦀"));
+        assert!(!BlobLoc::is_valid_path("/invalid/path/résumé"));
     }
 
     #[test]
