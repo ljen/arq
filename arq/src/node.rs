@@ -328,7 +328,7 @@ impl Node {
         let mut contained_files_count = reader.read_arq_u64().ok();
         if contained_files_count.is_some_and(|count| count > 1_000_000_000) {
             reader.seek(std::io::SeekFrom::Start(size_fields_start))?;
-            let _legacy_padding = reader.read_arq_u32()?;
+            let _ = reader.read_arq_u32()?;
             item_size = reader.read_arq_u64()?;
             contained_files_count = reader.read_arq_u64().ok();
         }
@@ -505,14 +505,14 @@ impl Node {
 
         // Thumbnail and preview SHA1s (Arq5 specific, deprecated)
         if tree_version <= 18 {
-            let _thumbnail_sha1 = reader.read_arq_string()?; // unused
+            let _ = reader.read_arq_string()?; // unused
             if tree_version >= 14 {
-                let _is_thumbnail_encryption_key_stretched = reader.read_arq_bool()?;
+                let _ = reader.read_arq_bool()?;
                 // unused
             }
-            let _preview_sha1 = reader.read_arq_string()?; // unused
+            let _ = reader.read_arq_string()?; // unused
             if tree_version >= 14 {
-                let _is_preview_encryption_key_stretched = reader.read_arq_bool()?;
+                let _ = reader.read_arq_bool()?;
                 // unused
             }
         }
