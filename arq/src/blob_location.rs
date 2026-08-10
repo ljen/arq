@@ -420,7 +420,7 @@ mod tests {
         data.push(1); // is_packed
         data.extend(arq_string("/PLAN/blobpacks/AA/example.pack"));
         data.extend_from_slice(&12u64.to_be_bytes()); // offset
-        // Missing length, stretch_encryption_key, compression_type
+                                                      // Missing length, stretch_encryption_key, compression_type
         let mut cursor = Cursor::new(data);
         assert!(BlobLoc::from_binary_reader(&mut cursor).is_err());
     }
