@@ -668,8 +668,7 @@ fn list_versions_internal(
                             }
                             found = true;
                         }
-                        Ok(Some(_node_cow)) => {}
-                        Ok(None) => {}
+                        Ok(_) => {}
                         Err(e) => {
                             output_lines.push(format!(
                                 "DEBUG: Warning: Error processing Arq7 record {:?}: {}",
