@@ -101,6 +101,10 @@ macro_rules! debug_eprintln {
 
 #[cfg(test)]
 mod tests {
+    use super::*;
+    use serial_test::serial;
+    use std::fs;
+    use std::io::Read;
     use tempfile::{NamedTempFile, TempDir, tempdir};
 
     #[test]
@@ -271,6 +275,4 @@ mod tests {
         assert!(result.is_ok());
         assert_eq!(result.unwrap(), test_pass);
     }
-
-    #[test]
 }
