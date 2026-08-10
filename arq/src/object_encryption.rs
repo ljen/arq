@@ -29,13 +29,13 @@ const ENCRYPTION_V2_HEADER: [u8; 12] = [69, 78, 67, 82, 89, 80, 84, 73, 79, 78, 
 pub fn calculate_hmacsha256(secret: &[u8], message: &[u8]) -> Result<Vec<u8>> {
     let mut mac = Hmac::<Sha256>::new_from_slice(secret)?;
     mac.update(message);
-    Ok(mac.finalize().into_bytes().to_vec())
+    Ok(mac.finalize().into_bytes()[..].to_vec())
 }
 
 pub fn calculate_sha1sum(message: &[u8]) -> Vec<u8> {
     let mut sha = Sha1::new();
     sha.update(message);
-    sha.finalize().to_vec()
+    sha.finalize()[..].to_vec()
 }
 
 pub trait Validation {
