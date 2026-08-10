@@ -1,5 +1,5 @@
 use crate::arq7::EncryptedKeySet;
-use crate::error::{Error, Result};
+use crate::error::Result;
 use crate::object_encryption::EncryptedObject;
 use std::fs::File;
 use std::io::{BufReader, Read};
@@ -16,7 +16,7 @@ pub fn is_file_encrypted<P: AsRef<Path>>(path: P) -> Result<bool> {
 }
 
 /// Helper function to decrypt an encrypted JSON file
-pub fn decrypt_json_file<P: AsRef<Path>>(path: P, keyset: &EncryptedKeySet) -> Result<String> {
+pub fn decrypt_json_file<P: AsRef<Path>>(path: P, keyset: &EncryptedKeySet) -> Result<Vec<u8>> {
     let file = File::open(path)?;
     let mut reader = BufReader::new(file);
 
@@ -27,8 +27,7 @@ pub fn decrypt_json_file<P: AsRef<Path>>(path: P, keyset: &EncryptedKeySet) -> R
     encrypted_obj.validate(&keyset.hmac_key)?;
     let decrypted_data = encrypted_obj.decrypt(&keyset.encryption_key[..32])?;
 
-    // Convert to string
-    String::from_utf8(decrypted_data).map_err(|_| Error::ParseError)
+    Ok(decrypted_data)
 }
 
 /// Helper function to load JSON from either encrypted or unencrypted file
@@ -44,7 +43,7 @@ where
         if is_file_encrypted(path_ref)? {
             // Decrypt and parse
             let json_content = decrypt_json_file(path_ref, keyset)?;
-            return Ok(serde_json::from_str(&json_content)?);
+            return Ok(serde_json::from_slice(&json_content)?);
         }
     }
 
@@ -158,7 +157,7 @@ mod tests {
         };
 
         let result = decrypt_json_file(file_path, &keyset).unwrap();
-        assert_eq!(result, "{\"test_key\": \"decrypted_value\"}");
+        assert_eq!(result, b"{\"test_key\": \"decrypted_value\"}");
     }
 
     #[test]
