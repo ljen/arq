@@ -89,11 +89,18 @@ pub struct Commit {
 
 impl Commit {
     pub fn is_commit(content: &[u8]) -> bool {
-        content.len() >= 10 && content[..10] == [67, 111, 109, 109, 105, 116, 86, 48, 49, 50] // CommitV012
+        content.len() >= 10 && content[..10] == [67, 111, 109, 109, 105, 116, 86, 48, 49, 50]
+        // CommitV012
     }
 
     pub fn new<R: ArqRead>(mut reader: R) -> Result<Commit> {
         let header = reader.read_bytes(10)?;
+        if header.len() < 10 {
+             return Err(crate::error::Error::IoError(std::io::Error::new(
+                 std::io::ErrorKind::UnexpectedEof,
+                 "Unexpected EOF while reading commit header",
+             )));
+        }
         if header[..7] != [67, 111, 109, 109, 105, 116, 86] {
             return Err(crate::error::Error::InvalidFormat(
                 "Invalid commit header: expected 'CommitV'".to_string(),
@@ -184,6 +191,7 @@ impl Commit {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::io::Cursor;
 
     #[test]
     fn test_is_commit() {
@@ -195,5 +203,93 @@ mod tests {
 
         let short_array = [0u8; 5];
         assert!(!Commit::is_commit(&short_array));
+    }
+
+    #[test]
+    fn test_new_short_header() {
+        let data = b"CommitV"; // Only 7 bytes
+        let reader = Cursor::new(data);
+        let result = Commit::new(reader);
+        assert!(result.is_err());
+        if let Err(e) = result {
+            match e {
+                crate::error::Error::IoError(_) => {}
+                _ => panic!("Expected IoError for unexpected EOF"),
+            }
+        }
+    }
+
+    #[test]
+    fn test_new_invalid_header_signature() {
+        let data = b"XommitV012";
+        let reader = Cursor::new(data);
+        let result = Commit::new(reader);
+        assert!(result.is_err());
+        if let Err(e) = result {
+            match e {
+                crate::error::Error::InvalidFormat(msg) => {
+                    assert!(msg.contains("Invalid commit header"));
+                }
+                _ => panic!("Expected InvalidFormat error"),
+            }
+        }
+    }
+
+    #[test]
+    fn test_new_invalid_header_version_utf8() {
+        // "CommitV" followed by invalid UTF-8 (e.g. 0xFF)
+        let data = b"CommitV\xff\xff\xff";
+        let reader = Cursor::new(data);
+        let result = Commit::new(reader);
+        assert!(result.is_err());
+        if let Err(e) = result {
+            match e {
+                crate::error::Error::ConversionError(_) => {}
+                _ => panic!("Expected ConversionError for invalid UTF-8"),
+            }
+        }
+    }
+
+    #[test]
+    fn test_new_invalid_header_version_number() {
+        // "CommitV" followed by non-numeric ASCII (e.g. "abc")
+        let data = b"CommitVabc";
+        let reader = Cursor::new(data);
+        let result = Commit::new(reader);
+        assert!(result.is_err());
+        if let Err(e) = result {
+            match e {
+                crate::error::Error::ParseError => {}
+                _ => panic!("Expected ParseError for invalid version number"),
+            }
+        }
+    }
+
+    #[test]
+    fn test_new_invalid_num_parent_commits() {
+        // Construct a valid header and valid strings for author and comment
+        // CommitV012 (10 bytes)
+        let mut data = b"CommitV012".to_vec();
+
+        // author (length 0)
+        data.push(0);
+
+        // comment (length 0)
+        data.push(0);
+
+        // num_parent_commits (2, which is > 1)
+        data.extend_from_slice(&2u64.to_be_bytes());
+
+        let reader = Cursor::new(data);
+        let result = Commit::new(reader);
+        assert!(result.is_err());
+        if let Err(e) = result {
+            match e {
+                crate::error::Error::InvalidFormat(msg) => {
+                    assert!(msg.contains("Expected 0 or 1 parent commits"));
+                }
+                _ => panic!("Expected InvalidFormat error for > 1 parent commits"),
+            }
+        }
     }
 }

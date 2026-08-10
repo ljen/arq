@@ -328,7 +328,7 @@ impl Node {
         let mut contained_files_count = reader.read_arq_u64().ok();
         if contained_files_count.is_some_and(|count| count > 1_000_000_000) {
             reader.seek(std::io::SeekFrom::Start(size_fields_start))?;
-            let _legacy_padding = reader.read_arq_u32()?;
+            let _ = reader.read_arq_u32()?;
             item_size = reader.read_arq_u64()?;
             contained_files_count = reader.read_arq_u64().ok();
         }
@@ -505,15 +505,13 @@ impl Node {
 
         // Thumbnail and preview SHA1s (Arq5 specific, deprecated)
         if tree_version <= 18 {
-            let _thumbnail_sha1 = reader.read_arq_string()?; // unused
+            let _ = reader.read_arq_string()?; // unused thumbnail sha1
             if tree_version >= 14 {
-                let _is_thumbnail_encryption_key_stretched = reader.read_arq_bool()?;
-                // unused
+                let _ = reader.read_arq_bool()?; // unused is_thumbnail_encryption_key_stretched
             }
-            let _preview_sha1 = reader.read_arq_string()?; // unused
+            let _ = reader.read_arq_string()?; // unused preview sha1
             if tree_version >= 14 {
-                let _is_preview_encryption_key_stretched = reader.read_arq_bool()?;
-                // unused
+                let _ = reader.read_arq_bool()?; // unused is_preview_encryption_key_stretched
             }
         }
 
@@ -810,24 +808,8 @@ impl Node {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::io::{Cursor, Read};
-
-    struct NonSeekReader {
-        inner: Cursor<Vec<u8>>,
-    }
-
-    impl Read for NonSeekReader {
-        fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
-            self.inner.read(buf)
-        }
-    }
-
-    fn arq_string(value: &str) -> Vec<u8> {
-        let mut bytes = vec![1];
-        bytes.extend_from_slice(&(value.len() as u64).to_be_bytes());
-        bytes.extend_from_slice(value.as_bytes());
-        bytes
-    }
+    use crate::test_utils::{arq_string, NonSeekReader};
+    use std::io::Cursor;
 
     fn arq_null_string() -> Vec<u8> {
         vec![0]

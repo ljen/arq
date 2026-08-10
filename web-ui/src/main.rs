@@ -159,27 +159,36 @@ fn get_arq7_record<'a>(bs: &'a BackupSet, record_id: &str) -> Option<&'a arq::ar
     None
 }
 
+async fn get_bs_and_node(
+    state: &AppState,
+    record_id: &str,
+) -> Result<(Arc<BackupSet>, Node), axum::response::Response> {
+    let bs_lock = state.backup_set.lock().await;
+    let bs = match bs_lock.as_ref() {
+        Some(b) => Arc::clone(b),
+        None => return Err((StatusCode::BAD_REQUEST, "Not loaded").into_response()),
+    };
+
+    let node = match get_arq7_record(&bs, record_id) {
+        Some(r) => r.node.clone(),
+        None => return Err((StatusCode::NOT_FOUND, "Record not found").into_response()),
+    };
+
+    Ok((bs, node))
+}
+
 async fn get_tree(
     State(state): State<AppState>,
     AxumPath(record_id): AxumPath<String>,
     Query(query): Query<TreeQuery>,
 ) -> impl IntoResponse {
-    let bs_lock = state.backup_set.lock().await;
-    let bs = match bs_lock.as_ref() {
-        Some(b) => b,
-        None => return (StatusCode::BAD_REQUEST, "Not loaded").into_response(),
-    };
-
-    let record = match get_arq7_record(bs, &record_id) {
-        Some(r) => r,
-        None => return (StatusCode::NOT_FOUND, "Record not found").into_response(),
+    let (bs_clone, root_node) = match get_bs_and_node(&state, &record_id).await {
+        Ok(res) => res,
+        Err(resp) => return resp,
     };
 
     // Resolve the path
     let req_path = query.path.unwrap_or_default();
-
-    let bs_clone = Arc::clone(bs);
-    let root_node = record.node.clone();
 
     let result = tokio::task::spawn_blocking(move || {
         let keyset = bs_clone.encryption_keyset();
@@ -208,20 +217,12 @@ async fn get_tree_dirs(
     AxumPath(record_id): AxumPath<String>,
     Query(query): Query<TreeQuery>,
 ) -> impl IntoResponse {
-    let bs_lock = state.backup_set.lock().await;
-    let bs = match bs_lock.as_ref() {
-        Some(b) => b,
-        None => return (StatusCode::BAD_REQUEST, "Not loaded").into_response(),
-    };
-
-    let record = match get_arq7_record(bs, &record_id) {
-        Some(r) => r,
-        None => return (StatusCode::NOT_FOUND, "Record not found").into_response(),
+    let (bs_clone, root_node) = match get_bs_and_node(&state, &record_id).await {
+        Ok(res) => res,
+        Err(resp) => return resp,
     };
 
     let req_path = query.path.unwrap_or_default();
-    let bs_clone = bs.clone();
-    let root_node = record.node.clone();
 
     let result = tokio::task::spawn_blocking(move || {
         let keyset = bs_clone.encryption_keyset();
@@ -250,15 +251,9 @@ async fn download_file(
     AxumPath(record_id): AxumPath<String>,
     Query(query): Query<TreeQuery>,
 ) -> impl IntoResponse {
-    let bs_lock = state.backup_set.lock().await;
-    let bs = match bs_lock.as_ref() {
-        Some(b) => b,
-        None => return (StatusCode::BAD_REQUEST, "Not loaded").into_response(),
-    };
-
-    let record = match get_arq7_record(bs, &record_id) {
-        Some(r) => r,
-        None => return (StatusCode::NOT_FOUND, "Record not found").into_response(),
+    let (bs_clone, root_node) = match get_bs_and_node(&state, &record_id).await {
+        Ok(res) => res,
+        Err(resp) => return resp,
     };
 
     // Resolve the path
@@ -266,9 +261,6 @@ async fn download_file(
         Some(ref p) if !p.is_empty() => p.clone(),
         _ => return (StatusCode::BAD_REQUEST, "Path is required").into_response(),
     };
-
-    let bs_clone = Arc::clone(bs);
-    let root_node = record.node.clone();
 
     let result = tokio::task::spawn_blocking(move || {
         let keyset = bs_clone.encryption_keyset();
@@ -423,7 +415,7 @@ fn format_timestamp_rfc3339(ts_f64: f64) -> String {
 }
 
 #[tokio::main]
-async fn main() {
+async fn main() -> std::io::Result<()> {
     let state = AppState {
         backup_set: Arc::new(Mutex::new(None)),
     };
@@ -437,7 +429,9 @@ async fn main() {
         .route("/api/record/:record_id/download", get(download_file))
         .with_state(state);
 
-    let listener = tokio::net::TcpListener::bind("127.0.0.1:3000").await.unwrap();
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:3000").await?;
     println!("Listening on http://127.0.0.1:3000");
-    axum::serve(listener, app).await.unwrap();
+    axum::serve(listener, app).await?;
+
+    Ok(())
 }
