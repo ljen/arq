@@ -372,24 +372,8 @@ impl BlobLoc {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::io::{Cursor, Read};
-
-    struct NonSeekReader {
-        inner: Cursor<Vec<u8>>,
-    }
-
-    impl Read for NonSeekReader {
-        fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
-            self.inner.read(buf)
-        }
-    }
-
-    fn arq_string(value: &str) -> Vec<u8> {
-        let mut bytes = vec![1];
-        bytes.extend_from_slice(&(value.len() as u64).to_be_bytes());
-        bytes.extend_from_slice(value.as_bytes());
-        bytes
-    }
+    use crate::test_utils::{arq_string, NonSeekReader};
+    use std::io::Cursor;
 
     #[test]
     fn parses_official_arq7_binary_blobloc_error_paths() {
@@ -420,7 +404,7 @@ mod tests {
         data.push(1); // is_packed
         data.extend(arq_string("/PLAN/blobpacks/AA/example.pack"));
         data.extend_from_slice(&12u64.to_be_bytes()); // offset
-        // Missing length, stretch_encryption_key, compression_type
+                                                      // Missing length, stretch_encryption_key, compression_type
         let mut cursor = Cursor::new(data);
         assert!(BlobLoc::from_binary_reader(&mut cursor).is_err());
     }
