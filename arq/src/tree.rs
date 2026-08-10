@@ -331,7 +331,10 @@ impl Tree {
         Ok(version)
     }
 
-    fn parse_arq5_missing_nodes<R: ArqBinaryReader>(reader: &mut R, version: u32) -> Result<Vec<String>> {
+    fn parse_arq5_missing_nodes<R: ArqBinaryReader>(
+        reader: &mut R,
+        version: u32,
+    ) -> Result<Vec<String>> {
         let mut missing_node_count = if version >= 18 {
             ArqBinaryReader::read_arq_u32(reader)?
         } else {
@@ -351,7 +354,10 @@ impl Tree {
         Ok(missing_nodes)
     }
 
-    fn parse_arq5_child_nodes<R: ArqRead + ArqBinaryReader + std::io::BufRead>(reader: &mut R, version: u32) -> Result<HashMap<String, crate::node::Node>> {
+    fn parse_arq5_child_nodes<R: ArqRead + ArqBinaryReader + std::io::BufRead>(
+        reader: &mut R,
+        version: u32,
+    ) -> Result<HashMap<String, crate::node::Node>> {
         let mut node_count = ArqBinaryReader::read_arq_u32(reader)?;
         let mut nodes = HashMap::new();
         while node_count > 0 {
