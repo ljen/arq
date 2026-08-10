@@ -16,6 +16,7 @@ pub enum Error {
     DecompressionDataLengthOutOfBounds,
     JsonError(serde_json::Error),
     Lz4Error(lz4_flex::frame::Error),
+    UnsupportedFeature(String),
 }
 
 impl std::fmt::Display for Error {
@@ -26,6 +27,7 @@ impl std::fmt::Display for Error {
             Error::JsonError(ref err) => write!(f, "{err}"),
             Error::Lz4Error(ref err) => write!(f, "{err}"),
             Error::InvalidFormat(ref msg) => write!(f, "Invalid format: {msg}"),
+            Error::UnsupportedFeature(ref msg) => write!(f, "Unsupported feature: {msg}"),
             _ => write!(f, "{:#?}", self),
         }
     }

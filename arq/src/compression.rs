@@ -65,8 +65,25 @@ impl CompressionType {
                 decoder.read_to_end(&mut decompressed)?;
                 decompressed
             }
-            CompressionType::Lzfse => unimplemented!(), // LZFSE is not supported yet
+            CompressionType::Lzfse => return Err(Error::UnsupportedFeature("LZFSE compression is not supported yet".to_string())),
             CompressionType::None => compressed.to_owned(),
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_lzfse_unsupported() {
+        let compressed_data = vec![1, 2, 3];
+        let result = CompressionType::decompress(&compressed_data, CompressionType::Lzfse);
+        assert!(result.is_err());
+        if let Err(Error::UnsupportedFeature(msg)) = result {
+            assert_eq!(msg, "LZFSE compression is not supported yet");
+        } else {
+            panic!("Expected UnsupportedFeature error");
+        }
     }
 }
