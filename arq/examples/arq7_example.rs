@@ -56,7 +56,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         println!("❌ Keyset files for Arq7 not found!");
         return Ok(());
     }
-    let _keyset = EncryptedKeySet::from_file(keyset_path, backup_passowrd)?;
     // Load the complete backup set
     match BackupSet::from_directory_with_password(backup_set_path, Some(backup_passowrd)) {
         // match BackupSet::from_directory(backup_set_path) {
