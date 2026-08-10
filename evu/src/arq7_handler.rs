@@ -95,7 +95,7 @@ fn load_backup_set(backup_set_path: &Path) -> Result<BackupSet> {
         Err(arq::error::Error::InvalidFormat(msg))
             if msg == "Encrypted backup requires password" =>
         {
-            let password = crate::utils::get_password()?;
+            let password = crate::utils::get_password(|p| rpassword::prompt_password(p))?;
             BackupSet::from_directory_with_password(backup_set_path, Some(&password))
                 .map_err(Error::ArqError)
         }
