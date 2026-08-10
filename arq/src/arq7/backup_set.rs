@@ -7,6 +7,7 @@ use super::encrypted_keyset::EncryptedKeySet;
 use super::virtual_fs::{DirectoryEntry, DirectoryEntryNode, FileEntry};
 use crate::error::{Error, Result};
 use chrono::DateTime;
+use rayon::prelude::*;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
@@ -58,29 +59,50 @@ impl BackupSet {
         let backupfolders_dir = path.join("backupfolders");
 
         if backupfolders_dir.exists() {
-            let mut folder_records = Vec::new();
-            for entry in std::fs::read_dir(backupfolders_dir)? {
-                let entry = entry?;
-                if entry.file_type()?.is_dir() {
+            let entries = std::fs::read_dir(&backupfolders_dir)?
+                .collect::<std::io::Result<Vec<_>>>()?
+                .into_iter()
+                .filter_map(|e| match e.file_type() {
+                    Ok(ft) if ft.is_dir() => Some(e),
+                    _ => None,
+                })
+                .collect::<Vec<_>>();
+
+            let results: Result<Vec<_>> = entries
+                .into_par_iter()
+                .map(|entry| {
                     let folder_uuid = entry.file_name().to_string_lossy().to_string();
                     let config_path = entry.path().join("backupfolder.json");
 
-                    if config_path.exists() {
-                        let backup_folder = BackupFolder::from_file(config_path)?;
-                        backup_folder_configs.insert(folder_uuid.clone(), backup_folder);
-                    }
+                    let folder_config = if config_path.exists() {
+                        Some(BackupFolder::from_file(config_path)?)
+                    } else {
+                        None
+                    };
 
-                    // Load backup records for this folder
                     let records_dir = entry.path().join("backuprecords");
-                    if records_dir.exists() {
-                        folder_records.clear();
+                    let records = if records_dir.exists() {
+                        let mut folder_records = Vec::new();
                         Self::load_backup_records_recursive(&records_dir, &mut folder_records)?;
                         if !folder_records.is_empty() {
-                            let mut final_records = Vec::with_capacity(folder_records.len());
-                            final_records.append(&mut folder_records);
-                            backup_records.insert(folder_uuid, final_records);
+                            Some(folder_records)
+                        } else {
+                            None
                         }
-                    }
+                    } else {
+                        None
+                    };
+
+                    Ok((folder_uuid, folder_config, records))
+                })
+                .collect();
+
+            for (folder_uuid, folder_config_opt, records_opt) in results? {
+                if let Some(folder_config) = folder_config_opt {
+                    backup_folder_configs.insert(folder_uuid.clone(), folder_config);
+                }
+                if let Some(records) = records_opt {
+                    backup_records.insert(folder_uuid, records);
                 }
             }
         }
@@ -142,28 +164,43 @@ impl BackupSet {
         let mut backup_folder_configs = HashMap::new();
         let backupfolders_dir = dir_path.join("backupfolders");
         if backupfolders_dir.exists() {
-            for entry in std::fs::read_dir(&backupfolders_dir)? {
-                let entry = entry?;
-                if entry.file_type()?.is_dir() {
+            let entries = std::fs::read_dir(&backupfolders_dir)?
+                .collect::<std::io::Result<Vec<_>>>()?
+                .into_iter()
+                .filter_map(|e| match e.file_type() {
+                    Ok(ft) if ft.is_dir() => Some(e),
+                    _ => None,
+                })
+                .collect::<Vec<_>>();
+
+            let configs: Vec<_> = entries
+                .into_par_iter()
+                .filter_map(|entry| {
                     let folder_uuid = entry.file_name().to_string_lossy().to_string();
                     let config_path = entry.path().join("backupfolder.json");
+
                     if config_path.exists() {
                         match BackupFolder::from_file_with_encryption(
                             &config_path,
                             encryption_keyset.as_ref(),
                         ) {
-                            Ok(folder_config) => {
-                                backup_folder_configs.insert(folder_uuid.clone(), folder_config);
-                            }
+                            Ok(folder_config) => Some((folder_uuid, folder_config)),
                             Err(e) => {
                                 eprintln!(
                                     "Warning: Failed to load folder config for {}: {}",
                                     folder_uuid, e
                                 );
+                                None
                             }
                         }
+                    } else {
+                        None
                     }
-                }
+                })
+                .collect();
+
+            for (uuid, config) in configs {
+                backup_folder_configs.insert(uuid, config);
             }
         }
 
@@ -202,7 +239,8 @@ impl BackupSet {
         let mut files_to_parse = Vec::new();
 
         for entry_result in jwalk::WalkDir::new(dir) {
-            let entry = entry_result.map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))?;
+            let entry =
+                entry_result.map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))?;
             let path = entry.path();
             if entry.file_type.is_file() && path.extension().is_some_and(|s| s == "backuprecord") {
                 files_to_parse.push(path);
@@ -258,44 +296,47 @@ impl BackupSet {
             return Ok(backup_records);
         }
 
-        let mut folder_records = Vec::new();
-        for entry in std::fs::read_dir(backupfolders_dir)? {
-            let entry = entry?;
-            if entry.file_type()?.is_dir() {
+        // Recursively traverse backup records directories
+        fn collect_records(
+            dir: &Path,
+            records: &mut Vec<GenericBackupRecord>,
+            keyset: Option<&EncryptedKeySet>,
+        ) -> Result<()> {
+            for entry in std::fs::read_dir(dir)? {
+                let entry = entry?;
+                let path = entry.path();
+
+                if path.is_dir() {
+                    collect_records(&path, records, keyset)?;
+                } else if path.extension().is_some_and(|ext| ext == "backuprecord") {
+                    match GenericBackupRecord::from_file_with_encryption(&path, keyset) {
+                        Ok(record) => records.push(record),
+                        Err(e) => {
+                            eprintln!("Warning: Failed to load backup record {:?}: {}", path, e);
+                        }
+                    }
+                }
+            }
+            Ok(())
+        }
+
+        let entries = std::fs::read_dir(backupfolders_dir)?
+            .collect::<std::io::Result<Vec<_>>>()?
+            .into_iter()
+            .filter_map(|e| match e.file_type() {
+                Ok(ft) if ft.is_dir() => Some(e),
+                _ => None,
+            })
+            .collect::<Vec<_>>();
+
+        let results: Result<Vec<_>> = entries
+            .into_par_iter()
+            .filter_map(|entry| {
                 let folder_uuid = entry.file_name().to_string_lossy().to_string();
                 let records_dir = entry.path().join("backuprecords");
 
                 if records_dir.exists() {
-                    folder_records.clear();
-
-                    // Recursively traverse backup records directories
-                    fn collect_records(
-                        dir: &Path,
-                        records: &mut Vec<GenericBackupRecord>,
-                        keyset: Option<&EncryptedKeySet>,
-                    ) -> Result<()> {
-                        for entry in std::fs::read_dir(dir)? {
-                            let entry = entry?;
-                            let path = entry.path();
-
-                            if path.is_dir() {
-                                collect_records(&path, records, keyset)?;
-                            } else if path.extension().is_some_and(|ext| ext == "backuprecord") {
-                                match GenericBackupRecord::from_file_with_encryption(&path, keyset)
-                                {
-                                    Ok(record) => records.push(record),
-                                    Err(e) => {
-                                        eprintln!(
-                                            "Warning: Failed to load backup record {:?}: {}",
-                                            path, e
-                                        );
-                                    }
-                                }
-                            }
-                        }
-                        Ok(())
-                    }
-
+                    let mut folder_records = Vec::new();
                     if let Err(e) = collect_records(&records_dir, &mut folder_records, keyset) {
                         eprintln!(
                             "Warning: Failed to load backup records for folder {}: {}",
@@ -304,12 +345,18 @@ impl BackupSet {
                     }
 
                     if !folder_records.is_empty() {
-                        let mut final_records = Vec::with_capacity(folder_records.len());
-                        final_records.append(&mut folder_records);
-                        backup_records.insert(folder_uuid, final_records);
+                        Some(Ok((folder_uuid, folder_records)))
+                    } else {
+                        None
                     }
+                } else {
+                    None
                 }
-            }
+            })
+            .collect();
+
+        for (uuid, records) in results? {
+            backup_records.insert(uuid, records);
         }
 
         Ok(backup_records)
@@ -394,7 +441,7 @@ impl BackupSet {
         for records in self.backup_records.values() {
             for generic_record in records {
                 if let GenericBackupRecord::Arq7(record) = generic_record {
-                    let mut path_buffer = String::new();
+                    let mut path_buffer = String::with_capacity(1024);
                     self.collect_files_recursive(
                         &record.node, // This is now crate::node::Node
                         &mut path_buffer,
@@ -529,7 +576,7 @@ impl BackupSet {
             Ok(DirectoryEntry::Directory(DirectoryEntryNode {
                 name,
                 children: None, // Children are not loaded initially
-                tree_blob_loc: node.tree_blob_loc.as_ref().map(|loc| loc.clone()), // Convert to blob_location::BlobLoc
+                tree_blob_loc: node.tree_blob_loc.clone(), // Convert to blob_location::BlobLoc
                 modification_time_sec: node.modification_time_sec,
                 creation_time_sec: node.creation_time_sec,
                 mode: node.st_mode, // Using st_mode from crate::node::Node
@@ -539,7 +586,7 @@ impl BackupSet {
             Ok(DirectoryEntry::File(FileEntry {
                 name,
                 size: node.item_size,
-                data_blob_locs: node.data_blob_locs.iter().map(|loc| loc.clone()).collect(), // Convert to blob_location::BlobLoc
+                data_blob_locs: node.data_blob_locs.clone(), // Convert to blob_location::BlobLoc
                 modification_time_sec: node.modification_time_sec,
                 creation_time_sec: node.creation_time_sec,
                 mode: node.st_mode, // Using st_mode from crate::node::Node
@@ -783,14 +830,36 @@ mod tests {
 
     #[test]
     fn test_backup_set_is_encrypted() {
-        let root = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/arq_storage_location/D1154AC6-01EB-41FE-B115-114464350B92");
-        let mut backup_set = BackupSet::from_directory_with_password(root, Some("asdfasdf1234")).unwrap();
+        let root = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("tests/arq_storage_location/D1154AC6-01EB-41FE-B115-114464350B92");
+        let mut backup_set =
+            BackupSet::from_directory_with_password(root, Some("asdfasdf1234")).unwrap();
 
         backup_set.backup_config.is_encrypted = true;
         assert!(backup_set.is_encrypted());
 
         backup_set.backup_config.is_encrypted = false;
         assert!(!backup_set.is_encrypted());
+    }
+
+    #[test]
+    fn test_from_directory_success() {
+        let root = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("tests/arq_storage_location/FD5575D9-B7E1-43D9-B29C-B54ACC9BC2A9");
+        let backup_set = BackupSet::from_directory(&root).unwrap();
+
+        assert!(!backup_set.is_encrypted());
+        assert_eq!(backup_set.root_path, root);
+        // The unencrypted fixture has 1 backup folder
+        assert_eq!(backup_set.backup_folder_configs.len(), 1);
+        assert_eq!(backup_set.backup_records.len(), 1);
+    }
+
+    #[test]
+    fn test_from_directory_missing_config() {
+        let temp_dir = tempfile::tempdir().unwrap();
+        let result = BackupSet::from_directory(temp_dir.path());
+        assert!(result.is_err());
     }
 }
 
@@ -800,15 +869,27 @@ mod list_all_files_tests {
 
     #[test]
     fn test_list_all_files() {
-        let root = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/arq_storage_location/D1154AC6-01EB-41FE-B115-114464350B92");
-        let backup_set = BackupSet::from_directory_with_password(root, Some("asdfasdf1234")).unwrap();
+        let root = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("tests/arq_storage_location/D1154AC6-01EB-41FE-B115-114464350B92");
+        let backup_set =
+            BackupSet::from_directory_with_password(root, Some("asdfasdf1234")).unwrap();
 
         let files = backup_set.list_all_files().unwrap();
         // The encrypted test data has 6 backup records, each containing 3 files
         // (file 1.txt, subfolder/file 2.txt, and one more), totaling 18 file entries
         // since list_all_files iterates across all records including duplicates.
-        assert_eq!(files.len(), 18, "Should find 18 files across all backup records");
-        assert!(files.contains(&"file 1.txt".to_string()), "Should contain file 1.txt");
-        assert!(files.contains(&"subfolder/file 2.txt".to_string()), "Should contain subfolder/file 2.txt");
+        assert_eq!(
+            files.len(),
+            18,
+            "Should find 18 files across all backup records"
+        );
+        assert!(
+            files.contains(&"file 1.txt".to_string()),
+            "Should contain file 1.txt"
+        );
+        assert!(
+            files.contains(&"subfolder/file 2.txt".to_string()),
+            "Should contain subfolder/file 2.txt"
+        );
     }
 }
