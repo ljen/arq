@@ -321,13 +321,15 @@ pub fn list_files(
             .collect();
 
         let start_node =
-            find_node_in_record_tree(&arq7_record.node, &path_parts, 0, backup_set_path, keyset)?.map(|c| c.into_owned()).ok_or_else(|| {
-                Error::NotFound(format!(
-                    "Folder '{}' not found in record '{}'.",
-                    folder_path_in_backup.unwrap_or("/"),
-                    timestamp_str
-                ))
-            })?;
+            find_node_in_record_tree(&arq7_record.node, &path_parts, 0, backup_set_path, keyset)?
+                .map(|c| c.into_owned())
+                .ok_or_else(|| {
+                    Error::NotFound(format!(
+                        "Folder '{}' not found in record '{}'.",
+                        folder_path_in_backup.unwrap_or("/"),
+                        timestamp_str
+                    ))
+                })?;
 
         if !start_node.is_tree {
             return Err(Error::Generic(format!(
@@ -495,7 +497,9 @@ fn process_arq7_record(
                 }
             }
         }
-        Ok(None) => {}
+        Ok(None) => {
+            output_lines.push("DEBUG: Node not found in record".to_string());
+        }
         Err(e) => {
             output_lines.push(format!(
                 "DEBUG: Warning: Error processing Arq7 record {:?}: {}",
@@ -546,9 +550,16 @@ fn adjust_path_parts<'a>(
             .strip_prefix(record_local_path_str)
             .unwrap_or(path_in_backup);
         let relative_path_trimmed = relative_path.trim_start_matches('/');
-        let mut temp_parts: Vec<&str> = relative_path_trimmed.split('/').filter(|s| !s.is_empty()).collect();
+        let mut temp_parts: Vec<&str> = relative_path_trimmed
+            .split('/')
+            .filter(|s| !s.is_empty())
+            .collect();
 
-        if is_folder && relative_path_trimmed.is_empty() && !relative_path.is_empty() && path_in_backup != "/" {
+        if is_folder
+            && relative_path_trimmed.is_empty()
+            && !relative_path.is_empty()
+            && path_in_backup != "/"
+        {
             temp_parts = Vec::new();
         } else if !is_folder && temp_parts.is_empty() && !relative_path_trimmed.is_empty() {
             temp_parts = vec![relative_path_trimmed];
@@ -557,10 +568,19 @@ fn adjust_path_parts<'a>(
     } else if record_local_path_str.is_empty() {
         if let Some(bf_config) = backup_set.backup_folder_configs.get(folder_uuid) {
             if path_in_backup.starts_with(&bf_config.local_path) {
-                let relative_path = path_in_backup.strip_prefix(&bf_config.local_path).unwrap_or(path_in_backup);
+                let relative_path = path_in_backup
+                    .strip_prefix(&bf_config.local_path)
+                    .unwrap_or(path_in_backup);
                 let relative_path_trimmed = relative_path.trim_start_matches('/');
-                let mut temp_parts: Vec<&str> = relative_path_trimmed.split('/').filter(|s| !s.is_empty()).collect();
-                if is_folder && relative_path_trimmed.is_empty() && !relative_path.is_empty() && path_in_backup != "/" {
+                let mut temp_parts: Vec<&str> = relative_path_trimmed
+                    .split('/')
+                    .filter(|s| !s.is_empty())
+                    .collect();
+                if is_folder
+                    && relative_path_trimmed.is_empty()
+                    && !relative_path.is_empty()
+                    && path_in_backup != "/"
+                {
                     temp_parts = Vec::new();
                 } else if !is_folder && temp_parts.is_empty() && !relative_path_trimmed.is_empty() {
                     temp_parts = vec![relative_path_trimmed];
@@ -868,7 +888,9 @@ pub fn restore_specific_file_from_record(
         0,
         backup_set_path,
         keyset,
-    )?.map(|c| c.into_owned()).ok_or_else(|| {
+    )?
+    .map(|c| c.into_owned())
+    .ok_or_else(|| {
         Error::NotFound(format!(
             "File '{}' not found in record '{}'.",
             file_path_in_backup, record_identifier
@@ -984,7 +1006,9 @@ pub fn restore_specific_folder_from_record(
         0,
         backup_set_path,
         keyset,
-    )?.map(|c| c.into_owned()).ok_or_else(|| {
+    )?
+    .map(|c| c.into_owned())
+    .ok_or_else(|| {
         Error::NotFound(format!(
             "Folder '{}' not found in record '{}'.",
             folder_path_in_backup, record_identifier
