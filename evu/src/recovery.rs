@@ -23,14 +23,14 @@ pub fn restore_file(
     folder: &str,
     absolute_filepath: &str,
 ) -> Result<()> {
-    use rpassword;
+
 
     let trees_path = Path::new(path)
         .join(computer)
         .join("packsets")
         .join(format!("{}-trees", folder));
 
-    let master_keys = utils::get_master_keys(&path, &computer)?;
+    let master_keys = utils::get_master_keys(path, computer)?;
     let keyset = EncryptedKeySet::from_master_keys(master_keys.clone())?;
     let head_sha = utils::find_latest_folder_sha(path, computer, folder)?;
 
@@ -136,13 +136,13 @@ fn restore_object(
         // Iterate over a reference to avoid moving
         if let Some(locations) = found_blobs.get(&blob.blob_identifier) {
             for (fname, offset) in locations {
-                let pack_path = path.join(&fname.replace(".index", ".pack"));
+                let pack_path = path.join(fname.replace(".index", ".pack"));
                 let mut reader = std::io::BufReader::new(utils::get_file_reader(&pack_path)?);
                 reader.seek(SeekFrom::Start(*offset))?;
                 let mut reader = std::io::BufReader::new(reader);
                 let ob = packset::PackObject::new(&mut reader)?;
                 let mut f = File::create(filename)?;
-                let data = ob.original(compression.clone(), master_key)?;
+                let data = ob.original(compression, master_key)?;
                 f.write_all(&data)?;
                 println!("Recovered '{}' to {:?}", absolute_filepath, filename);
             }

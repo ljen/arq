@@ -21,11 +21,10 @@ pub fn get_latest_folder_data_path(path: &Path) -> Result<PathBuf> {
     };
     for entry in read_dir_result {
         let entry = entry?;
-        if let Some(filename) = entry.file_name().to_str() {
-            if filename > newest.as_str() {
+        if let Some(filename) = entry.file_name().to_str()
+            && filename > newest.as_str() {
                 newest = filename.to_string();
             }
-        }
     }
     Ok(path.join(newest))
 }
@@ -53,7 +52,7 @@ pub fn find_latest_folder_sha(path: &str, _computer: &str, folder: &str) -> Resu
 }
 
 pub fn get_file_reader(filename: &Path) -> IoResult<BufReader<File>> {
-    let file = File::open(&filename)?;
+    let file = File::open(filename)?;
     Ok(BufReader::new(file))
 }
 

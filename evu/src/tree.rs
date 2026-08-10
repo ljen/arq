@@ -42,7 +42,7 @@ pub fn show(path: &str, computer: &str, folder: &str) -> Result<()> {
     let trees_path = computer_path
         .join("packsets")
         .join(format!("{}-trees", folder));
-    let master_keys = utils::get_master_keys(&path, &computer)?;
+    let master_keys = utils::get_master_keys(path, computer)?;
     let keyset = EncryptedKeySet::from_master_keys(master_keys.clone())?;
     let arq_folder = utils::read_arq_folder(path, computer, folder, master_keys.clone())?;
     let head_sha = utils::find_latest_folder_sha(path, computer, folder)?;
@@ -68,7 +68,7 @@ fn render_tree(
 
     let tree_blob = packset::restore_blob_with_sha(path, &commit.tree_sha1, keyset)?;
     let tree = tree::Tree::new_arq5(&tree_blob, commit.tree_compression_type)?;
-    render_internal_tree(prefix, &path, tree, keyset)?;
+    render_internal_tree(prefix, path, tree, keyset)?;
     Ok(())
 }
 
@@ -85,16 +85,16 @@ fn render_internal_tree(
                 continue;
             }
             let data = packset::restore_blob_with_sha(
-                &path,
+                path,
                 &v.data_blob_locs[0].blob_identifier,
-                &keyset,
+                keyset,
             )?; // Changed to data_blob_locs and blob_identifier
             let tree = tree::Tree::new_arq5(
                 &data,
                 v.arq5_data_compression_type
                     .unwrap_or(arq::compression::CompressionType::None),
             )?; // Changed to arq5_data_compression_type
-            render_internal_tree(prefix.join(k).as_path(), &path, tree, &keyset)?;
+            render_internal_tree(prefix.join(k).as_path(), path, tree, keyset)?;
         } else {
             println!("{}", prefix.join(k).as_os_str().to_string_lossy());
         }

@@ -21,18 +21,16 @@ pub fn detect_version(path: &Path) -> Result<ArqVersion, crate::error::Error> {
     }
 
     // Check if the path is a computer UUID for Arq5
-    if path.is_dir() {
-        if path.join("encryptionv3.dat").exists() || path.join("encryptionv2.dat").exists() {
+    if path.is_dir()
+        && (path.join("encryptionv3.dat").exists() || path.join("encryptionv2.dat").exists()) {
             return Ok(ArqVersion::Arq5);
         }
-    }
 
     // Check if path is a subdirectory of a computer UUID for Arq5
-    if let Some(parent) = path.parent() {
-        if parent.join("encryptionv3.dat").exists() || parent.join("encryptionv2.dat").exists() {
+    if let Some(parent) = path.parent()
+        && (parent.join("encryptionv3.dat").exists() || parent.join("encryptionv2.dat").exists()) {
             return Ok(ArqVersion::Arq5);
         }
-    }
 
     Err(crate::error::Error::UnknownArqVersion(
         path.to_string_lossy().into_owned(),
