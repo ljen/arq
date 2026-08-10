@@ -65,7 +65,7 @@ impl CompressionType {
                 decoder.read_to_end(&mut decompressed)?;
                 decompressed
             }
-            CompressionType::Lzfse => unimplemented!(), // LZFSE is not supported yet
+            CompressionType::Lzfse => return Err(Error::UnsupportedFeature("LZFSE compression is not supported yet".to_string())),
             CompressionType::None => compressed.to_owned(),
         })
     }
@@ -74,6 +74,8 @@ impl CompressionType {
 #[cfg(test)]
 mod tests {
     use super::*;
+<<<<<<< ours — module `tests` (S+F, confidence: low)
+// hint: Structural and logic conflict. Both design and behavior differ.
     use flate2::write::GzEncoder;
     use flate2::Compression;
     use std::io::Write;
@@ -124,9 +126,14 @@ mod tests {
     }
 
     #[test]
-    #[should_panic(expected = "not implemented")]
-    fn test_decompress_lzfse() {
-        let data = b"hello world test data";
-        let _ = CompressionType::decompress(data, CompressionType::Lzfse);
+    fn test_lzfse_unsupported() {
+        let compressed_data = vec![1, 2, 3];
+        let result = CompressionType::decompress(&compressed_data, CompressionType::Lzfse);
+        assert!(result.is_err());
+        if let Err(Error::UnsupportedFeature(msg)) = result {
+            assert_eq!(msg, "LZFSE compression is not supported yet");
+        } else {
+            panic!("Expected UnsupportedFeature error");
+        }
     }
 }
