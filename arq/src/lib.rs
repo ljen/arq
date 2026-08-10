@@ -49,4 +49,6 @@ pub mod type_utils;
 mod blob;
 mod date;
 mod lz4;
+#[cfg(test)]
+mod test_utils;
 mod utils;

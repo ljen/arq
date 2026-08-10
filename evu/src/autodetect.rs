@@ -38,3 +38,68 @@ pub fn detect_version(path: &Path) -> Result<ArqVersion, crate::error::Error> {
         path.to_string_lossy().into_owned(),
     ))
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::fs::File;
+    use tempfile::TempDir;
+
+    #[test]
+    fn test_detect_arq7() {
+        let temp_dir = TempDir::new().unwrap();
+        let config_path = temp_dir.path().join("backupconfig.json");
+        File::create(config_path).unwrap();
+
+        let version = detect_version(temp_dir.path()).unwrap();
+        assert_eq!(version, ArqVersion::Arq7);
+    }
+
+    #[test]
+    fn test_detect_arq5_encryptionv3() {
+        let temp_dir = TempDir::new().unwrap();
+        let dat_path = temp_dir.path().join("encryptionv3.dat");
+        File::create(dat_path).unwrap();
+
+        let version = detect_version(temp_dir.path()).unwrap();
+        assert_eq!(version, ArqVersion::Arq5);
+    }
+
+    #[test]
+    fn test_detect_arq5_encryptionv2() {
+        let temp_dir = TempDir::new().unwrap();
+        let dat_path = temp_dir.path().join("encryptionv2.dat");
+        File::create(dat_path).unwrap();
+
+        let version = detect_version(temp_dir.path()).unwrap();
+        assert_eq!(version, ArqVersion::Arq5);
+    }
+
+    #[test]
+    fn test_detect_arq5_in_subdirectory() {
+        let temp_dir = TempDir::new().unwrap();
+        // The parent directory acts as the computer UUID folder
+        let dat_path = temp_dir.path().join("encryptionv3.dat");
+        File::create(dat_path).unwrap();
+
+        // The subdir acts as a backup folder inside the computer UUID folder
+        let sub_dir = temp_dir.path().join("subdir");
+        fs::create_dir(&sub_dir).unwrap();
+
+        let version = detect_version(&sub_dir).unwrap();
+        assert_eq!(version, ArqVersion::Arq5);
+    }
+
+    #[test]
+    fn test_detect_unknown_version() {
+        let temp_dir = TempDir::new().unwrap();
+
+        let result = detect_version(temp_dir.path());
+        match result {
+            Err(crate::error::Error::UnknownArqVersion(path)) => {
+                assert_eq!(path, temp_dir.path().to_string_lossy().into_owned());
+            }
+            _ => panic!("Expected UnknownArqVersion error, got {:?}", result),
+        }
+    }
+}
