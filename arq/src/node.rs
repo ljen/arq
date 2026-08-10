@@ -505,15 +505,13 @@ impl Node {
 
         // Thumbnail and preview SHA1s (Arq5 specific, deprecated)
         if tree_version <= 18 {
-            let _thumbnail_sha1 = reader.read_arq_string()?; // unused
+            reader.read_arq_string()?; // unused thumbnail_sha1
             if tree_version >= 14 {
-                let _is_thumbnail_encryption_key_stretched = reader.read_arq_bool()?;
-                // unused
+                reader.read_arq_bool()?; // unused is_thumbnail_encryption_key_stretched
             }
-            let _preview_sha1 = reader.read_arq_string()?; // unused
+            reader.read_arq_string()?; // unused preview_sha1
             if tree_version >= 14 {
-                let _is_preview_encryption_key_stretched = reader.read_arq_bool()?;
-                // unused
+                reader.read_arq_bool()?; // unused is_preview_encryption_key_stretched
             }
         }
 
