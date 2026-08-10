@@ -44,3 +44,66 @@ impl BackupFolders {
         load_json_with_encryption(path, keyset)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::io::Cursor;
+
+    #[test]
+    fn test_from_reader_valid() {
+        let json_data = r#"{
+            "standardObjectDirs": ["dir1", "dir2"],
+            "standardIAObjectDirs": ["dir3"],
+            "onezoneIAObjectDirs": [],
+            "s3GlacierObjectDirs": ["dir4"],
+            "s3DeepArchiveObjectDirs": [],
+            "s3GlacierIRObjectDirs": ["dir5"],
+            "importedFrom": "older_backup"
+        }"#;
+
+        let reader = Cursor::new(json_data);
+        let folders = BackupFolders::from_reader(reader).unwrap();
+
+        assert_eq!(folders.standard_object_dirs, vec!["dir1", "dir2"]);
+        assert_eq!(folders.standard_ia_object_dirs, vec!["dir3"]);
+        assert!(folders.onezone_ia_object_dirs.is_empty());
+        assert_eq!(folders.s3_glacier_object_dirs, vec!["dir4"]);
+        assert!(folders.s3_deep_archive_object_dirs.is_empty());
+        assert_eq!(folders.s3_glacier_ir_object_dirs.as_deref(), Some(&["dir5".to_string()][..]));
+        assert_eq!(folders.imported_from.as_deref(), Some("older_backup"));
+    }
+
+    #[test]
+    fn test_from_reader_valid_no_optional() {
+        let json_data = r#"{
+            "standardObjectDirs": [],
+            "standardIAObjectDirs": [],
+            "onezoneIAObjectDirs": [],
+            "s3GlacierObjectDirs": [],
+            "s3DeepArchiveObjectDirs": []
+        }"#;
+
+        let reader = Cursor::new(json_data);
+        let folders = BackupFolders::from_reader(reader).unwrap();
+
+        assert!(folders.standard_object_dirs.is_empty());
+        assert!(folders.standard_ia_object_dirs.is_empty());
+        assert!(folders.onezone_ia_object_dirs.is_empty());
+        assert!(folders.s3_glacier_object_dirs.is_empty());
+        assert!(folders.s3_deep_archive_object_dirs.is_empty());
+        assert!(folders.s3_glacier_ir_object_dirs.is_none());
+        assert!(folders.imported_from.is_none());
+    }
+
+    #[test]
+    fn test_from_reader_invalid() {
+        let json_data = r#"{
+            "standardObjectDirs": "not an array"
+        }"#;
+
+        let reader = Cursor::new(json_data);
+        let result = BackupFolders::from_reader(reader);
+        assert!(result.is_err());
+    }
+}
