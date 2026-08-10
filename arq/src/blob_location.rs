@@ -572,10 +572,12 @@ mod tests {
 
     #[test]
     fn decompress_data_unsupported_type() {
-        let loc = create_test_blobloc(3);
+        let loc = create_test_blobloc(99);
         let data = b"hello world".to_vec();
         let result = loc.decompress_data(data);
-        assert!(matches!(result, Err(Error::InvalidFormat(_))));
+        assert!(
+            matches!(result, Err(Error::InvalidFormat(msg)) if msg == "Unsupported compression type: 99")
+        );
     }
 
     #[test]
