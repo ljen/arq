@@ -74,8 +74,6 @@ impl CompressionType {
 #[cfg(test)]
 mod tests {
     use super::*;
-<<<<<<< ours — module `tests` (S+F, confidence: low)
-// hint: Structural and logic conflict. Both design and behavior differ.
     use flate2::write::GzEncoder;
     use flate2::Compression;
     use std::io::Write;
