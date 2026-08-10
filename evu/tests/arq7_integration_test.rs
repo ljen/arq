@@ -220,8 +220,6 @@ fn test_arq7_show_folder_versions_encrypted_found() {
         .success()
         .stdout(predicate::str::contains("Versions for folder: /Users/developer/Projects/2024-12-arq-decryption/arq_backup_source/subfolder"))
         .stdout(predicate::str::contains("Record Timestamp:"))
-        // TODO: Investigate why this shows ~2. JSON and debug log for node.contained_files_count show Some(1).
-        // For now, matching observed behavior.
         .stdout(predicate::str::contains("Items: ~2"));
 }
 
