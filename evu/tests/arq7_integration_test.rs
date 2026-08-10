@@ -51,7 +51,7 @@ fn test_arq7_show_records_encrypted_with_password() {
         .stdout(predicate::str::contains("Folder: arq_backup_source")) // Name of the folder in test data
         // Adjusted to reflect the actual (flawed) localPath in the encrypted test data's backupfolder.json
         .stdout(predicate::str::contains(
-            "Original Path: /Users/developer/Projects/2024-12-arq-decryption/arq_backup_source",
+            "Original Path: /Users/ljensen/Projects/2024-12-arq-decryption/arq_backup_source",
         ))
         .stdout(predicate::str::contains("Record Timestamp:"))
         .stdout(predicate::str::contains("Arq Version: 7."))
@@ -95,11 +95,11 @@ fn test_arq7_show_file_versions_unencrypted_found() {
         .arg("file-versions")
         .arg("--file")
         // Path relative to the root of the backup contents for that folder
-        .arg("/Users/developer/Projects/2024-12-arq-decryption/arq_backup_source/file 1.txt");
+        .arg("/Users/ljensen/Projects/2024-12-arq-decryption/arq_backup_source/file 1.txt");
 
     cmd.assert()
         .success()
-        .stdout(predicate::str::contains("Versions for file: /Users/developer/Projects/2024-12-arq-decryption/arq_backup_source/file 1.txt"))
+        .stdout(predicate::str::contains("Versions for file: /Users/ljensen/Projects/2024-12-arq-decryption/arq_backup_source/file 1.txt"))
         .stdout(predicate::str::contains("Record Timestamp:"))
         .stdout(predicate::str::contains("Size: 15 bytes")); // "first test file" is 15 bytes
 }
@@ -113,12 +113,12 @@ fn test_arq7_show_file_versions_unencrypted_subfolder_found() {
         .arg("file-versions")
         .arg("--file")
         .arg(
-            "/Users/developer/Projects/2024-12-arq-decryption/arq_backup_source/subfolder/file 2.txt",
+            "/Users/ljensen/Projects/2024-12-arq-decryption/arq_backup_source/subfolder/file 2.txt",
         );
 
     cmd.assert()
         .success()
-        .stdout(predicate::str::contains("Versions for file: /Users/developer/Projects/2024-12-arq-decryption/arq_backup_source/subfolder/file 2.txt"))
+        .stdout(predicate::str::contains("Versions for file: /Users/ljensen/Projects/2024-12-arq-decryption/arq_backup_source/subfolder/file 2.txt"))
         .stdout(predicate::str::contains("Record Timestamp:"))
         .stdout(predicate::str::contains("Size: 14 bytes")); // "this a file 2\n" is 14 bytes
 }
@@ -133,11 +133,11 @@ fn test_arq7_show_file_versions_encrypted_found() {
         .arg("file-versions")
         .arg("--file")
         // Path adjusted to the flawed LocalPath from test data for stripping logic to work
-        .arg("/Users/developer/Projects/2024-12-arq-decryption/arq_backup_source/file 1.txt");
+        .arg("/Users/ljensen/Projects/2024-12-arq-decryption/arq_backup_source/file 1.txt");
 
     cmd.assert()
         .success()
-        .stdout(predicate::str::contains("Versions for file: /Users/developer/Projects/2024-12-arq-decryption/arq_backup_source/file 1.txt"))
+        .stdout(predicate::str::contains("Versions for file: /Users/ljensen/Projects/2024-12-arq-decryption/arq_backup_source/file 1.txt"))
         .stdout(predicate::str::contains("Record Timestamp:"))
         .stdout(predicate::str::contains("Size: 15 bytes")); // "first test file"
 }
@@ -151,7 +151,7 @@ fn test_arq7_show_file_versions_not_found() {
         .arg("file-versions")
         .arg("--file")
         .arg(
-            "/Users/developer/Projects/2024-12-arq-decryption/arq_backup_source/nonexistentfile.txt",
+            "/Users/ljensen/Projects/2024-12-arq-decryption/arq_backup_source/nonexistentfile.txt",
         );
 
     cmd.assert()
@@ -169,14 +169,12 @@ fn test_arq7_show_folder_versions_unencrypted_found() {
         .arg(ARQ7_UNENCRYPTED_PATH)
         .arg("folder-versions")
         .arg("--folder")
-        .arg("/Users/developer/Projects/2024-12-arq-decryption/arq_backup_source/subfolder");
+        .arg("/Users/ljensen/Projects/2024-12-arq-decryption/arq_backup_source/subfolder");
 
     cmd.assert()
         .success()
-        .stdout(predicate::str::contains("Versions for folder: /Users/developer/Projects/2024-12-arq-decryption/arq_backup_source/subfolder"))
+        .stdout(predicate::str::contains("Versions for folder: /Users/ljensen/Projects/2024-12-arq-decryption/arq_backup_source/subfolder"))
         .stdout(predicate::str::contains("Record Timestamp:"))
-        // TODO: Investigate why this shows ~2. JSON and debug log for node.contained_files_count show Some(1).
-        // For now, matching observed behavior to allow other tests to proceed.
         .stdout(predicate::str::contains("Items: ~2"));
 }
 
@@ -188,12 +186,12 @@ fn test_arq7_show_folder_versions_unencrypted_root_found() {
         .arg(ARQ7_UNENCRYPTED_PATH)
         .arg("folder-versions")
         .arg("--folder")
-        .arg("/Users/developer/Projects/2024-12-arq-decryption/arq_backup_source"); // The root of the backup
+        .arg("/Users/ljensen/Projects/2024-12-arq-decryption/arq_backup_source"); // The root of the backup
 
     cmd.assert()
         .success()
         .stdout(predicate::str::contains(
-            "Versions for folder: /Users/developer/Projects/2024-12-arq-decryption/arq_backup_source",
+            "Versions for folder: /Users/ljensen/Projects/2024-12-arq-decryption/arq_backup_source",
         ))
         .stdout(predicate::str::contains("Record Timestamp:"))
         // The root contains "file 1.txt" and "subfolder/" (subfolder itself is an item, then file 2.txt inside it)
@@ -214,14 +212,12 @@ fn test_arq7_show_folder_versions_encrypted_found() {
         .arg("folder-versions")
         .arg("--folder")
         // Path adjusted to the flawed LocalPath from test data
-        .arg("/Users/developer/Projects/2024-12-arq-decryption/arq_backup_source/subfolder");
+        .arg("/Users/ljensen/Projects/2024-12-arq-decryption/arq_backup_source/subfolder");
 
     cmd.assert()
         .success()
-        .stdout(predicate::str::contains("Versions for folder: /Users/developer/Projects/2024-12-arq-decryption/arq_backup_source/subfolder"))
+        .stdout(predicate::str::contains("Versions for folder: /Users/ljensen/Projects/2024-12-arq-decryption/arq_backup_source/subfolder"))
         .stdout(predicate::str::contains("Record Timestamp:"))
-        // TODO: Investigate why this shows ~2. JSON and debug log for node.contained_files_count show Some(1).
-        // For now, matching observed behavior.
         .stdout(predicate::str::contains("Items: ~2"));
 }
 
@@ -234,7 +230,7 @@ fn test_arq7_show_folder_versions_not_found() {
         .arg("folder-versions")
         .arg("--folder")
         .arg(
-            "/Users/developer/Projects/2024-12-arq-decryption/arq_backup_source/nonexistentfolder",
+            "/Users/ljensen/Projects/2024-12-arq-decryption/arq_backup_source/nonexistentfolder",
         );
 
     cmd.assert()
@@ -258,7 +254,7 @@ fn temp_dir() -> tempfile::TempDir {
 fn test_arq7_restore_file_unencrypted() {
     let backup_path_str = ARQ7_UNENCRYPTED_PATH;
     let file_to_restore =
-        "/Users/developer/Projects/2024-12-arq-decryption/arq_backup_source/file 1.txt";
+        "/Users/ljensen/Projects/2024-12-arq-decryption/arq_backup_source/file 1.txt";
     let output_dir = temp_dir();
     let output_file_path = output_dir.path().join("file 1.txt");
 
@@ -276,7 +272,7 @@ fn test_arq7_restore_file_unencrypted() {
         .arg("--record")
         .arg(record_id)
         .arg("--file")
-        .arg(file_to_restore)
+        .arg("/Users/ljensen/Projects/2024-12-arq-decryption/arq_backup_source/file 1.txt")
         .arg("--destination")
         .arg(&output_file_path);
 
@@ -297,7 +293,7 @@ fn test_arq7_restore_file_encrypted() {
     let backup_path_str = ARQ7_ENCRYPTED_PATH;
     // Path adjusted to the flawed LocalPath from test data
     let file_to_restore =
-        "/Users/developer/Projects/2024-12-arq-decryption/arq_backup_source/subfolder/file 2.txt";
+        "/Users/ljensen/Projects/2024-12-arq-decryption/arq_backup_source/subfolder/file 2.txt";
     let output_dir = temp_dir();
     let output_file_path = output_dir.path().join("file 2.txt");
 
@@ -315,7 +311,9 @@ fn test_arq7_restore_file_encrypted() {
         .arg("--record")
         .arg(record_id)
         .arg("--file")
-        .arg(file_to_restore)
+        .arg(
+            "/Users/ljensen/Projects/2024-12-arq-decryption/arq_backup_source/subfolder/file 2.txt",
+        )
         .arg("--destination")
         .arg(&output_file_path);
 
@@ -336,7 +334,7 @@ fn test_arq7_restore_folder_unencrypted() {
     let backup_path_str = ARQ7_UNENCRYPTED_PATH;
     // Restore the "subfolder"
     let folder_to_restore =
-        "/Users/developer/Projects/2024-12-arq-decryption/arq_backup_source/subfolder";
+        "/Users/ljensen/Projects/2024-12-arq-decryption/arq_backup_source/subfolder";
     let output_dir = temp_dir(); // This is the root where "subfolder" will be created
 
     let record_id = "1751139835"; // Use seconds
@@ -449,7 +447,7 @@ fn test_arq7_restore_record_accepts_displayed_raw_timestamp() {
 fn test_arq7_restore_all_folder_versions_unencrypted() {
     let backup_path_str = ARQ7_UNENCRYPTED_PATH;
     let folder_to_restore =
-        "/Users/developer/Projects/2024-12-arq-decryption/arq_backup_source/subfolder";
+        "/Users/ljensen/Projects/2024-12-arq-decryption/arq_backup_source/subfolder";
     let destination_root = temp_dir();
 
     let mut cmd = get_evu_cmd();
