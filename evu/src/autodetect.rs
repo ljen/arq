@@ -42,8 +42,8 @@ pub fn detect_version(path: &Path) -> Result<ArqVersion, crate::error::Error> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use tempfile::TempDir;
     use std::fs::File;
+    use tempfile::TempDir;
 
     #[test]
     fn test_detect_arq7() {
