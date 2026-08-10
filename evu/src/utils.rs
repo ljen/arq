@@ -57,11 +57,14 @@ pub fn get_file_reader(filename: &Path) -> IoResult<BufReader<File>> {
     Ok(BufReader::new(file))
 }
 
-pub fn get_password() -> Result<String> {
+pub fn get_password<F>(prompter: F) -> Result<String>
+where
+    F: FnOnce(&str) -> std::io::Result<String>,
+{
     if let Ok(password) = std::env::var("ARQ_PASSWORD") {
         Ok(password)
     } else {
-        rpassword::prompt_password("Enter encryption password: ")
+        prompter("Enter encryption password: ")
             .map_err(|e| crate::error::Error::Generic(e.to_string()))
     }
 }
@@ -69,7 +72,7 @@ pub fn get_password() -> Result<String> {
 pub fn get_master_keys(path: &str, _computer: &str) -> Result<Vec<Vec<u8>>> {
     let enc_path = Path::new(path).join("encryptionv3.dat");
     let mut reader = get_file_reader(&enc_path)?;
-    let password = get_password()?;
+    let password = get_password(|p| rpassword::prompt_password(p))?;
     let enc_data = object_encryption::EncryptionDat::new(&mut reader, &password)?;
     Ok(enc_data.master_keys)
 }
@@ -100,6 +103,7 @@ macro_rules! debug_eprintln {
 mod tests {
     use super::*;
     use plist;
+    use serial_test::serial;
     use std::fs;
     use std::io::Read;
     use tempfile::{NamedTempFile, TempDir, tempdir};
@@ -191,19 +195,36 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn test_get_password_env_var() {
         let test_pass = "my_super_secret_password_123";
         unsafe {
             std::env::set_var("ARQ_PASSWORD", test_pass);
         }
 
-        let result = get_password();
+        let result = get_password(|_| {
+            panic!("Prompter should not be called when ARQ_PASSWORD is set");
+        });
         assert!(result.is_ok());
         assert_eq!(result.unwrap(), test_pass);
 
         unsafe {
             std::env::remove_var("ARQ_PASSWORD");
         }
+    }
+
+    #[test]
+    #[serial]
+    fn test_get_password_prompt() {
+        unsafe {
+            std::env::remove_var("ARQ_PASSWORD");
+        }
+
+        let test_pass = "prompted_password_456";
+        let result = get_password(|_| Ok(test_pass.to_string()));
+
+        assert!(result.is_ok());
+        assert_eq!(result.unwrap(), test_pass);
     }
 
     #[test]
