@@ -89,8 +89,8 @@ impl PackSet {
         };
 
         if let Some((pack_path, offset)) = cached_val {
-            let mut pack_reader = get_file_reader_for_restore(&pack_path)
-                .map_err(crate::error::Error::IoError)?;
+            let mut pack_reader =
+                get_file_reader_for_restore(&pack_path).map_err(crate::error::Error::IoError)?;
 
             pack_reader
                 .seek(SeekFrom::Start(offset as u64))
@@ -321,7 +321,7 @@ impl PackIndex {
         // "cursor"/reader. So what I do is I try to read 21 bytes. If I can, then I know
         // I have more than just the sha1 of the content. If I can't, then I'm back where
         // I was and I do nothing.
-        let mut _buf = vec![0; 21];
+        let mut _buf = [0u8; 21];
         if reader.read_exact(&mut _buf).is_ok() {
             // This is a easier condition than trying to read the bytes for glacier.  If all
             // the bytes read + 20 (for the final sha1) account for the entire length of the
@@ -403,7 +403,7 @@ impl PackIndexObject {
         let offset = reader.read_u64::<NetworkEndian>()?;
         let data_len = reader.read_u64::<NetworkEndian>()?;
         let sha1 = reader.read_bytes(20)?;
-        let _padding = reader.read_bytes(4)?;
+        reader.read_bytes(4)?; // unused padding
 
         Ok(PackIndexObject {
             offset: offset as usize,

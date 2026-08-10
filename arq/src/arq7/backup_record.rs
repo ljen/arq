@@ -247,10 +247,9 @@ impl GenericBackupRecord {
             lz4_flex::block::decompress(&compressed, length)?
         };
 
-        // Parse the JSON
-        let json_str = String::from_utf8(data)?;
-        // println!("BackupRecord Json:\n{}", json_str);
-        Ok(serde_json::from_str(&json_str)?)
+        // Parse the JSON directly from the byte slice
+        // println!("BackupRecord Json:\n{}", String::from_utf8_lossy(&data));
+        Ok(serde_json::from_slice(&data)?)
     }
 }
 
