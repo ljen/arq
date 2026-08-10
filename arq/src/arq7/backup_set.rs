@@ -841,6 +841,26 @@ mod tests {
         backup_set.backup_config.is_encrypted = false;
         assert!(!backup_set.is_encrypted());
     }
+
+    #[test]
+    fn test_from_directory_success() {
+        let root = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("tests/arq_storage_location/FD5575D9-B7E1-43D9-B29C-B54ACC9BC2A9");
+        let backup_set = BackupSet::from_directory(&root).unwrap();
+
+        assert!(!backup_set.is_encrypted());
+        assert_eq!(backup_set.root_path, root);
+        // The unencrypted fixture has 1 backup folder
+        assert_eq!(backup_set.backup_folder_configs.len(), 1);
+        assert_eq!(backup_set.backup_records.len(), 1);
+    }
+
+    #[test]
+    fn test_from_directory_missing_config() {
+        let temp_dir = tempfile::tempdir().unwrap();
+        let result = BackupSet::from_directory(temp_dir.path());
+        assert!(result.is_err());
+    }
 }
 
 #[cfg(test)]
