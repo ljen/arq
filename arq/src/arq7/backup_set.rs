@@ -441,7 +441,7 @@ impl BackupSet {
         for records in self.backup_records.values() {
             for generic_record in records {
                 if let GenericBackupRecord::Arq7(record) = generic_record {
-                    let mut path_buffer = String::new();
+                    let mut path_buffer = String::with_capacity(1024);
                     self.collect_files_recursive(
                         &record.node, // This is now crate::node::Node
                         &mut path_buffer,
