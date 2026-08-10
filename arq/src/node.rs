@@ -810,24 +810,8 @@ impl Node {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::io::{Cursor, Read};
-
-    struct NonSeekReader {
-        inner: Cursor<Vec<u8>>,
-    }
-
-    impl Read for NonSeekReader {
-        fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
-            self.inner.read(buf)
-        }
-    }
-
-    fn arq_string(value: &str) -> Vec<u8> {
-        let mut bytes = vec![1];
-        bytes.extend_from_slice(&(value.len() as u64).to_be_bytes());
-        bytes.extend_from_slice(value.as_bytes());
-        bytes
-    }
+    use crate::test_utils::{arq_string, NonSeekReader};
+    use std::io::Cursor;
 
     fn arq_null_string() -> Vec<u8> {
         vec![0]
