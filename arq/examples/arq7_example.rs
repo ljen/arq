@@ -266,7 +266,7 @@ fn print_backup_records(backup_set: &BackupSet, backup_set_path: &str) -> Option
 
                             let packset = PackSet::new(&trees_path);
                             let data = match packset.restore_blob_with_sha(&sha, keyset_ref) {
-                                Ok(d) => d.unwrap(),
+                                Ok(d) => d,
                                 Err(e) => {
                                     println!(
                                         "      ❌ Error restoring blob with SHA {}: {}",

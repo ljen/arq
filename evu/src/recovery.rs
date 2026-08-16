@@ -15,6 +15,7 @@ pub struct RestoreOptions<'a> {
     pub absolute_filepath: &'a str,
     pub folder: &'a str,
     pub keyset: &'a EncryptedKeySet,
+    pub packset: &'a packset::PackSet,
 }
 
 pub fn restore_file(
@@ -34,11 +35,12 @@ pub fn restore_file(
     let keyset = EncryptedKeySet::from_master_keys(master_keys.clone())?;
     let head_sha = utils::find_latest_folder_sha(path, computer, folder)?;
 
-    let data = packset::restore_blob_with_sha(&trees_path, &head_sha, &keyset)?;
+    let packset = packset::PackSet::new(&trees_path);
+    let data = packset.restore_blob_with_sha(&head_sha, &keyset)?;
     let commit = Commit::new(Cursor::new(data))?;
 
     let arq_folder = utils::read_arq_folder(path, computer, folder, master_keys.clone())?;
-    let tree_blob = packset::restore_blob_with_sha(&trees_path, &commit.tree_sha1, &keyset)?;
+    let tree_blob = packset.restore_blob_with_sha(&commit.tree_sha1, &keyset)?;
     let tree = tree::Tree::new_arq5(&tree_blob, commit.tree_compression_type)?;
 
     let options = RestoreOptions {
@@ -46,6 +48,7 @@ pub fn restore_file(
         absolute_filepath,
         folder,
         keyset: &keyset,
+        packset: &packset,
     };
 
     restore_file_in_tree(Path::new(&arq_folder.local_path), tree, &options)
@@ -66,8 +69,7 @@ fn restore_file_in_tree(prefix: &Path, tree: tree::Tree, options: &RestoreOption
                 // Passed node as reference
             }
         } else {
-            let data = packset::restore_blob_with_sha(
-                options.path,
+            let data = options.packset.restore_blob_with_sha(
                 &node.data_blob_locs[0].blob_identifier,
                 options.keyset,
             )?; // Changed to data_blob_locs and blob_identifier
