@@ -827,6 +827,196 @@ fn count_files_in_node(
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn test_count_files_in_node_file() {
+        use crate::node::Node;
+        let node = Node {
+            is_tree: false,
+            item_size: 1024,
+            deleted: false,
+            computer_os_type: None,
+            modification_time_sec: 0,
+            modification_time_nsec: 0,
+            change_time_sec: 0,
+            change_time_nsec: 0,
+            creation_time_sec: 0,
+            creation_time_nsec: 0,
+            st_mode: 0,
+            st_ino: 0,
+            st_nlink: 0,
+            st_gid: 0,
+            st_uid: None,
+            username: None,
+            group_name: None,
+            st_dev: 0,
+            st_rdev: 0,
+            st_flags: 0,
+            win_attrs: None,
+            reparse_tag: None,
+            reparse_point_is_directory: None,
+            added_time_sec: None,
+            added_time_nsec: None,
+            document_id: None,
+            has_document_id: None,
+            is_sparse: None,
+            sparse_logical_size: None,
+            sparse_holes: Vec::new(),
+            contained_files_count: None,
+            data_blob_locs: Vec::new(),
+            tree_blob_loc: None,
+            xattrs_blob_locs: None,
+            acl_blob_loc: None,
+            arq5_tree_contains_missing_items: None,
+            arq5_data_compression_type: None,
+            arq5_xattrs_compression_type: None,
+            arq5_acl_compression_type: None,
+            arq5_xattrs_blob_key: None,
+            arq5_xattrs_size: None,
+            arq5_acl_blob_key: None,
+            arq5_finder_flags: None,
+            arq5_extended_finder_flags: None,
+            arq5_finder_file_type: None,
+            arq5_finder_file_creator: None,
+            arq5_is_file_extension_hidden: None,
+            arq5_st_blocks: None,
+            arq5_st_blksize: None,
+        };
+
+        let path = std::path::PathBuf::from("/nonexistent");
+        let result = count_files_in_node(&node, &path, None).unwrap();
+        assert_eq!(result, (1, 1024));
+    }
+
+    #[test]
+    fn test_count_files_in_node_tree_not_found() {
+        use crate::node::Node;
+        use crate::blob_location::BlobLoc;
+        let node = Node {
+            is_tree: true,
+            item_size: 0,
+            deleted: false,
+            computer_os_type: None,
+            modification_time_sec: 0,
+            modification_time_nsec: 0,
+            change_time_sec: 0,
+            change_time_nsec: 0,
+            creation_time_sec: 0,
+            creation_time_nsec: 0,
+            st_mode: 0,
+            st_ino: 0,
+            st_nlink: 0,
+            st_gid: 0,
+            st_uid: None,
+            username: None,
+            group_name: None,
+            st_dev: 0,
+            st_rdev: 0,
+            st_flags: 0,
+            win_attrs: None,
+            reparse_tag: None,
+            reparse_point_is_directory: None,
+            added_time_sec: None,
+            added_time_nsec: None,
+            document_id: None,
+            has_document_id: None,
+            is_sparse: None,
+            sparse_logical_size: None,
+            sparse_holes: Vec::new(),
+            contained_files_count: None,
+            data_blob_locs: Vec::new(),
+            tree_blob_loc: Some(BlobLoc {
+                blob_identifier: "missing".to_string(),
+                compression_type: 0,
+                is_packed: false,
+                length: 0,
+                offset: 0,
+                relative_path: "missing".to_string(),
+                stretch_encryption_key: false,
+                is_large_pack: None,
+            }),
+            xattrs_blob_locs: None,
+            acl_blob_loc: None,
+            arq5_tree_contains_missing_items: None,
+            arq5_data_compression_type: None,
+            arq5_xattrs_compression_type: None,
+            arq5_acl_compression_type: None,
+            arq5_xattrs_blob_key: None,
+            arq5_xattrs_size: None,
+            arq5_acl_blob_key: None,
+            arq5_finder_flags: None,
+            arq5_extended_finder_flags: None,
+            arq5_finder_file_type: None,
+            arq5_finder_file_creator: None,
+            arq5_is_file_extension_hidden: None,
+            arq5_st_blocks: None,
+            arq5_st_blksize: None,
+        };
+
+        let path = std::path::PathBuf::from("/nonexistent");
+        let result = count_files_in_node(&node, &path, None);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_count_files_in_node_tree_empty() {
+        use crate::node::Node;
+        let node = Node {
+            is_tree: true,
+            item_size: 0,
+            deleted: false,
+            computer_os_type: None,
+            modification_time_sec: 0,
+            modification_time_nsec: 0,
+            change_time_sec: 0,
+            change_time_nsec: 0,
+            creation_time_sec: 0,
+            creation_time_nsec: 0,
+            st_mode: 0,
+            st_ino: 0,
+            st_nlink: 0,
+            st_gid: 0,
+            st_uid: None,
+            username: None,
+            group_name: None,
+            st_dev: 0,
+            st_rdev: 0,
+            st_flags: 0,
+            win_attrs: None,
+            reparse_tag: None,
+            reparse_point_is_directory: None,
+            added_time_sec: None,
+            added_time_nsec: None,
+            document_id: None,
+            has_document_id: None,
+            is_sparse: None,
+            sparse_logical_size: None,
+            sparse_holes: Vec::new(),
+            contained_files_count: None,
+            data_blob_locs: Vec::new(),
+            tree_blob_loc: None,
+            xattrs_blob_locs: None,
+            acl_blob_loc: None,
+            arq5_tree_contains_missing_items: None,
+            arq5_data_compression_type: None,
+            arq5_xattrs_compression_type: None,
+            arq5_acl_compression_type: None,
+            arq5_xattrs_blob_key: None,
+            arq5_xattrs_size: None,
+            arq5_acl_blob_key: None,
+            arq5_finder_flags: None,
+            arq5_extended_finder_flags: None,
+            arq5_finder_file_type: None,
+            arq5_finder_file_creator: None,
+            arq5_is_file_extension_hidden: None,
+            arq5_st_blocks: None,
+            arq5_st_blksize: None,
+        };
+
+        let path = std::path::PathBuf::from("/nonexistent");
+        let result = count_files_in_node(&node, &path, None).unwrap();
+        assert_eq!(result, (0, 0));
+    }
+
 
     #[test]
     fn test_backup_set_is_encrypted() {
