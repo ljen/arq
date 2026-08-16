@@ -1455,3 +1455,32 @@ fn extract_node_to_destination_recursive(
     }
     Ok(())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_record_timestamp_dir_name() {
+        // Whole integer timestamps
+        assert_eq!(record_timestamp_dir_name(10.0), "10");
+        assert_eq!(record_timestamp_dir_name(0.0), "0");
+
+        // Fractional timestamps
+        assert_eq!(record_timestamp_dir_name(10.5), "10.5");
+        assert_eq!(record_timestamp_dir_name(12345.678), "12345.678");
+
+        // Fractional part within epsilon
+        let near_ten = 10.0 + (f64::EPSILON / 2.0);
+        assert_eq!(record_timestamp_dir_name(near_ten), "10");
+
+        // Negative values
+        assert_eq!(record_timestamp_dir_name(-10.0), "-10");
+        assert_eq!(record_timestamp_dir_name(-10.5), "-10.5");
+
+        // NaN and Infinity
+        assert_eq!(record_timestamp_dir_name(f64::NAN), "NaN");
+        assert_eq!(record_timestamp_dir_name(f64::INFINITY), "inf");
+        assert_eq!(record_timestamp_dir_name(f64::NEG_INFINITY), "-inf");
+    }
+}
