@@ -47,9 +47,11 @@ pub fn show(path: &str, computer: &str, folder: &str) -> Result<()> {
     let arq_folder = utils::read_arq_folder(path, computer, folder, master_keys.clone())?;
     let head_sha = utils::find_latest_folder_sha(path, computer, folder)?;
 
+    let packset = packset::PackSet::new(&trees_path);
+
     render_tree(
         Path::new(&arq_folder.local_path),
-        &trees_path,
+        &packset,
         &head_sha,
         &keyset,
     )
@@ -57,24 +59,24 @@ pub fn show(path: &str, computer: &str, folder: &str) -> Result<()> {
 
 fn render_tree(
     prefix: &std::path::Path,
-    path: &std::path::PathBuf,
+    packset: &packset::PackSet,
     sha: &str,
     keyset: &EncryptedKeySet,
 ) -> Result<()> {
-    let data = packset::restore_blob_with_sha(path, sha, keyset)?;
+    let data = packset.restore_blob_with_sha(sha, keyset)?;
     let commit = Commit::new(Cursor::new(data))?;
     #[cfg(debug_assertions)]
     show_commit(&commit);
 
-    let tree_blob = packset::restore_blob_with_sha(path, &commit.tree_sha1, keyset)?;
+    let tree_blob = packset.restore_blob_with_sha(&commit.tree_sha1, keyset)?;
     let tree = tree::Tree::new_arq5(&tree_blob, commit.tree_compression_type)?;
-    render_internal_tree(prefix, &path, tree, keyset)?;
+    render_internal_tree(prefix, packset, tree, keyset)?;
     Ok(())
 }
 
 fn render_internal_tree(
     prefix: &std::path::Path,
-    path: &PathBuf,
+    packset: &packset::PackSet,
     tr: tree::Tree,
     keyset: &EncryptedKeySet,
 ) -> Result<()> {
@@ -84,8 +86,7 @@ fn render_internal_tree(
                 // Changed data_blob_keys to data_blob_locs
                 continue;
             }
-            let data = packset::restore_blob_with_sha(
-                &path,
+            let data = packset.restore_blob_with_sha(
                 &v.data_blob_locs[0].blob_identifier,
                 &keyset,
             )?; // Changed to data_blob_locs and blob_identifier
@@ -94,7 +95,7 @@ fn render_internal_tree(
                 v.arq5_data_compression_type
                     .unwrap_or(arq::compression::CompressionType::None),
             )?; // Changed to arq5_data_compression_type
-            render_internal_tree(prefix.join(k).as_path(), &path, tree, &keyset)?;
+            render_internal_tree(prefix.join(k).as_path(), packset, tree, &keyset)?;
         } else {
             println!("{}", prefix.join(k).as_os_str().to_string_lossy());
         }
