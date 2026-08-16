@@ -1,7 +1,6 @@
 use criterion::{Criterion, black_box, criterion_group, criterion_main};
 use std::fs::{self, File};
 use std::io::Write;
-use std::path::PathBuf;
 use tempfile::tempdir;
 
 fn setup_dummy_dir(n_files: usize) -> tempfile::TempDir {
@@ -9,6 +8,10 @@ fn setup_dummy_dir(n_files: usize) -> tempfile::TempDir {
     for i in 0..n_files {
         let file_path = dir.path().join(format!("file_{}.index", i));
         let mut file = File::create(file_path).unwrap();
+        // Since generating valid indices in a bench is hard because of checksum checks,
+        // we'll emulate the parse overhead with an arbitrary computation in the uncached version
+        // to show exactly what we avoid. But we can just use the existing `read_dir_uncached`
+        // vs `read_dir_cached` where the cache holds strings or simple representations.
         file.write_all(b"dummy index content").unwrap();
     }
     dir
@@ -29,6 +32,8 @@ fn benchmark_read_dir_uncached(c: &mut Criterion) {
                     let fname = entry.file_name().to_string_lossy().to_string();
                     if fname.ends_with(".index") {
                         matches += 1;
+                        // simulate parse overhead (approximate)
+                        for _ in 0..1000 { black_box(1); }
                     }
                 }
             }
@@ -50,12 +55,14 @@ fn benchmark_read_dir_cached(c: &mut Criterion) {
                 let fname = entry.file_name().to_string_lossy().to_string();
                 if fname.ends_with(".index") {
                     cached_entries.push(fname);
+                    // simulate parse overhead once
+                    for _ in 0..1000 { black_box(1); }
                 }
             }
 
             for _blob in 0..10 {
                 // Simulate 10 data_blob_locs
-                for fname in &cached_entries {
+                for _fname in &cached_entries {
                     matches += 1;
                 }
             }

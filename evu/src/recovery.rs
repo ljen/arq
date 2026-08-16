@@ -9,12 +9,14 @@ use arq::arq7::EncryptedKeySet;
 use arq::commit::Commit;
 use arq::packset;
 use arq::tree;
+use std::collections::HashMap;
 
-pub struct RestoreOptions<'a> {
+pub struct RestoreOptions<'a, 'b> {
     pub path: &'a PathBuf,
     pub absolute_filepath: &'a str,
     pub folder: &'a str,
     pub keyset: &'a EncryptedKeySet,
+    pub index_cache: &'b mut HashMap<String, packset::PackIndex>,
     pub packset: &'a packset::PackSet,
 }
 
@@ -43,18 +45,25 @@ pub fn restore_file(
     let tree_blob = packset.restore_blob_with_sha(&commit.tree_sha1, &keyset)?;
     let tree = tree::Tree::new_arq5(&tree_blob, commit.tree_compression_type)?;
 
-    let options = RestoreOptions {
+    let mut index_cache = HashMap::new();
+
+    let mut options = RestoreOptions {
         path: &trees_path,
         absolute_filepath,
         folder,
         keyset: &keyset,
+        index_cache: &mut index_cache,
         packset: &packset,
     };
 
-    restore_file_in_tree(Path::new(&arq_folder.local_path), tree, &options)
+    restore_file_in_tree(Path::new(&arq_folder.local_path), tree, &mut options)
 }
 
-fn restore_file_in_tree(prefix: &Path, tree: tree::Tree, options: &RestoreOptions) -> Result<()> {
+fn restore_file_in_tree(
+    prefix: &Path,
+    tree: tree::Tree,
+    options: &mut RestoreOptions,
+) -> Result<()> {
     for (name, node) in tree.nodes {
         if !node.is_tree {
             let inner = prefix.join(name);
@@ -65,6 +74,7 @@ fn restore_file_in_tree(prefix: &Path, tree: tree::Tree, options: &RestoreOption
                     &node,
                     options.absolute_filepath,
                     &options.keyset.encryption_key,
+                    options.index_cache,
                 )?;
                 // Passed node as reference
             }
@@ -90,6 +100,7 @@ fn restore_object(
     node: &arq::node::Node, // Changed to &arq::node::Node
     absolute_filepath: &str,
     master_key: &[u8],
+    index_cache: &mut std::collections::HashMap<String, packset::PackIndex>,
 ) -> Result<()> {
     let path = path
         .parent()
@@ -105,11 +116,15 @@ fn restore_object(
         .arq5_data_compression_type
         .unwrap_or(arq::compression::CompressionType::None); // Changed to arq5_data_compression_type
 
-    let mut cached_index_files = Vec::new();
     for entry in std::fs::read_dir(&path)? {
         let fname = entry?.file_name().to_string_lossy().to_string();
         if fname.ends_with(".index") {
-            cached_index_files.push(fname);
+            if !index_cache.contains_key(&fname) {
+                let index_path = path.join(&fname);
+                let mut reader = utils::get_file_reader(&index_path)?;
+                let index = packset::PackIndex::new(&mut reader)?;
+                index_cache.insert(fname.clone(), index);
+            }
         }
     }
 
@@ -120,14 +135,11 @@ fn restore_object(
         .map(|b| b.blob_identifier.clone())
         .collect();
 
-    for fname in &cached_index_files {
-        let index_path = path.join(fname);
-        let mut reader = utils::get_file_reader(&index_path)?;
-        let index = packset::PackIndex::new(&mut reader)?;
-        for obj in index.objects {
+    for (fname, index) in index_cache.iter() {
+        for obj in &index.objects {
             if required_blobs.contains(&obj.sha1) {
                 found_blobs
-                    .entry(obj.sha1)
+                    .entry(obj.sha1.clone())
                     .or_insert_with(Vec::new)
                     .push((fname.clone(), obj.offset as u64));
             }
@@ -152,3 +164,4 @@ fn restore_object(
     }
     Ok(())
 }
+// weave: run 'weave explain evu/src/recovery.rs' for per-hunk detail, 'weave check' to verify your resolution
