@@ -1455,3 +1455,53 @@ fn extract_node_to_destination_recursive(
     }
     Ok(())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_format_timestamp() {
+        // Positive timestamp with fractions (2020-01-01 12:00:00 UTC)
+        let ts1 = 1577880000.5;
+        assert_eq!(format_timestamp(ts1), "2020-01-01 12:00:00 UTC");
+
+        // Negative timestamp with fractions (1969-12-31 12:00:00 UTC)
+        let ts2 = -43200.5;
+        assert_eq!(format_timestamp(ts2), "1969-12-31 12:00:00 UTC");
+
+        // Out of bounds timestamp (e.g., extremely large)
+        let ts3 = 1e18; // Far future, causes DateTime::from_timestamp to return None
+        assert_eq!(format_timestamp(ts3), ts3.to_string());
+    }
+
+    #[test]
+    fn test_format_timestamp_rfc3339() {
+        // Positive timestamp with fractions (2020-01-01T12:00:00.500Z)
+        let ts1 = 1577880000.5;
+        assert_eq!(format_timestamp_rfc3339(ts1), "2020-01-01T12:00:00.500+00:00");
+
+        // Negative timestamp with fractions (1969-12-31T12:00:00.500Z)
+        let ts2 = -43200.5;
+        assert_eq!(format_timestamp_rfc3339(ts2), "1969-12-31T12:00:00+00:00");
+
+        // Out of bounds timestamp (e.g., extremely large)
+        let ts3 = 1e18; // Far future, causes DateTime::from_timestamp to return None
+        assert_eq!(format_timestamp_rfc3339(ts3), ts3.to_string());
+    }
+
+    #[test]
+    fn test_format_epoch_secs() {
+        // Positive timestamp (2020-01-01 12:00:00 UTC)
+        let ts1 = 1577880000;
+        assert_eq!(format_epoch_secs(ts1), "2020-01-01 12:00:00");
+
+        // Negative timestamp (1969-12-31 12:00:00 UTC)
+        let ts2 = -43200;
+        assert_eq!(format_epoch_secs(ts2), "1969-12-31 12:00:00");
+
+        // Out of bounds timestamp
+        let ts3 = i64::MAX;
+        assert_eq!(format_epoch_secs(ts3), ts3.to_string());
+    }
+}
