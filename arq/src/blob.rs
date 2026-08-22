@@ -108,3 +108,107 @@ impl BlobKey {
         }))
     }
 }
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::io::Cursor;
+    use byteorder::{NetworkEndian, WriteBytesExt};
+
+    fn write_arq_string(buf: &mut Vec<u8>, s: &str) {
+        if s.is_empty() {
+            buf.push(0x00);
+        } else {
+            buf.push(0x01);
+            buf.write_u64::<NetworkEndian>(s.len() as u64).unwrap();
+            buf.extend_from_slice(s.as_bytes());
+        }
+    }
+
+    fn create_dummy_blobkey_bytes(sha1: &str, time_ms: u64, include_date: bool) -> Vec<u8> {
+        let mut buf = Vec::new();
+        // sha1 string
+        write_arq_string(&mut buf, sha1);
+
+        if !sha1.is_empty() {
+            // stretch_encryption_key
+            buf.push(0x00); // false
+
+            // storage_type
+            buf.write_u32::<NetworkEndian>(0).unwrap();
+
+            // archive_id (empty string)
+            write_arq_string(&mut buf, "");
+
+            // archive_size
+            buf.write_u64::<NetworkEndian>(0).unwrap();
+
+            // archive_upload_date
+            if include_date {
+                buf.push(0x01);
+                buf.write_u64::<NetworkEndian>(time_ms).unwrap();
+            } else {
+                buf.push(0x00);
+            }
+        } else {
+            // If sha1 is empty, the original logic reads the rest of fields to consume
+            // We need to write them so the reader doesn't hit EOF prematurely
+            buf.push(0x00); // stretch_encryption_key
+            buf.write_u32::<NetworkEndian>(0).unwrap(); // storage_type
+            write_arq_string(&mut buf, ""); // archive_id
+            buf.write_u64::<NetworkEndian>(0).unwrap(); // archive_size
+            if include_date {
+                buf.push(0x01);
+                buf.write_u64::<NetworkEndian>(time_ms).unwrap();
+            } else {
+                buf.push(0x00);
+            }
+        }
+
+        buf
+    }
+
+    #[test]
+    fn test_blob_key_new_invalid_date() {
+        // use a timestamp that evaluates to far in the future
+        let invalid_timestamp = i64::MAX as u64; // > year 9999
+        let bytes = create_dummy_blobkey_bytes("some-sha1", invalid_timestamp, true);
+        let mut cursor = Cursor::new(bytes);
+
+        let result = BlobKey::new(&mut cursor);
+
+        assert!(result.is_err());
+        match result {
+            Err(crate::error::Error::InvalidFormat(msg)) => {
+                assert!(msg.contains("Invalid timestamp for archive_upload_date"));
+            }
+            _ => panic!("Expected InvalidFormat error"),
+        }
+    }
+
+    #[test]
+    fn test_blob_key_new_valid() {
+        let valid_timestamp = 1672531200000_u64; // 2023-01-01 00:00:00 UTC
+        let bytes = create_dummy_blobkey_bytes("valid-sha1", valid_timestamp, true);
+        let mut cursor = Cursor::new(bytes);
+
+        let result = BlobKey::new(&mut cursor).unwrap();
+        assert!(result.is_some());
+
+        let key = result.unwrap();
+        assert_eq!(key.sha1, "valid-sha1");
+        assert!(key.archive_upload_date.is_some());
+        assert_eq!(key.archive_upload_date.unwrap().timestamp_millis(), valid_timestamp as i64);
+    }
+
+    #[test]
+    fn test_blob_key_new_empty_sha1() {
+        let bytes = create_dummy_blobkey_bytes("", 0, false);
+        let mut cursor = Cursor::new(bytes);
+
+        let result = BlobKey::new(&mut cursor).unwrap();
+        assert!(result.is_none());
+
+        // Ensure reader consumed all expected bytes
+        assert_eq!(cursor.position(), cursor.into_inner().len() as u64);
+    }
+}
