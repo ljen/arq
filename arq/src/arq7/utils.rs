@@ -311,6 +311,19 @@ mod tests {
     }
 
     #[test]
+    fn test_is_file_encrypted_false_empty_file() {
+        let path = get_temp_path("empty");
+        {
+            let _file = File::create(&path).unwrap();
+        }
+
+        let result = is_file_encrypted(&path).unwrap();
+        assert!(!result);
+
+        let _ = std::fs::remove_file(path);
+    }
+
+    #[test]
     fn test_is_file_encrypted_false_wrong_header() {
         let path = get_temp_path("unencrypted");
         {
