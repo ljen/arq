@@ -79,10 +79,9 @@ fn restore_file_in_tree(
                 // Passed node as reference
             }
         } else {
-            let data = options.packset.restore_blob_with_sha(
-                &node.data_blob_locs[0].blob_identifier,
-                options.keyset,
-            )?; // Changed to data_blob_locs and blob_identifier
+            let data = options
+                .packset
+                .restore_blob_with_sha(&node.data_blob_locs[0].blob_identifier, options.keyset)?; // Changed to data_blob_locs and blob_identifier
             let inner_tree = tree::Tree::new_arq5(
                 &data,
                 node.arq5_data_compression_type

@@ -33,7 +33,9 @@ fn benchmark_read_dir_uncached(c: &mut Criterion) {
                     if fname.ends_with(".index") {
                         matches += 1;
                         // simulate parse overhead (approximate)
-                        for _ in 0..1000 { black_box(1); }
+                        for _ in 0..1000 {
+                            black_box(1);
+                        }
                     }
                 }
             }
@@ -56,7 +58,9 @@ fn benchmark_read_dir_cached(c: &mut Criterion) {
                 if fname.ends_with(".index") {
                     cached_entries.push(fname);
                     // simulate parse overhead once
-                    for _ in 0..1000 { black_box(1); }
+                    for _ in 0..1000 {
+                        black_box(1);
+                    }
                 }
             }
 
