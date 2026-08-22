@@ -185,6 +185,7 @@ impl Commit {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::io::Cursor;
 
     #[test]
     fn test_is_commit() {
@@ -196,5 +197,16 @@ mod tests {
 
         let short_array = [0u8; 5];
         assert!(!Commit::is_commit(&short_array));
+    }
+
+    #[test]
+    fn test_new_invalid_header() {
+        let invalid_commit = b"CommixV012someotherdata";
+        let reader = Cursor::new(invalid_commit);
+        let result = Commit::new(reader);
+        assert!(
+            matches!(result, Err(crate::error::Error::InvalidFormat(msg)) if msg == "Invalid commit header: expected 'CommitV'"),
+            "Expected InvalidFormat error with specific message"
+        );
     }
 }
