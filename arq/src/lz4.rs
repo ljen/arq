@@ -40,4 +40,11 @@ mod tests {
         let result = decompress(&invalid_compressed);
         assert!(result.is_err());
     }
+
+    #[test]
+    fn test_lz4_decompress_short_input() {
+        let short_input = [1, 2, 3];
+        let result = decompress(&short_input);
+        assert!(result.is_err());
+    }
 }
