@@ -201,33 +201,66 @@ mod tests {
     }
 
     #[test]
-    fn test_commit_invalid_num_parents() {
-        use std::io::Cursor;
-        use crate::error::Error;
+    fn test_commit_new_valid() {
+        let commit_bytes: Vec<u8> = vec![
+            67, 111, 109, 109, 105, 116, 86, 48, 49, 50, 1, 0, 0, 0, 0, 0, 0, 0, 6, 97, 117,
+            116, 104, 111, 114, 1, 0, 0, 0, 0, 0, 0, 0, 7, 99, 111, 109, 109, 101, 110, 116, 0,
+            0, 0, 0, 0, 0, 0, 1, 1, 0, 0, 0, 0, 0, 0, 0, 4, 115, 104, 97, 49, 1, 1, 0, 0, 0, 0,
+            0, 0, 0, 9, 116, 114, 101, 101, 95, 115, 104, 97, 49, 0, 0, 0, 0, 2, 1, 0, 0, 0, 0,
+            0, 0, 0, 4, 47, 102, 111, 111, 1, 0, 0, 0, 0, 0, 0, 3, 232, 0, 0, 0, 0, 0, 0, 0, 0,
+            1, 1, 0, 0, 0, 0, 0, 0, 0, 3, 120, 109, 108, 1, 0, 0, 0, 0, 0, 0, 0, 4, 55, 46, 49,
+            57,
+        ];
 
-        let mut data = vec![];
-        data.extend_from_slice(b"CommitV012");
-        data.push(0); // author not present
-        data.push(0); // comment not present
-        data.extend_from_slice(&2u64.to_be_bytes()); // num_parent_commits = 2
+        let cursor = Cursor::new(commit_bytes);
+        let commit = Commit::new(cursor).unwrap();
 
-        let reader = Cursor::new(data);
-        let result = Commit::new(reader);
+        assert_eq!(commit.version, 12);
+        assert_eq!(commit.author, "author");
+        assert_eq!(commit.comment, "comment");
+        assert_eq!(commit.parent_commits.len(), 1);
+        assert_eq!(commit.parent_commits.get("sha1"), Some(&true));
+        assert_eq!(commit.tree_sha1, "tree_sha1");
+        assert_eq!(commit.tree_encryption_key_stretched, false);
+        assert_eq!(commit.tree_compression_type, CompressionType::LZ4);
+        assert_eq!(commit.folder_path, "/foo");
+        assert_eq!(commit.creation_date.unwrap().timestamp_millis(), 1000);
+        assert_eq!(commit.failed_files.len(), 0);
+        assert!(commit.has_missing_nodes);
+        assert!(commit.is_complete);
+        assert_eq!(commit.config_plist_xml, b"xml");
+        assert_eq!(commit.arq_version, "7.19");
+    }
 
+    #[test]
+    fn test_commit_new_invalid_header() {
+        // Start with bad header "CommitU012"
+        let commit_bytes: Vec<u8> = vec![
+            67, 111, 109, 109, 105, 116, 85, 48, 49, 50,
+        ];
+        let cursor = Cursor::new(commit_bytes);
+        let result = Commit::new(cursor);
         assert!(matches!(
             result,
-            Err(Error::InvalidFormat(msg)) if msg == "Expected 0 or 1 parent commits, got 2"
+            Err(crate::error::Error::InvalidFormat(msg)) if msg == "Invalid commit header: expected 'CommitV'"
         ));
     }
 
     #[test]
-    fn test_new_invalid_header() {
-        let invalid_commit = b"CommixV012someotherdata";
-        let reader = Cursor::new(invalid_commit);
-        let result = Commit::new(reader);
-        assert!(
-            matches!(result, Err(crate::error::Error::InvalidFormat(msg)) if msg == "Invalid commit header: expected 'CommitV'"),
-            "Expected InvalidFormat error with specific message"
-        );
+    fn test_commit_new_invalid_parent_count() {
+        let mut commit_bytes: Vec<u8> = vec![
+            67, 111, 109, 109, 105, 116, 86, 48, 49, 50, 1, 0, 0, 0, 0, 0, 0, 0, 6, 97, 117,
+            116, 104, 111, 114, 1, 0, 0, 0, 0, 0, 0, 0, 7, 99, 111, 109, 109, 101, 110, 116,
+        ];
+        // Set parent commits to 2 (which is invalid, > 1)
+        commit_bytes.extend_from_slice(&(2u64).to_be_bytes());
+
+        let cursor = Cursor::new(commit_bytes);
+        let result = Commit::new(cursor);
+        assert!(matches!(
+            result,
+            Err(crate::error::Error::InvalidFormat(msg)) if msg == "Expected 0 or 1 parent commits, got 2"
+        ));
     }
+
 }
