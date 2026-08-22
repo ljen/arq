@@ -496,8 +496,9 @@ impl BackupSet {
         let mut stats: BackupStatistics = BackupStatistics::default();
         let backup_set_dir_ref = self.root_path.as_ref();
 
+        stats.folder_count = self.backup_records.len() as u32; // This counts folders in backup_records map, not file system folders.
+
         for records_vec in self.backup_records.values() {
-            stats.folder_count += 1; // This counts folders in backup_records map, not file system folders.
             stats.record_count += records_vec.len() as u32;
 
             for generic_record in records_vec {
@@ -889,8 +890,8 @@ mod tests {
 
     #[test]
     fn test_count_files_in_node_tree_not_found() {
-        use crate::node::Node;
         use crate::blob_location::BlobLoc;
+        use crate::node::Node;
         let node = Node {
             is_tree: true,
             item_size: 0,
@@ -1016,7 +1017,6 @@ mod tests {
         let result = count_files_in_node(&node, &path, None).unwrap();
         assert_eq!(result, (0, 0));
     }
-
 
     #[test]
     fn test_backup_set_is_encrypted() {
