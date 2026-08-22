@@ -503,8 +503,9 @@ impl BackupSet {
         let mut stats: BackupStatistics = BackupStatistics::default();
         let backup_set_dir_ref = self.root_path.as_ref();
 
+        stats.folder_count = self.backup_records.len() as u32; // This counts folders in backup_records map, not file system folders.
+
         for records_vec in self.backup_records.values() {
-            stats.folder_count += 1; // This counts folders in backup_records map, not file system folders.
             stats.record_count += records_vec.len() as u32;
 
             for generic_record in records_vec {

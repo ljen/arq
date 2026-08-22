@@ -55,3 +55,7 @@ harness = false
 [[bench]]
 name = "backup_set_bench"
 harness = false
+
+[[bench]]
+name = "pack_index"
+harness = false
