@@ -26,6 +26,7 @@ use crate::error::Result;
 use crate::type_utils::ArqRead;
 
 pub type ParentCommits = HashMap<String, bool>;
+
 pub type FailedFile = (String, String);
 
 /// Commit
@@ -200,6 +201,26 @@ mod tests {
     }
 
     #[test]
+    fn test_commit_invalid_num_parents() {
+        use std::io::Cursor;
+        use crate::error::Error;
+
+        let mut data = vec![];
+        data.extend_from_slice(b"CommitV012");
+        data.push(0); // author not present
+        data.push(0); // comment not present
+        data.extend_from_slice(&2u64.to_be_bytes()); // num_parent_commits = 2
+
+        let reader = Cursor::new(data);
+        let result = Commit::new(reader);
+
+        assert!(matches!(
+            result,
+            Err(Error::InvalidFormat(msg)) if msg == "Expected 0 or 1 parent commits, got 2"
+        ));
+    }
+
+    #[test]
     fn test_commit_new_valid() {
         let commit_bytes: Vec<u8> = vec![
             67, 111, 109, 109, 105, 116, 86, 48, 49, 50, 1, 0, 0, 0, 0, 0, 0, 0, 6, 97, 117,
@@ -260,5 +281,16 @@ mod tests {
             result,
             Err(crate::error::Error::InvalidFormat(msg)) if msg == "Expected 0 or 1 parent commits, got 2"
         ));
+    }
+
+    #[test]
+    fn test_new_invalid_header() {
+        let invalid_commit = b"CommixV012someotherdata";
+        let reader = Cursor::new(invalid_commit);
+        let result = Commit::new(reader);
+        assert!(
+            matches!(result, Err(crate::error::Error::InvalidFormat(msg)) if msg == "Invalid commit header: expected 'CommitV'"),
+            "Expected InvalidFormat error with specific message"
+        );
     }
 }
