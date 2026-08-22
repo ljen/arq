@@ -1134,15 +1134,7 @@ pub fn restore_all_folder_versions(
     let backup_set = load_backup_set(backup_set_path)?;
     let keyset = backup_set.encryption_keyset();
 
-    if !destination_root.exists() {
-        std::fs::create_dir_all(destination_root)?;
-    }
-    if !destination_root.is_dir() {
-        return Err(Error::Generic(format!(
-            "Destination root '{}' is not a directory.",
-            destination_root.display()
-        )));
-    }
+    ensure_destination_directory(destination_root)?;
 
     println!(
         "Restoring all versions of folder '{}' to root '{}'",
@@ -1155,6 +1147,59 @@ pub fn restore_all_folder_versions(
         .filter(|s| !s.is_empty())
         .collect();
 
+    let records_to_process = collect_arq7_records(&backup_set);
+
+    let versions_restored_count = std::sync::atomic::AtomicUsize::new(0);
+
+    records_to_process.into_par_iter().try_for_each(
+        |(folder_uuid, arq7_record, timestamp_str)| -> Result<()> {
+            process_folder_version_record(
+                folder_uuid,
+                arq7_record,
+                &timestamp_str,
+                folder_path_in_backup,
+                &path_parts,
+                &backup_set,
+                backup_set_path,
+                keyset,
+                destination_root,
+                &versions_restored_count,
+            )
+        },
+    )?;
+
+    let final_count = versions_restored_count.load(std::sync::atomic::Ordering::Relaxed);
+    if final_count == 0 {
+        println!(
+            "No versions of folder '{}' found to restore.",
+            folder_path_in_backup
+        );
+    } else {
+        println!(
+            "Finished restoring {} versions of folder '{}'.",
+            final_count, folder_path_in_backup
+        );
+    }
+
+    Ok(())
+}
+
+fn ensure_destination_directory(destination_root: &Path) -> Result<()> {
+    if !destination_root.exists() {
+        std::fs::create_dir_all(destination_root)?;
+    }
+    if !destination_root.is_dir() {
+        return Err(Error::Generic(format!(
+            "Destination root '{}' is not a directory.",
+            destination_root.display()
+        )));
+    }
+    Ok(())
+}
+
+fn collect_arq7_records<'a>(
+    backup_set: &'a BackupSet,
+) -> Vec<(&'a String, &'a arq::arq7::Arq7BackupRecord, String)> {
     let mut records_to_process = Vec::new();
     let mut ts_idx = 0;
     for (folder_uuid, gen_records_vec) in &backup_set.backup_records {
@@ -1176,62 +1221,55 @@ pub fn restore_all_folder_versions(
             }
         }
     }
+    records_to_process
+}
 
-    let versions_restored_count = std::sync::atomic::AtomicUsize::new(0);
+fn process_folder_version_record(
+    folder_uuid: &str,
+    arq7_record: &arq::arq7::Arq7BackupRecord,
+    timestamp_str: &str,
+    folder_path_in_backup: &str,
+    path_parts: &[&str],
+    backup_set: &BackupSet,
+    backup_set_path: &Path,
+    keyset: Option<&EncryptedKeySet>,
+    destination_root: &Path,
+    versions_restored_count: &std::sync::atomic::AtomicUsize,
+) -> Result<()> {
+    debug_eprintln!(
+        "DEBUG: restore_all_folder_versions: Arq7 record timestamp: {}",
+        timestamp_str
+    );
+    let record_local_path_str = arq7_record.local_path.as_deref().unwrap_or("");
+    let bf_config_local_path = backup_set
+        .backup_folder_configs
+        .get(folder_uuid)
+        .map(|bf| bf.local_path.as_str());
 
-    records_to_process.into_par_iter().try_for_each(
-        |(folder_uuid, arq7_record, timestamp_str)| -> Result<()> {
-            debug_eprintln!(
-                "DEBUG: restore_all_folder_versions: Arq7 record timestamp: {}",
-                timestamp_str
-            );
-            let record_local_path_str = arq7_record.local_path.as_deref().unwrap_or("");
-            let bf_config_local_path = backup_set
-                .backup_folder_configs
-                .get(folder_uuid)
-                .map(|bf| bf.local_path.as_str());
+    let effective_path_parts = resolve_effective_path_parts(
+        folder_path_in_backup,
+        path_parts,
+        record_local_path_str,
+        bf_config_local_path,
+    );
 
-            let effective_path_parts = resolve_effective_path_parts(
-                folder_path_in_backup,
-                &path_parts,
-                record_local_path_str,
-                bf_config_local_path,
-            );
-
-            if let Ok(Some(target_node_cow)) = find_node_in_record_tree(
-                &arq7_record.node,
-                &effective_path_parts,
-                0,
-                backup_set_path,
-                keyset,
-            ) {
-                restore_version_from_record(
-                    target_node_cow.as_ref(),
-                    &effective_path_parts,
-                    &timestamp_str,
-                    destination_root,
-                    backup_set_path,
-                    keyset,
-                    &versions_restored_count,
-                )?;
-            }
-            Ok(())
-        },
-    )?;
-
-    let final_count = versions_restored_count.load(std::sync::atomic::Ordering::Relaxed);
-    if final_count == 0 {
-        println!(
-            "No versions of folder '{}' found to restore.",
-            folder_path_in_backup
-        );
-    } else {
-        println!(
-            "Finished restoring {} versions of folder '{}'.",
-            final_count, folder_path_in_backup
-        );
+    if let Ok(Some(target_node_cow)) = find_node_in_record_tree(
+        &arq7_record.node,
+        &effective_path_parts,
+        0,
+        backup_set_path,
+        keyset,
+    ) {
+        restore_version_from_record(
+            target_node_cow.as_ref(),
+            &effective_path_parts,
+            timestamp_str,
+            destination_root,
+            backup_set_path,
+            keyset,
+            versions_restored_count,
+        )?;
     }
-
     Ok(())
 }
 
@@ -1536,4 +1574,3 @@ mod tests {
         );
     }
 }
-
