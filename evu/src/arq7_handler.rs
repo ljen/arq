@@ -1500,4 +1500,40 @@ mod tests {
         // i64::MAX is valid i64 but beyond valid DateTime bounds usually
         assert_eq!(format_epoch_secs(i64::MAX), i64::MAX.to_string());
     }
+
+    #[test]
+    fn test_format_timestamp_rfc3339() {
+        // Standard epoch: 1970-01-01T00:00:00+00:00
+        assert_eq!(format_timestamp_rfc3339(0.0), "1970-01-01T00:00:00+00:00");
+
+        // Positive timestamp without fractions: 2023-01-01T00:00:00+00:00
+        // 1672531200
+        assert_eq!(
+            format_timestamp_rfc3339(1672531200.0),
+            "2023-01-01T00:00:00+00:00"
+        );
+
+        // Positive timestamp with fractional seconds
+        // 1672531200.5
+        assert_eq!(
+            format_timestamp_rfc3339(1672531200.5),
+            "2023-01-01T00:00:00.500+00:00"
+        );
+
+        // Negative timestamp (before 1970)
+        // -31536000 (1969-01-01T00:00:00+00:00)
+        assert_eq!(
+            format_timestamp_rfc3339(-31536000.0),
+            "1969-01-01T00:00:00+00:00"
+        );
+
+        // Extreme out-of-bounds timestamps (fallback to string representation)
+        // chrono::DateTime limits seconds to i64 limits in naive date time but may reject very large f64
+        // Let's test f64::MAX which is definitely out of bounds.
+        assert_eq!(
+            format_timestamp_rfc3339(std::f64::MAX),
+            std::f64::MAX.to_string()
+        );
+    }
 }
+
