@@ -1354,6 +1354,7 @@ fn restore_version_from_record(
     }
     Ok(())
 }
+
 #[derive(Debug, Default, Clone, Copy)]
 struct ExtractionStats {
     files_restored: usize,
@@ -1482,5 +1483,21 @@ mod tests {
         assert_eq!(record_timestamp_dir_name(f64::NAN), "NaN");
         assert_eq!(record_timestamp_dir_name(f64::INFINITY), "inf");
         assert_eq!(record_timestamp_dir_name(f64::NEG_INFINITY), "-inf");
+    }
+
+    #[test]
+    fn test_format_epoch_secs() {
+        // Known epoch 0
+        assert_eq!(format_epoch_secs(0), "1970-01-01 00:00:00");
+
+        // Known positive epoch
+        assert_eq!(format_epoch_secs(1700000000), "2023-11-14 22:13:20");
+
+        // Known negative epoch (1 day before epoch)
+        assert_eq!(format_epoch_secs(-86400), "1969-12-31 00:00:00");
+
+        // Out of bounds / invalid epoch that triggers the unwrap_or_else fallback
+        // i64::MAX is valid i64 but beyond valid DateTime bounds usually
+        assert_eq!(format_epoch_secs(i64::MAX), i64::MAX.to_string());
     }
 }
