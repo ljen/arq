@@ -302,7 +302,7 @@ impl PackIndex {
         }
 
         // The object count is in the last fanout entry
-        let count_vec = &fanout[255].clone();
+        let count_vec = &fanout[255];
         let mut rdr = Cursor::new(count_vec);
         let mut object_count = rdr.read_u32::<NetworkEndian>()? as usize;
 
