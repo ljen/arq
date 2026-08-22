@@ -169,29 +169,46 @@ impl BlobLoc {
     /// to the backup set directory.
     fn normalize_relative_path(&self, backup_set_dir: &Path) -> std::path::PathBuf {
         let path_str = &self.relative_path;
+        let mut rel_part = path_str.as_str();
+
         // If path starts with backup_set_dir's UUID, remove it
+        let mut matched_uuid = false;
         if let Some(first_component) = backup_set_dir.file_name().and_then(|n| n.to_str()) {
             if path_str.starts_with(&format!("/{}", first_component)) {
                 // println!("starting with backup id");
                 let stripped_path = path_str.trim_start_matches('/');
                 let components: Vec<&str> = stripped_path.splitn(2, '/').collect();
                 if components.len() > 1 {
-                    return backup_set_dir.join(components[1]);
+                    rel_part = components[1];
+                } else {
+                    rel_part = "";
                 }
+                matched_uuid = true;
             }
         }
-        // Fallback: assume path is relative after the initial UUID component if present
-        let parts: Vec<&str> = path_str.splitn(3, '/').collect();
-        if parts.len() == 3 && parts[0].is_empty() && !parts[1].is_empty() {
-            // e.g. "/<UUID>/actual/path"
-            backup_set_dir.join(parts[2])
-        } else if parts.len() == 2 && parts[0].is_empty() {
-            // e.g. "/actual/path" (no UUID prefix)
-            backup_set_dir.join(parts[1])
-        } else {
-            // Default to joining directly if no clear UUID prefix pattern
-            backup_set_dir.join(path_str.trim_start_matches('/'))
+
+        if !matched_uuid {
+            // Fallback: assume path is relative after the initial UUID component if present
+            let parts: Vec<&str> = path_str.splitn(3, '/').collect();
+            if parts.len() == 3 && parts[0].is_empty() && !parts[1].is_empty() {
+                // e.g. "/<UUID>/actual/path"
+                rel_part = parts[2];
+            } else if parts.len() == 2 && parts[0].is_empty() {
+                // e.g. "/actual/path" (no UUID prefix)
+                rel_part = parts[1];
+            } else {
+                // Default to joining directly if no clear UUID prefix pattern
+                rel_part = path_str.trim_start_matches('/');
+            }
         }
+
+        let mut safe_path = backup_set_dir.to_path_buf();
+        for component in std::path::Path::new(rel_part).components() {
+            if let std::path::Component::Normal(c) = component {
+                safe_path.push(c);
+            }
+        }
+        safe_path
     }
 
     /// Load data from this blob location, with optional encryption support
@@ -639,6 +656,25 @@ mod tests {
         assert_eq!(
             loc4.normalize_relative_path(backup_set_dir),
             backup_set_dir.join("pack/123.pack")
+        );
+
+        // Scenario 5: Path traversal attack and absolute path evasion
+        let loc5 = BlobLoc {
+            relative_path: "/12345678-1234-1234-1234-123456789012/../../etc/passwd".to_string(),
+            ..create_test_blobloc(0)
+        };
+        assert_eq!(
+            loc5.normalize_relative_path(backup_set_dir),
+            backup_set_dir.join("etc/passwd")
+        );
+
+        let loc6 = BlobLoc {
+            relative_path: "/etc/passwd".to_string(),
+            ..create_test_blobloc(0)
+        };
+        assert_eq!(
+            loc6.normalize_relative_path(backup_set_dir),
+            backup_set_dir.join("passwd") // Fallback logic strips the first component treating it as UUID
         );
     }
 }
