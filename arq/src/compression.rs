@@ -65,7 +65,11 @@ impl CompressionType {
                 decoder.read_to_end(&mut decompressed)?;
                 decompressed
             }
-            CompressionType::Lzfse => return Err(Error::UnsupportedFeature("LZFSE compression is not supported yet".to_string())),
+            CompressionType::Lzfse => {
+                return Err(Error::UnsupportedFeature(
+                    "LZFSE compression is not supported yet".to_string(),
+                ))
+            }
             CompressionType::None => compressed.to_owned(),
         })
     }

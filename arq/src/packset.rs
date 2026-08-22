@@ -56,7 +56,12 @@ impl PackSet {
         keyset: &crate::arq7::EncryptedKeySet,
     ) -> Result<Vec<u8>> {
         let cached_val = {
-            let mut cache_lock = self.blob_cache.lock().map_err(|e| crate::error::Error::IoError(std::io::Error::new(std::io::ErrorKind::Other, e.to_string())))?;
+            let mut cache_lock = self.blob_cache.lock().map_err(|e| {
+                crate::error::Error::IoError(std::io::Error::new(
+                    std::io::ErrorKind::Other,
+                    e.to_string(),
+                ))
+            })?;
             if cache_lock.is_none() {
                 let mut map = std::collections::HashMap::new();
                 for entry_result in fs::read_dir(&self.path)? {

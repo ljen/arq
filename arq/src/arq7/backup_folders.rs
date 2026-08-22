@@ -71,7 +71,10 @@ mod tests {
         assert!(folders.onezone_ia_object_dirs.is_empty());
         assert_eq!(folders.s3_glacier_object_dirs, vec!["dir4"]);
         assert!(folders.s3_deep_archive_object_dirs.is_empty());
-        assert_eq!(folders.s3_glacier_ir_object_dirs.as_deref(), Some(&["dir5".to_string()][..]));
+        assert_eq!(
+            folders.s3_glacier_ir_object_dirs.as_deref(),
+            Some(&["dir5".to_string()][..])
+        );
         assert_eq!(folders.imported_from.as_deref(), Some("older_backup"));
     }
 
