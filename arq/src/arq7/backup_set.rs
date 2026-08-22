@@ -98,11 +98,18 @@ impl BackupSet {
                 .collect();
 
             for (folder_uuid, folder_config_opt, records_opt) in results? {
-                if let Some(folder_config) = folder_config_opt {
-                    backup_folder_configs.insert(folder_uuid.clone(), folder_config);
-                }
-                if let Some(records) = records_opt {
-                    backup_records.insert(folder_uuid, records);
+                match (folder_config_opt, records_opt) {
+                    (Some(folder_config), Some(records)) => {
+                        backup_folder_configs.insert(folder_uuid.clone(), folder_config);
+                        backup_records.insert(folder_uuid, records);
+                    }
+                    (Some(folder_config), None) => {
+                        backup_folder_configs.insert(folder_uuid, folder_config);
+                    }
+                    (None, Some(records)) => {
+                        backup_records.insert(folder_uuid, records);
+                    }
+                    (None, None) => {}
                 }
             }
         }
@@ -889,8 +896,8 @@ mod tests {
 
     #[test]
     fn test_count_files_in_node_tree_not_found() {
-        use crate::node::Node;
         use crate::blob_location::BlobLoc;
+        use crate::node::Node;
         let node = Node {
             is_tree: true,
             item_size: 0,
@@ -1016,7 +1023,6 @@ mod tests {
         let result = count_files_in_node(&node, &path, None).unwrap();
         assert_eq!(result, (0, 0));
     }
-
 
     #[test]
     fn test_backup_set_is_encrypted() {
