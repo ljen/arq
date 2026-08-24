@@ -108,3 +108,113 @@ impl BlobKey {
         }))
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::io::Cursor;
+    use byteorder::{NetworkEndian, WriteBytesExt};
+
+    fn write_arq_string(buf: &mut Vec<u8>, s: &str) {
+        if s.is_empty() {
+            buf.push(0);
+        } else {
+            buf.push(1);
+            buf.write_u64::<NetworkEndian>(s.len() as u64).unwrap();
+            buf.extend_from_slice(s.as_bytes());
+        }
+    }
+
+    fn write_arq_bool(buf: &mut Vec<u8>, b: bool) {
+        buf.push(if b { 1 } else { 0 });
+    }
+
+    fn write_arq_u32(buf: &mut Vec<u8>, v: u32) {
+        buf.write_u32::<NetworkEndian>(v).unwrap();
+    }
+
+    fn write_arq_u64(buf: &mut Vec<u8>, v: u64) {
+        buf.write_u64::<NetworkEndian>(v).unwrap();
+    }
+
+    #[test]
+    fn test_blob_key_new_empty_sha1() {
+        let mut buf = Vec::new();
+        write_arq_string(&mut buf, ""); // sha1
+        write_arq_bool(&mut buf, true); // stretch_encryption_key
+        write_arq_u32(&mut buf, 1); // storage_type
+        write_arq_string(&mut buf, "archive_123"); // archive_id
+        write_arq_u64(&mut buf, 1024); // archive_size
+        buf.push(1); // date present
+        write_arq_u64(&mut buf, 1234567890); // date ms
+
+        let mut reader = Cursor::new(buf);
+        let result = BlobKey::new(&mut reader).unwrap();
+        assert!(result.is_none());
+
+        // Ensure all bytes were read
+        assert_eq!(reader.position(), reader.into_inner().len() as u64);
+    }
+
+    #[test]
+    fn test_blob_key_new_invalid_date() {
+        let mut buf = Vec::new();
+        write_arq_string(&mut buf, "some_sha1");
+        write_arq_bool(&mut buf, false);
+        write_arq_u32(&mut buf, 2);
+        write_arq_string(&mut buf, "archive_456");
+        write_arq_u64(&mut buf, 2048);
+        buf.push(1); // date present
+        // Value that overflows DateTime::from_timestamp_millis when cast to i64
+        write_arq_u64(&mut buf, i64::MAX as u64 + 1000000000000000);
+
+        let mut reader = Cursor::new(buf);
+        let result = BlobKey::new(&mut reader);
+
+        assert!(matches!(result, Err(crate::error::Error::InvalidFormat(_))));
+    }
+
+    #[test]
+    fn test_blob_key_new_valid() {
+        let mut buf = Vec::new();
+        write_arq_string(&mut buf, "some_sha1");
+        write_arq_bool(&mut buf, true);
+        write_arq_u32(&mut buf, 3);
+        write_arq_string(&mut buf, "archive_789");
+        write_arq_u64(&mut buf, 4096);
+        buf.push(1); // date present
+        write_arq_u64(&mut buf, 1000); // 1 second past epoch
+
+        let mut reader = Cursor::new(buf);
+        let result = BlobKey::new(&mut reader).unwrap();
+        assert!(result.is_some());
+
+        let key = result.unwrap();
+        assert_eq!(key.sha1, "some_sha1");
+        assert_eq!(key.stretch_encryption_key, true);
+        assert_eq!(key.storage_type, 3);
+        assert_eq!(key.archive_id, "archive_789");
+        assert_eq!(key.archive_size, 4096);
+        assert_eq!(key.archive_upload_date.unwrap().timestamp_millis(), 1000);
+        assert_eq!(key.compression_type, 0);
+    }
+
+    #[test]
+    fn test_blob_key_new_zero_date() {
+        let mut buf = Vec::new();
+        write_arq_string(&mut buf, "some_sha1");
+        write_arq_bool(&mut buf, false);
+        write_arq_u32(&mut buf, 4);
+        write_arq_string(&mut buf, "archive_000");
+        write_arq_u64(&mut buf, 8192);
+        buf.push(1); // date present
+        write_arq_u64(&mut buf, 0); // 0 ms
+
+        let mut reader = Cursor::new(buf);
+        let result = BlobKey::new(&mut reader).unwrap();
+        assert!(result.is_some());
+
+        let key = result.unwrap();
+        assert!(key.archive_upload_date.is_none());
+    }
+}
