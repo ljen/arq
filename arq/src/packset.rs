@@ -56,10 +56,10 @@ impl PackSet {
         keyset: &crate::arq7::EncryptedKeySet,
     ) -> Result<Vec<u8>> {
         let cached_val = {
-            let mut cache_lock = self.blob_cache.lock().map_err(|e| {
+            let mut cache_lock = self.blob_cache.lock().map_err(|_e| {
                 crate::error::Error::IoError(std::io::Error::new(
                     std::io::ErrorKind::Other,
-                    e.to_string(),
+                    "blob_cache lock poisoned",
                 ))
             })?;
             if cache_lock.is_none() {
