@@ -1,17 +1,17 @@
+use arq::arq7::{BackupSet, EncryptedKeySet};
+use arq::node::Node;
+use askama::Template;
 use axum::{
     extract::{Form, Path as AxumPath, Query, State},
     http::StatusCode,
     response::{IntoResponse, Redirect},
     routing::{get, post},
-    Router, Json,
+    Json, Router,
 };
-use askama::Template;
 use serde::{Deserialize, Serialize};
+use std::path::PathBuf;
 use std::sync::Arc;
 use tokio::sync::Mutex;
-use arq::arq7::{BackupSet, EncryptedKeySet};
-use std::path::PathBuf;
-use arq::node::Node;
 
 #[derive(Clone)]
 struct AppState {
@@ -82,14 +82,24 @@ async fn index(State(state): State<AppState>) -> impl IntoResponse {
     IndexTemplate { error: None }.into_response()
 }
 
-async fn load_backup(State(state): State<AppState>, Form(form): Form<LoadForm>) -> impl IntoResponse {
+async fn load_backup(
+    State(state): State<AppState>,
+    Form(form): Form<LoadForm>,
+) -> impl IntoResponse {
     let path = PathBuf::from(form.path);
     let pwd = form.password.filter(|s| !s.is_empty());
 
     // Use spawn_blocking for long running sync code
     let bs_result = tokio::task::spawn_blocking(move || {
         BackupSet::from_directory_with_password(&path, pwd.as_deref())
-    }).await.unwrap_or_else(|e| Err(arq::error::Error::InvalidFormat(format!("Task panic: {:?}", e))));
+    })
+    .await
+    .unwrap_or_else(|e| {
+        Err(arq::error::Error::InvalidFormat(format!(
+            "Task panic: {:?}",
+            e
+        )))
+    });
 
     match bs_result {
         Ok(bs) => {
@@ -97,11 +107,10 @@ async fn load_backup(State(state): State<AppState>, Form(form): Form<LoadForm>) 
             *state_bs = Some(Arc::new(bs));
             Redirect::to("/browse").into_response()
         }
-        Err(e) => {
-            IndexTemplate {
-                error: Some(format!("Failed to load backup: {:?}", e)),
-            }.into_response()
+        Err(e) => IndexTemplate {
+            error: Some(format!("Failed to load backup: {:?}", e)),
         }
+        .into_response(),
     }
 }
 
@@ -114,7 +123,9 @@ async fn browse(State(state): State<AppState>) -> impl IntoResponse {
 
     let mut folders = Vec::new();
     for (folder_uuid, records) in &bs.backup_records {
-        let folder_name = bs.backup_folder_configs.get(folder_uuid)
+        let folder_name = bs
+            .backup_folder_configs
+            .get(folder_uuid)
             .map(|f| f.name.clone())
             .unwrap_or_else(|| "Unknown Folder".to_string());
 
@@ -140,9 +151,14 @@ async fn browse(State(state): State<AppState>) -> impl IntoResponse {
     BrowserTemplate { folders }.into_response()
 }
 
-fn get_arq7_record<'a>(bs: &'a BackupSet, record_id: &str) -> Option<&'a arq::arq7::Arq7BackupRecord> {
+fn get_arq7_record<'a>(
+    bs: &'a BackupSet,
+    record_id: &str,
+) -> Option<&'a arq::arq7::Arq7BackupRecord> {
     let parts: Vec<&str> = record_id.split('_').collect();
-    if parts.len() != 2 { return None; }
+    if parts.len() != 2 {
+        return None;
+    }
     let folder_uuid = parts[0];
     let time_sec_str = parts[1];
     let time_sec: i64 = time_sec_str.parse().ok()?;
@@ -204,7 +220,9 @@ async fn get_tree(
             }
             Err(_) => Err(StatusCode::NOT_FOUND),
         }
-    }).await.unwrap_or(Err(StatusCode::INTERNAL_SERVER_ERROR));
+    })
+    .await
+    .unwrap_or(Err(StatusCode::INTERNAL_SERVER_ERROR));
 
     match result {
         Ok(children) => Json(TreeResponse { items: children }).into_response(),
@@ -238,7 +256,9 @@ async fn get_tree_dirs(
             }
             Err(_) => Err(StatusCode::NOT_FOUND),
         }
-    }).await.unwrap_or(Err(StatusCode::INTERNAL_SERVER_ERROR));
+    })
+    .await
+    .unwrap_or(Err(StatusCode::INTERNAL_SERVER_ERROR));
 
     match result {
         Ok(dirs) => Json(TreeDirsResponse { dirs }).into_response(),
@@ -262,6 +282,9 @@ async fn download_file(
         _ => return (StatusCode::BAD_REQUEST, "Path is required").into_response(),
     };
 
+    // Extract filename before `spawn_blocking` to avoid `unwrap()` later
+    let filename = req_path.split('/').last().unwrap_or("file").to_string();
+
     let result = tokio::task::spawn_blocking(move || {
         let keyset = bs_clone.encryption_keyset();
         match resolve_node(&bs_clone, &root_node, &req_path, keyset) {
@@ -276,13 +299,12 @@ async fn download_file(
             }
             Err(_) => Err(StatusCode::NOT_FOUND),
         }
-    }).await.unwrap_or(Err(StatusCode::INTERNAL_SERVER_ERROR));
+    })
+    .await
+    .unwrap_or(Err(StatusCode::INTERNAL_SERVER_ERROR));
 
     match result {
         Ok(data) => {
-            let req_path = query.path.unwrap();
-            let parts: Vec<&str> = req_path.split('/').collect();
-            let filename = parts.last().unwrap_or(&"file");
             let headers = axum::response::AppendHeaders([
                 (
                     axum::http::header::CONTENT_DISPOSITION,
@@ -294,7 +316,7 @@ async fn download_file(
                 ),
             ]);
             (headers, data).into_response()
-        },
+        }
         Err(status) => status.into_response(),
     }
 }
@@ -317,7 +339,8 @@ fn resolve_node(
             return Err(anyhow::anyhow!("Not a directory"));
         }
 
-        let tree = current_node.load_tree_with_encryption(&bs.root_path, keyset)
+        let tree = current_node
+            .load_tree_with_encryption(&bs.root_path, keyset)
             .map_err(|e| anyhow::anyhow!("Failed to read tree: {:?}", e))?
             .ok_or_else(|| anyhow::anyhow!("Tree data missing"))?;
 
@@ -347,7 +370,8 @@ fn list_node_children(
         return Ok(items);
     }
 
-    let tree = node.load_tree_with_encryption(&bs.root_path, keyset)
+    let tree = node
+        .load_tree_with_encryption(&bs.root_path, keyset)
         .map_err(|e| anyhow::anyhow!("Failed to read tree: {:?}", e))?
         .ok_or_else(|| anyhow::anyhow!("Tree data missing"))?;
 
@@ -383,14 +407,17 @@ fn list_node_subdirs(
         return Ok(dirs);
     }
 
-    let tree = node.load_tree_with_encryption(&bs.root_path, keyset)
+    let tree = node
+        .load_tree_with_encryption(&bs.root_path, keyset)
         .map_err(|e| anyhow::anyhow!("Failed to read tree: {:?}", e))?
         .ok_or_else(|| anyhow::anyhow!("Tree data missing"))?;
 
     for (name, child_node) in &tree.nodes {
         if child_node.is_tree {
             // Check if this directory itself has subdirectories
-            let has_children = if let Ok(Some(child_tree)) = child_node.load_tree_with_encryption(&bs.root_path, keyset) {
+            let has_children = if let Ok(Some(child_tree)) =
+                child_node.load_tree_with_encryption(&bs.root_path, keyset)
+            {
                 child_tree.nodes.iter().any(|(_, n)| n.is_tree)
             } else {
                 false // Assume no children if we can't load
