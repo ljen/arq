@@ -74,7 +74,7 @@ mod tests {
         encryption_key: &[u8],
         hmac_key: &[u8],
         plaintext: &[u8],
-    ) -> Vec<u8> {
+    ) -> crate::error::Result<Vec<u8>> {
         type Aes256CbcEnc = Encryptor<Aes256>;
 
         let master_iv: [u8; 16] = [1; 16];
@@ -85,18 +85,16 @@ mod tests {
         data_iv_session[..16].copy_from_slice(&data_iv);
         data_iv_session[16..48].copy_from_slice(&session_key);
 
-        let encrypted_data_iv_session = Aes256CbcEnc::new_from_slices(encryption_key, &master_iv)
-            .unwrap()
+        let encrypted_data_iv_session = Aes256CbcEnc::new_from_slices(encryption_key, &master_iv)?
             .encrypt_padded::<Pkcs7>(&mut data_iv_session, 48)
-            .unwrap()
+            .map_err(|_| crate::error::Error::CipherError)?
             .to_vec();
 
         let mut plaintext_buf = vec![0u8; plaintext.len() + 16]; // Padding might add up to 16 bytes
         plaintext_buf[..plaintext.len()].copy_from_slice(plaintext);
-        let ciphertext = Aes256CbcEnc::new_from_slices(&session_key, &data_iv)
-            .unwrap()
+        let ciphertext = Aes256CbcEnc::new_from_slices(&session_key, &data_iv)?
             .encrypt_padded::<Pkcs7>(&mut plaintext_buf, plaintext.len())
-            .unwrap()
+            .map_err(|_| crate::error::Error::CipherError)?
             .to_vec();
 
         let mut master_iv_and_data = Vec::new();
@@ -104,7 +102,7 @@ mod tests {
         master_iv_and_data.extend_from_slice(&encrypted_data_iv_session);
         master_iv_and_data.extend_from_slice(&ciphertext);
 
-        let calculated_hmacsha256 = calculate_hmacsha256(hmac_key, &master_iv_and_data).unwrap();
+        let calculated_hmacsha256 = calculate_hmacsha256(hmac_key, &master_iv_and_data)?;
 
         let mut result = Vec::new();
         result.extend_from_slice(b"ARQO");
@@ -113,7 +111,7 @@ mod tests {
         result.extend_from_slice(&encrypted_data_iv_session);
         result.extend_from_slice(&ciphertext);
 
-        result
+        Ok(result)
     }
 
     #[test]
@@ -138,13 +136,27 @@ mod tests {
         assert_eq!(res_with_keyset.test_key, "unencrypted_value");
     }
 
+
+
+    #[test]
+    fn test_create_encrypted_object_bytes_error_path() {
+        // Invalid encryption key length (must be 32 bytes for AES256, but we provide 16)
+        let encryption_key = vec![1u8; 16];
+        let hmac_key = vec![2u8; 32];
+        let plaintext = b"{\"test_key\": \"secret\"}";
+
+        let result = create_encrypted_object_bytes(&encryption_key, &hmac_key, plaintext);
+
+        // Ensure it correctly propagates the error (CipherError/CryptoError) instead of panicking
+        assert!(result.is_err());
+    }
     #[test]
     fn test_decrypt_json_file_success() {
         let encryption_key = vec![1u8; 32];
         let hmac_key = vec![2u8; 32];
         let plaintext = b"{\"test_key\": \"decrypted_value\"}";
 
-        let encrypted_bytes = create_encrypted_object_bytes(&encryption_key, &hmac_key, plaintext);
+        let encrypted_bytes = create_encrypted_object_bytes(&encryption_key, &hmac_key, plaintext).unwrap();
 
         let mut file = tempfile::NamedTempFile::new().unwrap();
         file.write_all(&encrypted_bytes).unwrap();
@@ -166,7 +178,7 @@ mod tests {
         let hmac_key = vec![4u8; 32];
         let plaintext = b"{\"test_key\": \"secret\"}";
 
-        let encrypted_bytes = create_encrypted_object_bytes(&encryption_key, &hmac_key, plaintext);
+        let encrypted_bytes = create_encrypted_object_bytes(&encryption_key, &hmac_key, plaintext).unwrap();
 
         let mut file = tempfile::NamedTempFile::new().unwrap();
         file.write_all(&encrypted_bytes).unwrap();
@@ -188,7 +200,7 @@ mod tests {
         let hmac_key = vec![6u8; 32];
         let plaintext = b"{\"test_key\": \"encrypted_value\"}";
 
-        let encrypted_bytes = create_encrypted_object_bytes(&encryption_key, &hmac_key, plaintext);
+        let encrypted_bytes = create_encrypted_object_bytes(&encryption_key, &hmac_key, plaintext).unwrap();
 
         let mut file = tempfile::NamedTempFile::new().unwrap();
         file.write_all(&encrypted_bytes).unwrap();
@@ -218,7 +230,7 @@ mod tests {
         let hmac_key = vec![6u8; 32];
         let plaintext = b"{\"test_key\": \"encrypted_value\"}";
 
-        let encrypted_bytes = create_encrypted_object_bytes(&encryption_key, &hmac_key, plaintext);
+        let encrypted_bytes = create_encrypted_object_bytes(&encryption_key, &hmac_key, plaintext).unwrap();
 
         let mut file = tempfile::NamedTempFile::new().unwrap();
         file.write_all(&encrypted_bytes).unwrap();
@@ -235,7 +247,7 @@ mod tests {
         let hmac_key = vec![6u8; 32];
         let plaintext = b"{\"test_key\": \"encrypted_value\"}";
 
-        let encrypted_bytes = create_encrypted_object_bytes(&encryption_key, &hmac_key, plaintext);
+        let encrypted_bytes = create_encrypted_object_bytes(&encryption_key, &hmac_key, plaintext).unwrap();
 
         let mut file = tempfile::NamedTempFile::new().unwrap();
         file.write_all(&encrypted_bytes).unwrap();
@@ -268,7 +280,7 @@ mod tests {
         let hmac_key = vec![6u8; 32];
         let plaintext = b"invalid json content";
 
-        let encrypted_bytes = create_encrypted_object_bytes(&encryption_key, &hmac_key, plaintext);
+        let encrypted_bytes = create_encrypted_object_bytes(&encryption_key, &hmac_key, plaintext).unwrap();
 
         let mut file = tempfile::NamedTempFile::new().unwrap();
         file.write_all(&encrypted_bytes).unwrap();
