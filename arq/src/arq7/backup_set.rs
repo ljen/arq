@@ -303,19 +303,20 @@ impl BackupSet {
             return Ok(backup_records);
         }
 
-        // Recursively traverse backup records directories
+        // Traverse backup records directories
         fn collect_records(
             dir: &Path,
             records: &mut Vec<GenericBackupRecord>,
             keyset: Option<&EncryptedKeySet>,
         ) -> Result<()> {
-            for entry in std::fs::read_dir(dir)? {
-                let entry = entry?;
+            for entry_result in jwalk::WalkDir::new(dir) {
+                let entry =
+                    entry_result.map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))?;
                 let path = entry.path();
 
-                if path.is_dir() {
-                    collect_records(&path, records, keyset)?;
-                } else if path.extension().is_some_and(|ext| ext == "backuprecord") {
+                if entry.file_type.is_file()
+                    && path.extension().is_some_and(|ext| ext == "backuprecord")
+                {
                     match GenericBackupRecord::from_file_with_encryption(&path, keyset) {
                         Ok(record) => records.push(record),
                         Err(e) => {
