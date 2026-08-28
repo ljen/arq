@@ -378,29 +378,29 @@ fn list_node_subdirs(
     node: &Node,
     keyset: Option<&EncryptedKeySet>,
 ) -> anyhow::Result<Vec<TreeDirItem>> {
-    let mut dirs = Vec::new();
+    use rayon::prelude::*;
+
     if !node.is_tree {
-        return Ok(dirs);
+        return Ok(Vec::new());
     }
 
     let tree = node.load_tree_with_encryption(&bs.root_path, keyset)
         .map_err(|e| anyhow::anyhow!("Failed to read tree: {:?}", e))?
         .ok_or_else(|| anyhow::anyhow!("Tree data missing"))?;
 
-    for (name, child_node) in &tree.nodes {
-        if child_node.is_tree {
-            // Check if this directory itself has subdirectories
-            let has_children = if let Ok(Some(child_tree)) = child_node.load_tree_with_encryption(&bs.root_path, keyset) {
-                child_tree.nodes.iter().any(|(_, n)| n.is_tree)
-            } else {
-                false // Assume no children if we can't load
-            };
-            dirs.push(TreeDirItem {
-                name: name.clone(),
-                has_children,
-            });
+    let subdirs: Vec<_> = tree.nodes.iter().filter(|(_, n)| n.is_tree).collect();
+
+    let mut dirs: Vec<TreeDirItem> = subdirs.into_par_iter().map(|(name, child_node)| {
+        let has_children = if let Ok(Some(child_tree)) = child_node.load_tree_with_encryption(&bs.root_path, keyset) {
+            child_tree.nodes.iter().any(|(_, n)| n.is_tree)
+        } else {
+            false
+        };
+        TreeDirItem {
+            name: name.clone(),
+            has_children,
         }
-    }
+    }).collect();
 
     dirs.sort_by(|a, b| a.name.cmp(&b.name));
     Ok(dirs)

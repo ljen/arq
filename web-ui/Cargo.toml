@@ -16,3 +16,4 @@ tracing = "0.1"
 tracing-subscriber = "0.3"
 arq = { path = "../arq" }
 anyhow = "1.0"
+rayon = "1.12.0"
