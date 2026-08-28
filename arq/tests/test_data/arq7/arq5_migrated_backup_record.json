@@ -1,0 +1,36 @@
+    {
+        "version": 12,
+        "arqVersion": "5.16.0",
+        "backupFolderUUID": "EF287B91-7C53-4C9E-BC0F-C7DAFD3B097D",
+        "backupPlanUUID": "37FA0482-9BE1-46DC-9644-334271E810AD",
+        "computerOSType": 1,
+        "creationDate": 1582559134.293,
+        "isComplete": true,
+        "arq5BucketXML": "<plist>\n<dict>\n    <key>Endpoint</key>\n    <string>googledrive://user%40domain.com@www.googleapis.com/Arq+Backup+Data</string>\n   </dict>\n</plist>",
+        "backupRecordErrors": [
+            {
+                "errorMessage": "Error opening C:\\Users\\User1\\AppData\\Local\\Microsoft\\WindowsApps\\debian.exe: The file cannot be accessed by the system.\r\n",
+                "localPath": "/C/Users/User1/AppData/Local/Microsoft/WindowsApps/debian.exe",
+                "pathIsDirectory": false
+            },
+            {
+                "errorMessage": "Error opening C:\\Users\\User1\\AppData\\Local\\Microsoft\\WindowsApps\\GameBarElevatedFT_Alias.exe: The file cannot be accessed by the system.\r\n",
+                "localPath": "/C/Users/User1/AppData/Local/Microsoft/WindowsApps/GameBarElevatedFT_Alias.exe",
+                "pathIsDirectory": false
+            }
+        ],
+        "localPath": "/C",
+        "storageClass": "STANDARD",
+        "copiedFromSnapshot": false,
+        "copiedFromCommit": true,
+        "arq5TreeBlobKey": {
+            "storageType": 1,
+            "archiveSize": 0,
+            "sha1": "06f5547421444c64ed136756eaaa146bfde2ce64",
+            "stretchEncryptionKey": true,
+            "compressionType": 2
+        },
+        "archived": false,
+        "relativePath": "/37FA0482-9BE1-46DC-9644-334271E810AD/backupfolders/EF287B91-7C53-4C9E-BC0F-C7DAFD3B097D/backuprecords/00158/2559134.backuprecord"
+    }
+    

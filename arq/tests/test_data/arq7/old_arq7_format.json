@@ -1,0 +1,33 @@
+
+    {
+        "backupFolderUUID": "OLD-ARQ7-FOLDER-UUID",
+        "diskIdentifier": "old_arq7_disk_id",
+        "storageClass": "GLACIER",
+        "version": 100,
+        "backupPlanUUID": "OLD-ARQ7-PLAN-UUID",
+        "copiedFromCommit": false,
+        "copiedFromSnapshot": true,
+        "node": {
+            "isTree": false,
+            "itemSize": 1024,
+            "deleted": false,
+            "computerOSType": 2,
+            "modificationTime_sec": 1500000000,
+            "modificationTime_nsec": 0,
+            "changeTime_sec": 1500000000,
+            "changeTime_nsec": 0,
+            "creationTime_sec": 1500000000,
+            "creationTime_nsec": 0,
+            "mac_st_mode": 33188,
+            "mac_st_ino": 123,
+            "mac_st_nlink": 1,
+            "mac_st_gid": 20,
+            "winAttrs": 32,
+            "mac_st_dev": 1,
+            "mac_st_rdev": 0,
+            "mac_st_flags": 0,
+            "dataBlobLocs": []
+        },
+        "backupRecordErrors": null
+    }
+    

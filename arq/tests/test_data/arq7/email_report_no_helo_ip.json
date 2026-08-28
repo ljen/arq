@@ -1,0 +1,7 @@
+{
+        "port": 25,
+        "startTLS": true,
+        "authenticationType": "login",
+        "when": "daily",
+        "type": "summary"
+    }

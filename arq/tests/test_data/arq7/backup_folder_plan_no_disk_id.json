@@ -1,0 +1,17 @@
+{
+        "backupFolderUUID": "UUID2",
+        "blobStorageClass": "GLACIER",
+        "ignoredRelativePaths": ["ignore/me"],
+        "skipIfNotMounted": true,
+        "skipDuringBackup": true,
+        "useDiskIdentifier": true,
+        "relativePath": "path2",
+        "wildcardExcludes": ["*.tmp"],
+        "excludedDrives": ["D:"],
+        "localPath": "/local/path2",
+        "allDrives": true,
+        "skipTMExcludes": true,
+        "regexExcludes": ["^/private/"],
+        "name": "folder_plan_no_disk_id",
+        "localMountPoint": "/mnt"
+    }

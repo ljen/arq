@@ -1,0 +1,8 @@
+{
+        "port": 587,
+        "startTLS": false,
+        "authenticationType": "none",
+        "reportHELOUseIP": true,
+        "when": "never",
+        "type": "custom"
+    }

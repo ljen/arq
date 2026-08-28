@@ -1,0 +1,12 @@
+
+    {
+        "version": 12,
+        "arqVersion": "5.16.0",
+        "backupFolderUUID": "EF287B91-7C53-4C9E-BC0F-C7DAFD3B097D",
+        "backupPlanUUID": "37FA0482-9BE1-46DC-9644-334271E810AD",
+        "arq5BucketXML": "test",
+        "storageClass": "STANDARD",
+        "copiedFromSnapshot": false,
+        "copiedFromCommit": false
+    }
+    

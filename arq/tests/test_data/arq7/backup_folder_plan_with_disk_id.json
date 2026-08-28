@@ -1,0 +1,18 @@
+{
+        "backupFolderUUID": "UUID1",
+        "diskIdentifier": "DISK_ID_PRESENT",
+        "blobStorageClass": "STANDARD",
+        "ignoredRelativePaths": [],
+        "skipIfNotMounted": false,
+        "skipDuringBackup": false,
+        "useDiskIdentifier": false,
+        "relativePath": "path1",
+        "wildcardExcludes": [],
+        "excludedDrives": [],
+        "localPath": "/local/path1",
+        "allDrives": false,
+        "skipTMExcludes": false,
+        "regexExcludes": [],
+        "name": "folder_plan_with_disk_id",
+        "localMountPoint": "/"
+    }

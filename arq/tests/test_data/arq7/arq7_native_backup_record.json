@@ -1,0 +1,79 @@
+
+    {
+        "backupFolderUUID": "CEAA7545-3174-4E7C-A580-3D10BAED153E",
+        "diskIdentifier": "ROOT",
+        "storageClass": "STANDARD",
+        "version": 100,
+        "backupPlanUUID": "D1154AC6-01EB-41FE-B115-114464350B92",
+        "backupRecordErrors": [],
+        "copiedFromSnapshot": false,
+        "copiedFromCommit": false,
+        "node": {
+            "creationTime_sec": 1735296644,
+            "itemSize": 58,
+            "treeBlobLoc": {
+                "offset": 564,
+                "length": 644,
+                "isPacked": true,
+                "isLargePack": false,
+                "relativePath": "/D1154AC6-01EB-41FE-B115-114464350B92/treepacks/09/409732-872C-45A2-935F-8DD318B90390.pack",
+                "blobIdentifier": "25c575dc4072fb42dfbfae196357ea4dc565cafb9e727649fd986de50041552b",
+                "stretchEncryptionKey": true,
+                "compressionType": 2
+            },
+            "mac_st_gid": 20,
+            "mac_st_rdev": 0,
+            "mac_st_flags": 0,
+            "reparsePointIsDirectory": false,
+            "deleted": false,
+            "mac_st_mode": 16877,
+            "computerOSType": 1,
+            "dataBlobLocs": [],
+            "creationTime_nsec": 818932340,
+            "mac_st_nlink": 4,
+            "reparseTag": 0,
+            "modificationTime_nsec": 20553808,
+            "changeTime_nsec": 20553808,
+            "changeTime_sec": 1736107164,
+            "isTree": true,
+            "winAttrs": 0,
+            "mac_st_ino": 149347023,
+            "groupName": "staff",
+            "userName": "ljensen",
+            "mac_st_dev": 16777234,
+            "containedFilesCount": 3,
+            "mac_st_uid": 501,
+            "xattrsBlobLocs": [],
+            "modificationTime_sec": 1736107164
+        },
+        "arqVersion": "7.34",
+        "archived": false,
+        "backupPlanJSON": {
+            "transferRateJSON": { "enabled": false, "startTimeOfDay": "08:00", "daysOfWeek": ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"], "scheduleType": "Always", "endTimeOfDay": "17:00"},
+            "cpuUsage": 25, "id": 7, "storageLocationId": 5, "excludedNetworkInterfaces": [], "needsArq5Buckets": false, "useBuzhash": false, "arq5UseS3IA": false, "objectLockUpdateIntervalDays": 30,
+            "planUUID": "D1154AC6-01EB-41FE-B115-114464350B92",
+            "scheduleJSON": { "backUpAndValidate": true, "startWhenVolumeIsConnected": false, "daysOfWeek": ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"], "pauseDuringWindow": false, "minutesAfterHour": 0, "everyHours": 1, "type": "Hourly"},
+            "keepDeletedFiles": false, "version": 2, "createdAtProConsole": false, "backupFolderPlanMountPointsAreInitialized": true, "includeNewVolumes": false, "retainMonths": 60, "useAPFSSnapshots": true, "backupSetIsInitialized": true,
+            "backupFolderPlansByUUID": {
+                "CEAA7545-3174-4E7C-A580-3D10BAED153E": {
+                    "backupFolderUUID": "CEAA7545-3174-4E7C-A580-3D10BAED153E", "diskIdentifier": "ROOT", "blobStorageClass": "STANDARD", "ignoredRelativePaths": [], "skipIfNotMounted": false, "skipDuringBackup": false, "useDiskIdentifier": false,
+                    "relativePath": "Users/ljensen/Projects/2024-12-arq-decryption/arq_backup_source", "wildcardExcludes": [], "excludedDrives": [], "localPath": "/Users/ljensen/Projects/2024-12-arq-decryption/arq_backup_source",
+                    "allDrives": false, "skipTMExcludes": false, "regexExcludes": [], "name": "arq_backup_source", "localMountPoint": "/"
+                }
+            },
+            "notifyOnError": true, "retainDays": 30, "updateTime": 1736712820.0, "excludedWiFiNetworkNames": [], "objectLockAvailable": false, "managed": false, "name": "Back up to arq_storage_location Encrypted",
+            "wakeForBackup": false, "includeNetworkInterfaces": false, "datalessFilesOption": 0, "retainAll": true, "isEncrypted": true, "active": true, "notifyOnSuccess": false, "preventSleep": false,
+            "creationTime": 1736712813, "pauseOnBattery": false, "retainWeeks": 52, "retainHours": 24, "preventBackupOnConstrainedNetworks": false, "includeWiFiNetworks": false, "threadCount": 2,
+            "preventBackupOnExpensiveNetworks": false,
+            "emailReportJSON": { "port": 587, "startTLS": false, "authenticationType": "none", "reportHELOUseIP": true, "when": "never", "type": "custom"},
+            "includeFileListInActivityLog": false, "noBackupsAlertDays": 5
+        },
+        "relativePath": "/D1154AC6-01EB-41FE-B115-114464350B92/backupfolders/CEAA7545-3174-4E7C-A580-3D10BAED153E/backuprecords/00173/6712823.backuprecord",
+        "computerOSType": 1,
+        "localPath": "/arq-decryption/arq_backup_source",
+        "localMountPoint": "/",
+        "isComplete": true,
+        "creationDate": 1736712823,
+        "volumeName": "Macintosh HD"
+    }
+    
