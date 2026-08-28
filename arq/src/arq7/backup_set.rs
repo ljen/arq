@@ -780,6 +780,13 @@ fn collect_blob_locations_from_node(
     node: &crate::node::Node,
     blob_locations: &mut Vec<crate::blob_location::BlobLoc>,
 ) {
+    let additional_capacity = node.data_blob_locs.len()
+        + if node.tree_blob_loc.is_some() { 1 } else { 0 }
+        + node.xattrs_blob_locs.as_ref().map(|x| x.len()).unwrap_or(0)
+        + if node.acl_blob_loc.is_some() { 1 } else { 0 };
+
+    blob_locations.reserve(additional_capacity);
+
     // Add data blob locations from this node
     blob_locations.extend(node.data_blob_locs.iter().cloned());
 
