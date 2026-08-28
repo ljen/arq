@@ -8,7 +8,7 @@ use arq::computer::ComputerInfo;
 pub fn get_computers(path: &str) -> Result<Vec<ComputerInfo>> {
     let mut computers = Vec::new();
     for entry in fs::read_dir(path)? {
-        let entry = entry.unwrap();
+        let entry = entry?;
         let reader = utils::get_file_reader(&entry.path().join("computerinfo"))?;
         computers.push(ComputerInfo::new(reader, entry.file_name().into_string()?)?);
     }
@@ -45,6 +45,34 @@ mod tests {
             result.is_err(),
             "Expected an error for an invalid path in show"
         );
+    }
+
+    #[test]
+    #[cfg(unix)]
+    fn test_get_computers_permission_denied() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let temp_dir = tempdir().unwrap();
+        let restricted_dir = temp_dir.path().join("restricted");
+        std::fs::create_dir(&restricted_dir).unwrap();
+
+        // Remove read permissions from the directory
+        let mut perms = std::fs::metadata(&restricted_dir).unwrap().permissions();
+        perms.set_mode(0o000);
+        std::fs::set_permissions(&restricted_dir, perms).unwrap();
+
+        let result = get_computers(restricted_dir.to_str().unwrap());
+
+        // Assert that the function propagates the error instead of panicking
+        assert!(
+            result.is_err(),
+            "Expected an error when reading a directory without read permissions"
+        );
+
+        // Restore permissions so the tempdir can be cleaned up
+        let mut perms = std::fs::metadata(&restricted_dir).unwrap().permissions();
+        perms.set_mode(0o755);
+        std::fs::set_permissions(&restricted_dir, perms).unwrap();
     }
 
     #[test]
