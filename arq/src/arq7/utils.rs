@@ -136,8 +136,6 @@ mod tests {
         assert_eq!(res_with_keyset.test_key, "unencrypted_value");
     }
 
-
-
     #[test]
     fn test_create_encrypted_object_bytes_error_path() {
         // Invalid encryption key length (must be 32 bytes for AES256, but we provide 16)
@@ -156,7 +154,8 @@ mod tests {
         let hmac_key = vec![2u8; 32];
         let plaintext = b"{\"test_key\": \"decrypted_value\"}";
 
-        let encrypted_bytes = create_encrypted_object_bytes(&encryption_key, &hmac_key, plaintext).unwrap();
+        let encrypted_bytes =
+            create_encrypted_object_bytes(&encryption_key, &hmac_key, plaintext).unwrap();
 
         let mut file = tempfile::NamedTempFile::new().unwrap();
         file.write_all(&encrypted_bytes).unwrap();
@@ -178,7 +177,8 @@ mod tests {
         let hmac_key = vec![4u8; 32];
         let plaintext = b"{\"test_key\": \"secret\"}";
 
-        let encrypted_bytes = create_encrypted_object_bytes(&encryption_key, &hmac_key, plaintext).unwrap();
+        let encrypted_bytes =
+            create_encrypted_object_bytes(&encryption_key, &hmac_key, plaintext).unwrap();
 
         let mut file = tempfile::NamedTempFile::new().unwrap();
         file.write_all(&encrypted_bytes).unwrap();
@@ -200,7 +200,8 @@ mod tests {
         let hmac_key = vec![6u8; 32];
         let plaintext = b"{\"test_key\": \"encrypted_value\"}";
 
-        let encrypted_bytes = create_encrypted_object_bytes(&encryption_key, &hmac_key, plaintext).unwrap();
+        let encrypted_bytes =
+            create_encrypted_object_bytes(&encryption_key, &hmac_key, plaintext).unwrap();
 
         let mut file = tempfile::NamedTempFile::new().unwrap();
         file.write_all(&encrypted_bytes).unwrap();
@@ -230,7 +231,8 @@ mod tests {
         let hmac_key = vec![6u8; 32];
         let plaintext = b"{\"test_key\": \"encrypted_value\"}";
 
-        let encrypted_bytes = create_encrypted_object_bytes(&encryption_key, &hmac_key, plaintext).unwrap();
+        let encrypted_bytes =
+            create_encrypted_object_bytes(&encryption_key, &hmac_key, plaintext).unwrap();
 
         let mut file = tempfile::NamedTempFile::new().unwrap();
         file.write_all(&encrypted_bytes).unwrap();
@@ -247,7 +249,8 @@ mod tests {
         let hmac_key = vec![6u8; 32];
         let plaintext = b"{\"test_key\": \"encrypted_value\"}";
 
-        let encrypted_bytes = create_encrypted_object_bytes(&encryption_key, &hmac_key, plaintext).unwrap();
+        let encrypted_bytes =
+            create_encrypted_object_bytes(&encryption_key, &hmac_key, plaintext).unwrap();
 
         let mut file = tempfile::NamedTempFile::new().unwrap();
         file.write_all(&encrypted_bytes).unwrap();
@@ -280,7 +283,8 @@ mod tests {
         let hmac_key = vec![6u8; 32];
         let plaintext = b"invalid json content";
 
-        let encrypted_bytes = create_encrypted_object_bytes(&encryption_key, &hmac_key, plaintext).unwrap();
+        let encrypted_bytes =
+            create_encrypted_object_bytes(&encryption_key, &hmac_key, plaintext).unwrap();
 
         let mut file = tempfile::NamedTempFile::new().unwrap();
         file.write_all(&encrypted_bytes).unwrap();

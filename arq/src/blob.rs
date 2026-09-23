@@ -111,8 +111,8 @@ impl BlobKey {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::io::Cursor;
     use byteorder::{NetworkEndian, WriteBytesExt};
+    use std::io::Cursor;
 
     fn write_arq_string(buf: &mut Vec<u8>, s: &str) {
         if s.is_empty() {
@@ -197,7 +197,10 @@ mod tests {
         let key = result.unwrap();
         assert_eq!(key.sha1, "valid-sha1");
         assert!(key.archive_upload_date.is_some());
-        assert_eq!(key.archive_upload_date.unwrap().timestamp_millis(), valid_timestamp as i64);
+        assert_eq!(
+            key.archive_upload_date.unwrap().timestamp_millis(),
+            valid_timestamp as i64
+        );
     }
 
     #[test]
