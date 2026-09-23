@@ -180,33 +180,30 @@ impl BackupSet {
                 })
                 .collect::<Vec<_>>();
 
-            let configs: Vec<_> = entries
+            let configs: Result<Vec<_>> = entries
                 .into_par_iter()
-                .filter_map(|entry| {
+                .map(|entry| {
                     let folder_uuid = entry.file_name().to_string_lossy().to_string();
                     let config_path = entry.path().join("backupfolder.json");
-
-                    if config_path.exists() {
-                        match BackupFolder::from_file_with_encryption(
-                            &config_path,
-                            encryption_keyset.as_ref(),
-                        ) {
-                            Ok(folder_config) => Some((folder_uuid, folder_config)),
-                            Err(e) => {
-                                eprintln!(
-                                    "Warning: Failed to load folder config for {}: {}",
-                                    folder_uuid, e
-                                );
-                                None
-                            }
-                        }
-                    } else {
-                        None
+                    if !config_path.exists() {
+                        return Ok(None);
                     }
+
+                    BackupFolder::from_file_with_encryption(
+                        &config_path,
+                        encryption_keyset.as_ref(),
+                    )
+                    .map(|config| Some((folder_uuid.clone(), config)))
+                    .map_err(|error| {
+                        Error::InvalidFormat(format!(
+                            "Failed to load folder config for {}: {}",
+                            folder_uuid, error
+                        ))
+                    })
                 })
                 .collect();
 
-            for (uuid, config) in configs {
+            for (uuid, config) in configs?.into_iter().flatten() {
                 backup_folder_configs.insert(uuid, config);
             }
         }
@@ -254,41 +251,19 @@ impl BackupSet {
             }
         }
 
-        let num_threads = std::thread::available_parallelism()
-            .map(|n| n.get())
-            .unwrap_or(4);
-        let chunk_size = (files_to_parse.len() + num_threads - 1) / num_threads;
-
-        if chunk_size > 0 {
-            std::thread::scope(|s| {
-                let mut handles = Vec::with_capacity(num_threads);
-
-                for chunk in files_to_parse.chunks(chunk_size) {
-                    let handle = s.spawn(move || {
-                        let mut local_records = Vec::with_capacity(chunk.len());
-                        for path in chunk {
-                            match GenericBackupRecord::from_file(path) {
-                                Ok(record) => local_records.push(record),
-                                Err(e) => {
-                                    eprintln!(
-                                        "Warning: Failed to parse backup record {:?}: {}",
-                                        path, e
-                                    );
-                                }
-                            }
-                        }
-                        local_records
-                    });
-                    handles.push(handle);
-                }
-
-                for handle in handles {
-                    if let Ok(mut local_records) = handle.join() {
-                        records.append(&mut local_records);
-                    }
-                }
-            });
-        }
+        files_to_parse.sort();
+        let parsed_records: Result<Vec<_>> = files_to_parse
+            .par_iter()
+            .map(|path| {
+                GenericBackupRecord::from_file(path).map_err(|error| {
+                    Error::InvalidFormat(format!(
+                        "Failed to load backup record {:?}: {}",
+                        path, error
+                    ))
+                })
+            })
+            .collect();
+        records.extend(parsed_records?);
 
         Ok(())
     }
