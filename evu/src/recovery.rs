@@ -1,5 +1,4 @@
-use std::fs::File;
-use std::io::{Cursor, Seek, SeekFrom, Write};
+use std::io::{Cursor, Seek, SeekFrom};
 use std::path::{Path, PathBuf};
 
 use crate::error::{Error, Result};
@@ -26,8 +25,6 @@ pub fn restore_file(
     folder: &str,
     absolute_filepath: &str,
 ) -> Result<()> {
-    use rpassword;
-
     let trees_path = Path::new(path)
         .join(computer)
         .join("packsets")
@@ -107,23 +104,36 @@ fn restore_object(
         .join(format!("{}-blobs", folder));
 
     let restore_path = Path::new(absolute_filepath);
-    let filename = restore_path
-        .file_name()
-        .ok_or_else(|| Error::OsError(std::ffi::OsString::from("not a valid restore path")))?;
+    if !restore_path.is_absolute() {
+        return Err(Error::CliInputError(format!(
+            "Arq 5 restore destination must be absolute: {}",
+            restore_path.display()
+        )));
+    }
+    let parent = restore_path.parent().ok_or_else(|| {
+        Error::CliInputError(format!(
+            "Invalid restore destination: {}",
+            restore_path.display()
+        ))
+    })?;
+    if !parent.is_dir() {
+        return Err(Error::NotFound(format!(
+            "Restore destination parent does not exist: {}",
+            parent.display()
+        )));
+    }
 
     let compression = node
         .arq5_data_compression_type
-        .unwrap_or(arq::compression::CompressionType::None); // Changed to arq5_data_compression_type
+        .unwrap_or(arq::compression::CompressionType::None);
 
     for entry in std::fs::read_dir(&path)? {
         let fname = entry?.file_name().to_string_lossy().to_string();
-        if fname.ends_with(".index") {
-            if !index_cache.contains_key(&fname) {
-                let index_path = path.join(&fname);
-                let mut reader = utils::get_file_reader(&index_path)?;
-                let index = packset::PackIndex::new(&mut reader)?;
-                index_cache.insert(fname.clone(), index);
-            }
+        if fname.ends_with(".index") && !index_cache.contains_key(&fname) {
+            let index_path = path.join(&fname);
+            let mut reader = utils::get_file_reader(&index_path)?;
+            let index = packset::PackIndex::new(&mut reader)?;
+            index_cache.insert(fname, index);
         }
     }
 
@@ -131,36 +141,61 @@ fn restore_object(
     let required_blobs: std::collections::HashSet<_> = node
         .data_blob_locs
         .iter()
-        .map(|b| b.blob_identifier.clone())
+        .map(|blob| blob.blob_identifier.clone())
         .collect();
-
     for (fname, index) in index_cache.iter() {
-        for obj in &index.objects {
-            if required_blobs.contains(&obj.sha1) {
+        for object in &index.objects {
+            if required_blobs.contains(&object.sha1) {
                 found_blobs
-                    .entry(obj.sha1.clone())
+                    .entry(object.sha1.clone())
                     .or_insert_with(Vec::new)
-                    .push((fname.clone(), obj.offset as u64));
+                    .push((fname.clone(), object.offset as u64));
             }
         }
     }
 
+    let mut file_data = Vec::new();
     for blob in &node.data_blob_locs {
-        // Iterate over a reference to avoid moving
-        if let Some(locations) = found_blobs.get(&blob.blob_identifier) {
-            for (fname, offset) in locations {
-                let pack_path = path.join(&fname.replace(".index", ".pack"));
-                let mut reader = std::io::BufReader::new(utils::get_file_reader(&pack_path)?);
-                reader.seek(SeekFrom::Start(*offset))?;
-                let mut reader = std::io::BufReader::new(reader);
-                let ob = packset::PackObject::new(&mut reader)?;
-                let mut f = File::create(filename)?;
-                let data = ob.original(compression.clone(), master_key)?;
-                f.write_all(&data)?;
-                println!("Recovered '{}' to {:?}", absolute_filepath, filename);
-            }
-        }
+        let locations = found_blobs.get(&blob.blob_identifier).ok_or_else(|| {
+            Error::NotFound(format!("Backup blob not found: {}", blob.blob_identifier))
+        })?;
+        let (index_name, offset) = locations.first().ok_or_else(|| {
+            Error::NotFound(format!(
+                "Backup blob has no pack location: {}",
+                blob.blob_identifier
+            ))
+        })?;
+        let pack_path = path.join(index_name.replace(".index", ".pack"));
+        let mut reader = std::io::BufReader::new(utils::get_file_reader(&pack_path)?);
+        reader.seek(SeekFrom::Start(*offset))?;
+        let object = packset::PackObject::new(&mut reader)?;
+        file_data.extend_from_slice(&object.original(compression.clone(), master_key)?);
     }
+
+    if file_data.len() as u64 != node.item_size {
+        return Err(Error::Generic(format!(
+            "Restored size mismatch for {}: expected {} bytes, got {}",
+            restore_path.display(),
+            node.item_size,
+            file_data.len()
+        )));
+    }
+
+    use std::io::Write;
+    let mut output = std::fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(restore_path)?;
+    output.write_all(&file_data)?;
+    filetime::set_file_mtime(
+        restore_path,
+        filetime::FileTime::from_unix_time(node.modification_time_sec, 0),
+    )?;
+    println!(
+        "Recovered '{}' to {}",
+        absolute_filepath,
+        restore_path.display()
+    );
     Ok(())
 }
 // weave: run 'weave explain evu/src/recovery.rs' for per-hunk detail, 'weave check' to verify your resolution
