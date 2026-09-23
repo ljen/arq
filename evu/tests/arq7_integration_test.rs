@@ -494,3 +494,225 @@ fn test_arq7_restore_all_folder_versions_unencrypted() {
 // - Edge cases for paths (e.g. trailing slashes, empty paths if those should be errors)
 // - More complex record identifier matching if implemented (e.g. partial UUIDs)
 // - Password prompt if --password is not provided for encrypted backup (requires more complex test setup)
+
+#[test]
+fn folder_history_relative_path_and_no_overwrite() {
+    let output = temp_dir();
+    get_evu_cmd()
+        .args([
+            "--path",
+            ARQ7_UNENCRYPTED_PATH,
+            "show",
+            "folder-versions",
+            "--folder",
+            "subfolder/",
+        ])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("Found 1 folder versions"));
+    let restore = || {
+        let mut cmd = get_evu_cmd();
+        cmd.args([
+            "--path",
+            ARQ7_UNENCRYPTED_PATH,
+            "restore",
+            "all-folder-versions",
+            "--folder",
+            "subfolder",
+            "--destination-root",
+        ])
+        .arg(output.path());
+        cmd
+    };
+    restore().assert().success();
+    let version = output.path().join("2025-06-28T19:43:55+00:00");
+    let manifest: serde_json::Value =
+        serde_json::from_slice(&std::fs::read(version.join("restore.json")).unwrap()).unwrap();
+    assert_eq!(manifest["status"], "complete");
+    let file = version.join("subfolder/file 2.txt");
+    std::fs::write(&file, "keep this existing data").unwrap();
+    restore()
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("already exists"));
+    assert_eq!(
+        std::fs::read_to_string(file).unwrap(),
+        "keep this existing data"
+    );
+}
+
+fn copy_fixture(source: &std::path::Path, destination: &std::path::Path) {
+    std::fs::create_dir_all(destination).unwrap();
+    for entry in std::fs::read_dir(source).unwrap() {
+        let entry = entry.unwrap();
+        let target = destination.join(entry.file_name());
+        if entry.file_type().unwrap().is_dir() {
+            copy_fixture(&entry.path(), &target);
+        } else {
+            std::fs::copy(entry.path(), target).unwrap();
+        }
+    }
+}
+
+#[test]
+fn folder_history_rejects_corrupt_records_before_restoring() {
+    let backup = temp_dir();
+    copy_fixture(std::path::Path::new(ARQ7_UNENCRYPTED_PATH), backup.path());
+    let folder = std::fs::read_dir(backup.path().join("backupfolders"))
+        .unwrap()
+        .next()
+        .unwrap()
+        .unwrap()
+        .path();
+    std::fs::write(
+        folder.join("backuprecords/corrupt.backuprecord"),
+        b"corrupt",
+    )
+    .unwrap();
+    let output = temp_dir();
+    get_evu_cmd()
+        .arg("--path")
+        .arg(backup.path())
+        .args([
+            "restore",
+            "all-folder-versions",
+            "--folder",
+            "subfolder",
+            "--destination-root",
+        ])
+        .arg(output.path())
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("Failed to load backup record"));
+    assert_eq!(std::fs::read_dir(output.path()).unwrap().count(), 0);
+}
+
+#[test]
+fn folder_history_rejects_destination_inside_backup_without_creating_it() {
+    let backup = temp_dir();
+    copy_fixture(std::path::Path::new(ARQ7_UNENCRYPTED_PATH), backup.path());
+    let output = backup.path().join("must-not-create/nested");
+    get_evu_cmd()
+        .arg("--path")
+        .arg(backup.path())
+        .args([
+            "restore",
+            "all-folder-versions",
+            "--folder",
+            "subfolder",
+            "--destination-root",
+        ])
+        .arg(&output)
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("outside the backup"));
+    assert!(!backup.path().join("must-not-create").exists());
+}
+
+#[test]
+fn folder_restore_reports_missing_file_data_in_manifest() {
+    let backup = temp_dir();
+    copy_fixture(std::path::Path::new(ARQ7_UNENCRYPTED_PATH), backup.path());
+    // Only remove a disposable fixture copy's data packs; tree discovery still works.
+    std::fs::remove_dir_all(backup.path().join("blobpacks")).unwrap();
+    let output = temp_dir();
+    get_evu_cmd()
+        .arg("--path")
+        .arg(backup.path())
+        .args([
+            "restore",
+            "all-folder-versions",
+            "--folder",
+            "subfolder",
+            "--destination-root",
+        ])
+        .arg(output.path())
+        .assert()
+        .failure();
+    let manifest: serde_json::Value = serde_json::from_slice(
+        &std::fs::read(output.path().join("2025-06-28T19:43:55+00:00/restore.json")).unwrap(),
+    )
+    .unwrap();
+    assert_eq!(manifest["status"], "failed");
+    assert!(manifest["error"].is_string());
+}
+
+#[test]
+fn duplicate_record_timestamps_restore_both_versions() {
+    let backup = temp_dir();
+    copy_fixture(std::path::Path::new(ARQ7_UNENCRYPTED_PATH), backup.path());
+    fn duplicate_record(dir: &std::path::Path) -> bool {
+        for entry in std::fs::read_dir(dir).unwrap() {
+            let path = entry.unwrap().path();
+            if path.is_dir() {
+                if duplicate_record(&path) {
+                    return true;
+                }
+            } else if path.extension().is_some_and(|e| e == "backuprecord") {
+                std::fs::copy(&path, path.with_file_name("duplicate.backuprecord")).unwrap();
+                return true;
+            }
+        }
+        false
+    }
+    assert!(duplicate_record(&backup.path().join("backupfolders")));
+    let output = temp_dir();
+    get_evu_cmd()
+        .arg("--path")
+        .arg(backup.path())
+        .args([
+            "restore",
+            "all-folder-versions",
+            "--folder",
+            "subfolder",
+            "--destination-root",
+        ])
+        .arg(output.path())
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("Finished restoring 2 versions"));
+    let dirs: Vec<_> = std::fs::read_dir(output.path())
+        .unwrap()
+        .map(|e| e.unwrap().path())
+        .collect();
+    assert_eq!(dirs.len(), 2);
+    for dir in dirs {
+        assert_eq!(
+            std::fs::read_to_string(dir.join("subfolder/file 2.txt")).unwrap(),
+            "this a file 2\n"
+        );
+    }
+}
+
+#[test]
+fn encrypted_folder_history_restores_each_matching_record() {
+    let output = temp_dir();
+    get_evu_cmd()
+        .env("ARQ_PASSWORD", ARQ7_ENCRYPTED_PASSWORD)
+        .args([
+            "--path",
+            ARQ7_ENCRYPTED_PATH,
+            "restore",
+            "all-folder-versions",
+            "--folder",
+            "subfolder",
+            "--destination-root",
+        ])
+        .arg(output.path())
+        .assert()
+        .success();
+    let dirs: Vec<_> = std::fs::read_dir(output.path())
+        .unwrap()
+        .map(|e| e.unwrap().path())
+        .collect();
+    assert!(!dirs.is_empty());
+    for dir in dirs {
+        let manifest: serde_json::Value =
+            serde_json::from_slice(&std::fs::read(dir.join("restore.json")).unwrap()).unwrap();
+        assert_eq!(manifest["status"], "complete");
+        assert_eq!(
+            std::fs::read_to_string(dir.join("subfolder/file 2.txt")).unwrap(),
+            "this a file 2\n"
+        );
+    }
+}
