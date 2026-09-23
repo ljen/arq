@@ -309,6 +309,7 @@ impl BackupSet {
             records: &mut Vec<GenericBackupRecord>,
             keyset: Option<&EncryptedKeySet>,
         ) -> Result<()> {
+            let mut paths = Vec::new();
             for entry_result in jwalk::WalkDir::new(dir) {
                 let entry =
                     entry_result.map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))?;
@@ -317,13 +318,19 @@ impl BackupSet {
                 if entry.file_type.is_file()
                     && path.extension().is_some_and(|ext| ext == "backuprecord")
                 {
-                    match GenericBackupRecord::from_file_with_encryption(&path, keyset) {
-                        Ok(record) => records.push(record),
-                        Err(e) => {
-                            eprintln!("Warning: Failed to load backup record {:?}: {}", path, e);
-                        }
-                    }
+                    paths.push(path);
                 }
+            }
+            paths.sort();
+            for path in paths {
+                let record = GenericBackupRecord::from_file_with_encryption(&path, keyset)
+                    .map_err(|e| {
+                        Error::InvalidFormat(format!(
+                            "Failed to load backup record {:?}: {}",
+                            path, e
+                        ))
+                    })?;
+                records.push(record);
             }
             Ok(())
         }
@@ -346,10 +353,10 @@ impl BackupSet {
                 if records_dir.exists() {
                     let mut folder_records = Vec::new();
                     if let Err(e) = collect_records(&records_dir, &mut folder_records, keyset) {
-                        eprintln!(
-                            "Warning: Failed to load backup records for folder {}: {}",
+                        return Some(Err(Error::InvalidFormat(format!(
+                            "Failed to load backup records for folder {}: {}",
                             folder_uuid, e
-                        );
+                        ))));
                     }
 
                     if !folder_records.is_empty() {
