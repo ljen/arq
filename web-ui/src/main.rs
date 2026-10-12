@@ -383,16 +383,7 @@ fn list_node_children(
         });
     }
 
-    // sort: directories first, then alphabetically
-    items.sort_by(|a, b| {
-        if a.is_dir == b.is_dir {
-            a.name.cmp(&b.name)
-        } else if a.is_dir {
-            std::cmp::Ordering::Less
-        } else {
-            std::cmp::Ordering::Greater
-        }
-    });
+    sort_tree_items(&mut items);
 
     Ok(items)
 }
@@ -427,8 +418,24 @@ fn list_node_subdirs(
         }
     }).collect();
 
-    dirs.sort_by(|a, b| a.name.cmp(&b.name));
+    sort_tree_dir_items(&mut dirs);
     Ok(dirs)
+}
+
+fn sort_tree_items(items: &mut Vec<TreeItem>) {
+    items.sort_by(|a, b| {
+        if a.is_dir == b.is_dir {
+            a.name.cmp(&b.name)
+        } else if a.is_dir {
+            std::cmp::Ordering::Less
+        } else {
+            std::cmp::Ordering::Greater
+        }
+    });
+}
+
+fn sort_tree_dir_items(dirs: &mut Vec<TreeDirItem>) {
+    dirs.sort_by(|a, b| a.name.cmp(&b.name));
 }
 
 // Simple helper from evu
@@ -461,3 +468,49 @@ async fn main() -> std::io::Result<()> {
     Ok(())
 }
 // weave: run 'weave explain web-ui/src/main.rs' for per-hunk detail, 'weave check' to verify your resolution
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_sort_tree_items() {
+        let mut items = vec![
+            TreeItem { name: "Zebra".to_string(), is_dir: false, size: 100 },
+            TreeItem { name: "apple".to_string(), is_dir: true, size: 0 },
+            TreeItem { name: "Apple".to_string(), is_dir: false, size: 200 },
+            TreeItem { name: "zebra".to_string(), is_dir: true, size: 0 },
+            TreeItem { name: "banana".to_string(), is_dir: true, size: 0 },
+        ];
+
+        sort_tree_items(&mut items);
+
+        assert_eq!(items.len(), 5);
+        assert_eq!(items[0].name, "apple");
+        assert_eq!(items[0].is_dir, true);
+        assert_eq!(items[1].name, "banana");
+        assert_eq!(items[1].is_dir, true);
+        assert_eq!(items[2].name, "zebra");
+        assert_eq!(items[2].is_dir, true);
+        assert_eq!(items[3].name, "Apple");
+        assert_eq!(items[3].is_dir, false);
+        assert_eq!(items[4].name, "Zebra");
+        assert_eq!(items[4].is_dir, false);
+    }
+
+    #[test]
+    fn test_sort_tree_dir_items() {
+        let mut dirs = vec![
+            TreeDirItem { name: "Zebra".to_string(), has_children: true },
+            TreeDirItem { name: "apple".to_string(), has_children: false },
+            TreeDirItem { name: "Banana".to_string(), has_children: true },
+        ];
+
+        sort_tree_dir_items(&mut dirs);
+
+        assert_eq!(dirs.len(), 3);
+        assert_eq!(dirs[0].name, "Banana");
+        assert_eq!(dirs[1].name, "Zebra");
+        assert_eq!(dirs[2].name, "apple");
+    }
+}

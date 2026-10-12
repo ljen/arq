@@ -1,0 +1,48 @@
+--- web-ui/src/main.rs
++++ web-ui/src/main.rs
+@@ -383,16 +383,7 @@
+         });
+     }
+
+-    // sort: directories first, then alphabetically
+-    items.sort_by(|a, b| {
+-        if a.is_dir == b.is_dir {
+-            a.name.cmp(&b.name)
+-        } else if a.is_dir {
+-            std::cmp::Ordering::Less
+-        } else {
+-            std::cmp::Ordering::Greater
+-        }
+-    });
++    sort_tree_items(&mut items);
+
+     Ok(items)
+ }
+@@ -417,10 +408,26 @@
+         }
+     }).collect();
+
+-    dirs.sort_by(|a, b| a.name.cmp(&b.name));
++    sort_tree_dir_items(&mut dirs);
+     Ok(dirs)
+ }
+
++fn sort_tree_items(items: &mut Vec<TreeItem>) {
++    items.sort_by(|a, b| {
++        if a.is_dir == b.is_dir {
++            a.name.cmp(&b.name)
++        } else if a.is_dir {
++            std::cmp::Ordering::Less
++        } else {
++            std::cmp::Ordering::Greater
++        }
++    });
++}
++
++fn sort_tree_dir_items(dirs: &mut Vec<TreeDirItem>) {
++    dirs.sort_by(|a, b| a.name.cmp(&b.name));
++}
++
+ // Simple helper from evu
+ fn format_timestamp_rfc3339(ts_f64: f64) -> String {
+     let secs = ts_f64 as i64;
