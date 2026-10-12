@@ -1,5 +1,4 @@
 use std;
-use std::collections::BTreeMap;
 use std::io::{BufRead, Cursor, Seek};
 
 use plist;
@@ -98,8 +97,28 @@ impl FolderData {
 /// plist; this is a holdover from previous iterations of Arq and is not to be confused
 /// with S3's "bucket" concept.
 ///
+
+#[derive(Deserialize, Debug, Default, Clone, PartialEq)]
+#[serde(rename_all = "PascalCase")]
+pub struct Condition {
+    pub condition_type: Option<i64>,
+    pub match_type: Option<i64>,
+    pub string_value: Option<String>,
+}
+
+#[derive(Deserialize, Debug, Default, Clone, PartialEq)]
+#[serde(rename_all = "PascalCase")]
+pub struct FolderExcludes {
+    pub enabled: Option<bool>,
+    pub match_any: Option<bool>,
+    pub conditions: Option<Vec<Condition>>,
+    #[serde(rename = "excludes")]
+    pub excludes: Option<Vec<String>>,
+}
+
 #[derive(Deserialize)]
 #[serde(rename_all = "PascalCase")]
+
 pub struct Folder {
     pub bucket_name: String,
     #[serde(rename = "BucketUUID")]
@@ -108,7 +127,7 @@ pub struct Folder {
     pub computer_uuid: String,
     pub endpoint: String,
     pub exclude_items_with_time_machine_exclude_metadata_flag: bool,
-    pub excludes: BTreeMap<String, Vec<String>>, // TODO(nlopes): this one is provably wrong
+    pub excludes: Option<FolderExcludes>,
     pub ignored_relative_paths: Vec<String>,
     pub local_mount_point: String,
     pub local_path: String,
