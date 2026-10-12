@@ -453,3 +453,64 @@ impl PackObject {
         Ok(content)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use aes::cipher::{block_padding::Pkcs7, KeyIvInit};
+    use cipher::BlockModeEncrypt;
+    use std::io::Cursor;
+
+    type Aes256CbcEnc = cbc::Encryptor<aes::Aes256>;
+
+    #[test]
+    fn test_pack_object_original() {
+        let master_key = vec![1; 32];
+        let session_key = vec![2; 32];
+        let data_iv = vec![3; 16];
+        let master_iv = vec![4; 16];
+
+        let data = "hello world".as_bytes().to_vec();
+        let mut padded_data = vec![0u8; data.len() + 16];
+        padded_data[..data.len()].copy_from_slice(&data);
+        let ciphertext = Aes256CbcEnc::new_from_slices(&session_key, &data_iv)
+            .unwrap()
+            .encrypt_padded::<Pkcs7>(&mut padded_data, data.len())
+            .unwrap()
+            .to_vec();
+
+        let mut data_iv_session = data_iv.clone();
+        data_iv_session.extend(&session_key);
+
+        let mut padded_data_iv_session = vec![0u8; data_iv_session.len() + 16];
+        padded_data_iv_session[..data_iv_session.len()].copy_from_slice(&data_iv_session);
+
+        let encrypted_data_iv_session = Aes256CbcEnc::new_from_slices(&master_key, &master_iv)
+            .unwrap()
+            .encrypt_padded::<Pkcs7>(&mut padded_data_iv_session, data_iv_session.len())
+            .unwrap()
+            .to_vec();
+
+        let mut buf = Vec::new();
+        buf.extend_from_slice(b"ARQO"); // header
+        buf.extend_from_slice(&[0; 32]); // hmac_sha256
+        buf.extend_from_slice(&master_iv);
+        buf.extend_from_slice(&encrypted_data_iv_session); // 64 bytes
+        buf.extend_from_slice(&ciphertext);
+
+        let mut cursor = Cursor::new(&buf);
+        let pack_obj = PackObject {
+            mimetype: String::new(),
+            name: String::new(),
+            data: EncryptedObject::new(&mut cursor).unwrap(),
+        };
+
+        let result = pack_obj
+            .original(CompressionType::None, &master_key)
+            .unwrap();
+        assert_eq!(result, b"hello world");
+
+        let result = pack_obj.original(CompressionType::Gzip, &master_key);
+        assert!(result.is_err());
+    }
+}
